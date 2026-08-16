@@ -1,0 +1,83 @@
+#  MUSTER workspace root.
+#
+#  This file configures tooling only.  The distribution itself is declared in
+#  packages/muster-kernel/pyproject.toml.  Milestone A ships exactly one
+#  distribution; the platform and agent distributions do not exist yet.
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["packages/muster-kernel/tests"]
+pythonpath = ["packages/muster-kernel/src", "packages/muster-kernel"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "golden: reproduces a frozen Phase-0.8 golden vector",
+    "architecture: enforces a ratified dependency or import contract",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["packages/muster-kernel/src", "packages/muster-kernel/tests"]
+#  ``spec/`` is non-production specification material.
+#  ``README.md`` is a pre-existing UTF-16 file this milestone does not own.
+extend-exclude = ["spec", "README.md"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes
+    "E",    # pycodestyle
+    "W",
+    "I",    # import order
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",
+    "SIM",
+    "RET",
+    "ARG",  # unused arguments
+    "PL",   # pylint subset
+    "RUF",
+    "TID",  # tidy imports (relative import ban)
+    "DTZ",  # flags datetime.now() -- invariant I8: the kernel reads no clock
+    "S",    # bandit subset
+]
+ignore = [
+    "PLR0911",  # total pattern matches legitimately have many returns
+    "PLR0912",  # ditto for branches
+    "PLR2004",  # magic values: wire tag octets are the specification
+    "S101",     # assert: used only for programmer-error invariants
+]
+
+[tool.ruff.lint.per-file-ignores]
+#  A test that imports the thing it is about, where it is about it, reads better
+#  than one whose subject is hidden in a header. Production hoists every import.
+"packages/muster-kernel/tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
+
+[tool.ruff.lint.pylint]
+#  Several pure functions take their complete input tuple: ``load_bundle`` takes
+#  the eight artifacts a manifest commits to, ``rebuild`` the fields that decide
+#  a revision. Collapsing those into a parameter object would hide the contract
+#  the argument list *is*. They are keyword-only instead, so a call site names
+#  every artifact rather than relying on position.
+max-args = 8
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "packages/muster-kernel/src"
+files = ["packages/muster-kernel/src", "packages/muster-kernel/tests"]
+namespace_packages = true
+explicit_package_bases = true
+strict = true
+warn_unreachable = true
+enable_error_code = [
+    "redundant-expr",
+    "possibly-undefined",
+    "truthy-bool",
+    "ignore-without-code",
+]
+
+[[tool.mypy.overrides]]
+module = ["hypothesis.*"]
+ignore_missing_imports = true

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muster-kernel"
+version = "0.1.0"
+description = "MUSTER deterministic decision kernel: canonical wire, policy IR, Hinge analysis, evidence planning."
+requires-python = ">=3.12"
+dependencies = []
+
+#  Deliberately empty.  The kernel is offline, deterministic Python: it holds
+#  no credential and imports no cloud, web, database, model or solver package.
+#  Its decision path performs no I/O and reads no clock; file and console
+#  access is confined to `muster.application`, the composition layer.  Adding
+#  a runtime dependency here is an architectural decision, not a convenience.
+
+[project.scripts]
+muster = "muster.application.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["muster.*"]
+namespaces = true

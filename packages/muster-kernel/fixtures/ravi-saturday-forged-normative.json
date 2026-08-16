@@ -1,0 +1,842 @@
+{
+  "tenant_id": "ALPHA",
+  "case_id": "CASE-RAVI-SAT-003",
+  "policy_id": "workforce-demo",
+  "as_of": 1786000000000000,
+  "mode": "OPERATIONAL",
+  "authorization_context": {
+    "authorization_policy_version": 1,
+    "key_registry_snapshot_digest": "7f7980ab04166b65bf4e9b22405394aebb19ddd0d11ebe06c06d575a5e0e9c50",
+    "revocation_snapshot_digest": "e4d3b2b4a6ca8e12ca5d9fcf398352312b81fbfc3151575808d05ff68cfdc4fb",
+    "validity": {
+      "start": 1785913600000000,
+      "end": 1786086400000000
+    }
+  },
+  "case_construction": {
+    "created_at": 1785827200000000,
+    "subject_refs": [
+      "RAVI"
+    ],
+    "contract_ref": null,
+    "parties": [
+      {
+        "principal_id": "RAVI",
+        "role_in_case": "WORKER",
+        "competences": []
+      },
+      {
+        "principal_id": "EMPLOYER-1",
+        "role_in_case": "EMPLOYER",
+        "competences": [
+          "HR_PAYROLL_SYSTEM"
+        ]
+      },
+      {
+        "principal_id": "SITE-A",
+        "role_in_case": "SITE",
+        "competences": [
+          "SITE_ACCESS_CONTROL"
+        ]
+      }
+    ],
+    "signer_key_ref": "key-case-officer-1"
+  },
+  "declared_instances": [
+    {
+      "predicate": "daily_rate",
+      "args": [
+        "RAVI"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "MON"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "MON"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "MON"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "MON"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "TUE"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "TUE"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "TUE"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "TUE"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "WED"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "WED"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "WED"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "WED"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "THU"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "THU"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "THU"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "THU"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "FRI"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "FRI"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "FRI"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "FRI"
+      ]
+    },
+    {
+      "predicate": "scheduled",
+      "args": [
+        "RAVI",
+        "SAT"
+      ]
+    },
+    {
+      "predicate": "present_on_site",
+      "args": [
+        "RAVI",
+        "SAT"
+      ]
+    },
+    {
+      "predicate": "on_site_duration",
+      "args": [
+        "RAVI",
+        "SAT"
+      ]
+    },
+    {
+      "predicate": "shift_payable_under_policy",
+      "args": [
+        "RAVI",
+        "SAT"
+      ]
+    }
+  ],
+  "transcript": [
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "daily_rate",
+        "args": [
+          "RAVI"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "scaled",
+          "unit": "INR",
+          "scale": 2,
+          "minor": 85000
+        }
+      },
+      "value_sort": {
+        "kind": "scaled",
+        "unit": "INR",
+        "scale": 2
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000000",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "MON"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000001",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "TUE"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000002",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "WED"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000003",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "THU"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000004",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "FRI"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000005",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "SAT"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000006",
+      "source_class": "HR_PAYROLL_SYSTEM",
+      "signer_key_ref": "key-hr-payroll-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "MON"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000007",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "MON"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "int",
+          "value": 480
+        }
+      },
+      "value_sort": {
+        "kind": "int"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000008",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "TUE"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000009",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "TUE"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "int",
+          "value": 480
+        }
+      },
+      "value_sort": {
+        "kind": "int"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000a",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "WED"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000b",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "WED"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "int",
+          "value": 480
+        }
+      },
+      "value_sort": {
+        "kind": "int"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000c",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "THU"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000d",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "THU"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "int",
+          "value": 480
+        }
+      },
+      "value_sort": {
+        "kind": "int"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000e",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "FRI"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "0000000000000000000000000000000f",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "FRI"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "int",
+          "value": 480
+        }
+      },
+      "value_sort": {
+        "kind": "int"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000010",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    },
+    {
+      "kind": "statement",
+      "claimant": "RAVI",
+      "role_in_case": "WORKER",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "SAT"
+        ]
+      },
+      "asserted_value": {
+        "kind": "bool",
+        "value": true
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "measurement_procedure_id": null,
+      "statement_time": 1785992800000000,
+      "signer_key_ref": "key-worker-ravi-1"
+    },
+    {
+      "kind": "attestation",
+      "subject": "RAVI",
+      "proposition": {
+        "predicate": "shift_payable_under_policy",
+        "args": [
+          "RAVI",
+          "SAT"
+        ]
+      },
+      "relation": {
+        "kind": "exact_value",
+        "value": {
+          "kind": "bool",
+          "value": true
+        }
+      },
+      "value_sort": {
+        "kind": "bool"
+      },
+      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "observed_at": 1785913600000000,
+      "issued_at": 1785996400000000,
+      "validity": {
+        "start": 1785996400000000,
+        "end": 1786086400000000
+      },
+      "nonce": "00000000000000000000000000000063",
+      "source_class": "SITE_ACCESS_CONTROL",
+      "signer_key_ref": "key-site-a-1",
+      "authorization_policy_version": 1,
+      "request_id": "be0317ebea47ef914cbb69ca7ec9af6a397e197170f66e0c2f7b8df1fbbb2e96"
+    }
+  ]
+}

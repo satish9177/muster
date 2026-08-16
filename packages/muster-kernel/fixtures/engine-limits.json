@@ -1,0 +1,5 @@
+{
+  "max_unresolved": 24,
+  "reachable_action_cap": 64,
+  "max_enumerated_assignments": 200000
+}

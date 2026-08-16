@@ -1,0 +1,1 @@
+"""The synthetic workforce bundle."""
