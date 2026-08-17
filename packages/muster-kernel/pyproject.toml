@@ -10,10 +10,20 @@ requires-python = ">=3.12"
 dependencies = []
 
 #  Deliberately empty.  The kernel is offline, deterministic Python: it holds
-#  no credential and imports no cloud, web, database, model or solver package.
-#  Its decision path performs no I/O and reads no clock; file and console
-#  access is confined to `muster.application`, the composition layer.  Adding
-#  a runtime dependency here is an architectural decision, not a convenience.
+#  no credential and imports no cloud, web, database or model package.  Its
+#  decision path performs no I/O and reads no clock; file and console access is
+#  confined to `muster.application`, the composition layer.  Adding a runtime
+#  dependency here is an architectural decision, not a convenience.
+
+[project.optional-dependencies]
+#  The SMT adapter under `muster.solve.z3` is the one part of the tree that
+#  needs a solver library, so the requirement is declared where it is used
+#  rather than imposed on every consumer.  Installing the kernel without this
+#  extra yields a working decision path on the bounded reference backend and
+#  an adapter that cannot be imported -- which is the honest shape of an
+#  optional adapter, and keeps "the kernel has no runtime dependency" a fact
+#  about the base distribution rather than a slogan.
+smt = ["z3-solver>=4.13,<6"]
 
 [project.scripts]
 muster = "muster.application.cli:main"

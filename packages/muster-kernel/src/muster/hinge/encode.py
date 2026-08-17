@@ -33,14 +33,16 @@ from muster.core.expr.ir import (
     LitEnum,
     NAry,
     NAryOp,
+    enum_ids,
     map_leaves,
 )
 from muster.core.expr.terms import Term, literal
-from muster.core.results import InvariantViolation
+from muster.core.results import Err, InvariantViolation
 from muster.core.values.scalars import VEnum
-from muster.core.values.sorts import Domain, EnumDomain, EnumSort, Sort
+from muster.core.values.sorts import Domain, EnumSort, Sort
 from muster.core.values.symbols import SymbolRef
 from muster.core.wire.codec import encode
+from muster.hinge.prepare import declared_enum_orders
 from muster.hinge.project import ProjectedCase
 from muster.policy.program import ActionTerm, field_spec
 from muster.solve.query import (
@@ -116,12 +118,13 @@ def sufficiency_query(case: ProjectedCase, fixed: frozenset[SymbolRef]) -> Solve
         for ref in sorted(fixed, key=lambda item: encode(item.to_node()))
     )
     assertions.append(LabeledAssertion(LABEL_DIFF, _actions_differ(case, env_left, env_right)))
+    stated = tuple(assertions)
     return SolverQuery(
         QueryKind.SUFFICIENCY,
         case.logical.digest(),
-        _enum_declarations(case),
+        _enum_declarations(case, declarations, stated),
         declarations,
-        tuple(assertions),
+        stated,
     )
 
 
@@ -139,12 +142,13 @@ def _one_world_query(
                 _differs_from(case, single_world_env, action),
             )
         )
+    stated = tuple(assertions)
     return SolverQuery(
         kind,
         case.logical.digest(),
-        _enum_declarations(case),
+        _enum_declarations(case, declarations, stated),
         declarations,
-        tuple(assertions),
+        stated,
     )
 
 
@@ -208,20 +212,45 @@ def _constraint_assertions(
     )
 
 
-def _enum_declarations(case: ProjectedCase) -> tuple[EnumDeclaration, ...]:
-    """Every enum the query mentions, with its declared member order."""
-    declared: dict[str, tuple[str, ...]] = {}
-    for declaration in case.declarations:
-        if isinstance(declaration.sort, EnumSort) and isinstance(declaration.domain, EnumDomain):
-            declared[declaration.sort.enum_id] = declaration.domain.members
-    schema = case.action_schema
-    existing = declared.get(schema.kind_enum_id())
-    if existing is not None and existing != schema.kind_members():
-        raise InvariantViolation(
-            f"enum id {schema.kind_enum_id()} is declared twice with different members"
-        )
-    declared[schema.kind_enum_id()] = schema.kind_members()
-    return tuple(EnumDeclaration(enum_id, members) for enum_id, members in sorted(declared.items()))
+def _enum_declarations(
+    case: ProjectedCase,
+    declarations: tuple[QueryDecl, ...],
+    assertions: tuple[LabeledAssertion, ...],
+) -> tuple[EnumDeclaration, ...]:
+    """Every enum the query mentions, with its declared member order.
+
+    *Mentioned*, which is not the same set as *carried by a declared variable*.
+    An enum reaches a query through a literal as readily as through a variable
+    -- the recipient of a payment is a constant of an enum no case variable has
+    -- and binding only the enums the declarations carry leaves that literal
+    without a canonical index, which is precisely the thing the declaration
+    exists to supply.  So the set is read off the query being built: the sorts
+    of its declarations, and every enum its assertions name.
+
+    The orders come from the pinned artifacts, and admission has already proved
+    that every enum this case can mention has exactly one.  The guard below is
+    therefore an invariant rather than a branch: reaching it means a query was
+    built from a case that never passed ``prepare``.
+    """
+    orders = declared_enum_orders(
+        ((declaration.sort, declaration.domain) for declaration in case.declarations),
+        case.action_schema,
+    )
+    if isinstance(orders, Err):
+        raise InvariantViolation(str(orders.error))
+
+    mentioned = {
+        declaration.sort.enum_id
+        for declaration in declarations
+        if isinstance(declaration.sort, EnumSort)
+    }
+    for assertion in assertions:
+        mentioned |= enum_ids(assertion.formula)
+
+    missing = sorted(mentioned - set(orders.value))
+    if missing:
+        raise InvariantViolation(f"the query mentions undeclared enums: {', '.join(missing)}")
+    return tuple(EnumDeclaration(enum_id, orders.value[enum_id]) for enum_id in sorted(mentioned))
 
 
 def _leaf(side: WorldSide, ref: SymbolRef) -> QTerm:

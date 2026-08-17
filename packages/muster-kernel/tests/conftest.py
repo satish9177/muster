@@ -9,11 +9,24 @@ evidence; one implementation agreeing with a copy of itself is not.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+#  The SMT adapter is an optional extra, and the suite has to be honest about
+#  that: on a base install the modules that need a solver are not collected, so
+#  everything else -- including the architecture contracts and the assertion
+#  that the kernel declares no runtime dependency -- still runs.  Without this,
+#  a collection error would interrupt the run and prove nothing at all.
+if importlib.util.find_spec("z3") is None:  # pragma: no cover - depends on the install
+    collect_ignore_glob = [
+        "differential/*",
+        "unit/test_z3_backend.py",
+        "adversarial/test_failure_injection.py",
+    ]
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]

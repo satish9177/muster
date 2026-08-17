@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import re
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -74,15 +75,25 @@ ALLOWED: dict[str, frozenset[str]] = {
     "solve.reference": frozenset(
         {"core.results", "core.wire", "core.values", "core.expr", "solve"}
     ),
+    #  The SMT adapter does not see ``core.actions`` or ``core.analysis``: it is
+    #  handed a query and returns a verdict, and it has never heard of a case.
+    #  Narrower than the bounded oracle's row, which additionally needs
+    #  ``core.wire`` for its canonical enumeration order.
+    "solve.z3": frozenset({"core.results", "core.values", "core.expr", "solve"}),
     "admissibility": _ALL_CORE | {"policy"},
     "hinge": _ALL_CORE | {"policy", "solve"},
     "evidence": _ALL_CORE | {"hinge"},
     "domains.workforce": _ALL_CORE | {"policy"},
+    #  The frozen matrix gives the composition root "all of the above,
+    #  **including solve.z3 and solve.reference**". Omitting an adapter here
+    #  would forbid the only layer allowed to construct one from constructing
+    #  it -- which is the defect the eleventh row was added to close.
     "application": _ALL_CORE
     | {
         "policy",
         "solve",
         "solve.reference",
+        "solve.z3",
         "admissibility",
         "hinge",
         "evidence",
@@ -92,7 +103,13 @@ ALLOWED: dict[str, frozenset[str]] = {
 
 #  Packages the final architecture contains and this milestone does not. Naming
 #  them in a contract would assert something about code nobody has written.
-NOT_YET_BUILT = frozenset({"platform", "agents", "solve.z3", "domains.procurement"})
+NOT_YET_BUILT = frozenset({"platform", "agents", "domains.procurement"})
+
+#  The one production subtree permitted to import a solver library, and the one
+#  library it may import. Both halves matter: a second adapter added elsewhere
+#  fails, and this adapter reaching for a different library fails too.
+SOLVER_ADAPTER = f"{ROOT_PACKAGE}.solve.z3"
+SOLVER_LIBRARY = "z3"
 
 #  Every third-party root a production module may not import. Kept in step with
 #  ``importlinter.ini`` by :func:`test_the_two_forbidden_lists_agree`.
@@ -182,6 +199,37 @@ def _imports(path: Path) -> Iterator[str]:
                 pytest.fail(f"{path}: relative import at line {node.lineno}")
             if node.module:
                 yield node.module
+
+
+def _reached_modules(path: Path) -> Iterator[str]:
+    """Modules an import *reaches*, including the ones named after ``import``.
+
+    ``from muster.solve import z3`` names ``muster.solve`` as its module and
+    ``z3`` as a name, so a checker reading modules alone sees an import of the
+    port where the code imported the adapter.  Kept separate from
+    :func:`_imports` on purpose: feeding these into the standard-library
+    allowlist would turn ``from typing import Protocol`` into ``typing.Protocol``
+    and reject it.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            yield node.module
+            for alias in node.names:
+                yield f"{node.module}.{alias.name}"
+
+
+def _within(module: str, package: str) -> bool:
+    """Subtree membership, which a prefix test is not.
+
+    ``muster.solve.z3_helpers`` starts with ``muster.solve.z3`` and is not
+    inside it.  A sibling module would otherwise inherit the solver adapter's
+    exemption from every check that grants it, which is seven of them.
+    """
+    return module == package or module.startswith(f"{package}.")
 
 
 def _seam_of(module: str) -> str | None:
@@ -295,21 +343,77 @@ def test_every_production_row_is_covered_by_a_contract() -> None:
 
 
 def test_the_solver_abstraction_does_not_reach_its_own_adapters() -> None:
-    """``hinge`` talks to the port; only the composition root names an adapter."""
-    adapters = f"{ROOT_PACKAGE}.solve.reference"
+    """``hinge`` talks to the port; only the composition root names an adapter.
+
+    Read over reached modules rather than imported ones, so
+    ``from muster.solve import z3`` -- which names the *port* as its module --
+    is caught alongside ``import muster.solve.z3.backend``.
+    """
+    adapters = (f"{ROOT_PACKAGE}.solve.reference", SOLVER_ADAPTER)
+    composition = f"{ROOT_PACKAGE}.application"
     for path in _production_files():
         module = _module_name(path)
-        if module.startswith(adapters) or module.startswith(f"{ROOT_PACKAGE}.application"):
+        if any(_within(module, package) for package in (*adapters, composition)):
             continue
-        for imported in _imports(path):
-            assert not imported.startswith(adapters), f"{module} imports the adapter"
+        for reached in _reached_modules(path):
+            assert not any(_within(reached, adapter) for adapter in adapters), (
+                f"{module} reaches the adapter {reached}"
+            )
 
 
 def test_no_production_module_imports_a_forbidden_package() -> None:
     for path in _production_files():
+        module = _module_name(path)
         for imported in _imports(path):
             root = imported.split(".")[0]
+            if root == SOLVER_LIBRARY and _within(module, SOLVER_ADAPTER):
+                continue
             assert root not in FORBIDDEN_EXTERNAL, f"{path} imports {imported}"
+
+
+def test_only_the_approved_adapter_imports_the_solver_library() -> None:
+    """The exemption is a subtree, not a habit.
+
+    The blanket ban still names ``z3``; exactly one subtree is exempt from it,
+    and this asserts both halves -- that the adapter really does reach the
+    library, so the exemption is not decoration, and that nothing else does.
+    """
+    reached: set[str] = set()
+    for path in _production_files():
+        module = _module_name(path)
+        for imported in _imports(path):
+            if imported.split(".")[0] != SOLVER_LIBRARY:
+                continue
+            assert _within(module, SOLVER_ADAPTER), f"{module} imports {imported}"
+            reached.add(module)
+    assert reached, f"no module under {SOLVER_ADAPTER} imports {SOLVER_LIBRARY}"
+    assert SOLVER_LIBRARY in FORBIDDEN_EXTERNAL
+    #  The exempt subtree is the one named after the library it is exempt for.
+    #  Widening the constant to a parent package is the cheapest way to grant
+    #  the exemption to everything, so it is refused here by name.
+    assert f"{ROOT_PACKAGE}.solve.{SOLVER_LIBRARY}" == SOLVER_ADAPTER
+
+
+def test_the_solver_exemption_matches_the_import_contract() -> None:
+    """Two tools, one exemption, and no room for them to drift apart.
+
+    ``import-linter`` names the exempt edges one by one.  This asserts that the
+    set it names is exactly the set that exists, so widening either side alone
+    fails: an import added without an exemption breaks the contract, and an
+    exemption left behind after an import is removed breaks this.
+    """
+    text = (REPOSITORY_ROOT / "importlinter.ini").read_text(encoding="utf-8")
+    section = text.split("no-cloud-web-or-database-anywhere]")[1]
+    listed = section.split("ignore_imports =")[1].split("forbidden_modules =")[0]
+    exempted = {line.strip() for line in listed.splitlines() if "->" in line}
+
+    found = {
+        f"{_module_name(path)} -> {imported}"
+        for path in _production_files()
+        for imported in _imports(path)
+        if imported.split(".")[0] == SOLVER_LIBRARY
+    }
+    assert exempted == found
 
 
 def test_the_two_forbidden_lists_agree() -> None:
@@ -337,9 +441,12 @@ def test_production_imports_only_the_permitted_standard_library() -> None:
     ``from time import time as _t``; banning the module does not.
     """
     for path in _production_files():
+        module = _module_name(path)
         for imported in _imports(path):
             root = imported.split(".")[0]
             if root == ROOT_PACKAGE:
+                continue
+            if root == SOLVER_LIBRARY and _within(module, SOLVER_ADAPTER):
                 continue
             assert imported in PERMITTED_STDLIB, f"{path} imports {imported}"
             assert root not in AMBIENT_MODULES, f"{path} imports {imported}"
@@ -356,9 +463,30 @@ def test_file_and_console_access_is_confined_to_the_composition_layer() -> None:
 
 
 def test_the_kernel_declares_no_runtime_dependency() -> None:
-    """A dependency here is an architectural decision, not a convenience."""
-    manifest = (SOURCE_ROOT.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
-    assert "dependencies = []" in manifest
+    """A dependency here is an architectural decision, not a convenience.
+
+    The decision path still installs with nothing behind it.  The solver
+    library is declared as an extra, because it is needed by one adapter and
+    by nothing the kernel does without that adapter -- so "the kernel has no
+    runtime dependency" stays a fact about the base distribution.
+
+    The extras table is checked as tightly as the required list, because a
+    forbidden package declared there would be installable by the kernel's own
+    metadata while every import contract stayed green.
+    """
+    manifest = tomllib.loads(
+        (SOURCE_ROOT.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    project = manifest["project"]
+    assert project["dependencies"] == []
+
+    extras = project["optional-dependencies"]
+    assert set(extras) == {"smt"}
+    requirements = [requirement for group in extras.values() for requirement in group]
+    assert any(requirement.startswith("z3-solver") for requirement in requirements)
+    for requirement in requirements:
+        for forbidden in FORBIDDEN_EXTERNAL - {SOLVER_LIBRARY}:
+            assert forbidden not in requirement, f"{forbidden} is declared as an extra"
 
 
 def test_production_vocabulary_carries_no_phase_review_or_tool_names() -> None:
@@ -379,8 +507,14 @@ def test_no_gate_concept_is_declared_in_production() -> None:
 
 
 def test_no_persistence_network_or_subprocess_surface_exists() -> None:
-    """Milestone A is local, offline and stateless beyond its inputs."""
-    banned = ("import sqlite3", "urllib.request", "subprocess", "socket.")
+    """The kernel is local, offline and stateless beyond its inputs.
+
+    ``__import__`` is banned alongside them because it is the one spelling of
+    an import that no parsed-import checker sees: the module name is a string
+    argument, so a forbidden package reached that way is invisible to both this
+    file's graph and to ``import-linter``'s.
+    """
+    banned = ("import sqlite3", "urllib.request", "subprocess", "socket.", "__import__")
     for path in _production_files():
         text = path.read_text(encoding="utf-8")
         for needle in banned:

@@ -26,7 +26,7 @@ from enum import Enum
 
 from muster.core.results import InvariantViolation
 from muster.core.values.scalars import VEnum, VScaled
-from muster.core.values.sorts import Sort, read_sort
+from muster.core.values.sorts import EnumSort, Sort, read_sort
 from muster.core.wire.nodes import NAtom, NBool, NInt, Node, NRec, NSeq, NTagged
 from muster.core.wire.shape import (
     WireFailure,
@@ -226,6 +226,40 @@ def freevars[L](expr: Expr[L]) -> frozenset[L]:
             return freevars(cond) | freevars(if_true) | freevars(if_false)
         case EnumTable(scrutinee, arms):
             return freevars(scrutinee).union(*(freevars(arm.term) for arm in arms))
+
+
+def enum_ids[L](expr: Expr[L]) -> frozenset[str]:
+    """Every enum the expression mentions, by whatever route it mentions it.
+
+    Not the same question as :func:`freevars`.  An enum reaches an expression
+    through a *literal* as readily as through a variable -- the recipient of a
+    payment is a constant of an enum no case variable carries -- and a caller
+    that asked only which variables occur would never learn that the enum was
+    there.  The leaf type is irrelevant to the answer, so this reads a policy
+    term and a query assertion alike.
+    """
+    match expr:
+        case Leaf() | LitBool() | LitInt() | LitScaled():
+            return frozenset()
+        case LitEnum(value):
+            return frozenset({value.enum_id})
+        case Not(operand) | Neg(operand) | MulConst(_, operand) | Rescale(operand, _):
+            return enum_ids(operand)
+        case Scale(operand, _, to):
+            #  The target sort is part of the term's octets, so an enum named
+            #  only there is still an enum the term mentions.
+            named = frozenset({to.enum_id}) if isinstance(to, EnumSort) else frozenset[str]()
+            return enum_ids(operand) | named
+        case NAry(_, operands):
+            return frozenset[str]().union(*(enum_ids(operand) for operand in operands))
+        case Binary(_, left, right):
+            return enum_ids(left) | enum_ids(right)
+        case Ite(cond, if_true, if_false):
+            return enum_ids(cond) | enum_ids(if_true) | enum_ids(if_false)
+        case EnumTable(scrutinee, arms):
+            #  An arm's member is a member name, not an enum id: which enum the
+            #  table is over is decided by its scrutinee and nothing else.
+            return enum_ids(scrutinee).union(*(enum_ids(arm.term) for arm in arms))
 
 
 def map_leaves[L, M](expr: Expr[L], rewrite: Callable[[L], M]) -> Expr[M]:

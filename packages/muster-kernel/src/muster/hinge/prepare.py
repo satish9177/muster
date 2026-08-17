@@ -14,6 +14,11 @@ failure is a typed rejection rather than a degraded run:
   submit an arbitrary constraint can force the same outcome while leaving the
   established set clean;
 * the program is closed over the declared instances;
+* **every enum the case can put in front of a solver has exactly one declared
+  member order, and the artifacts that declare it agree.**  A query binds the
+  order of every enum it mentions so that an enum literal has a canonical index;
+  an enum that reaches a query only through a literal, and whose order no
+  artifact states, is a case the encoder could not make self-contained;
 * the backend has declared it can decide this fragment;
 * the case is inside the configured size bound.
 
@@ -25,25 +30,26 @@ it or the kernel does not start.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 
-from muster.core.actions import validate_action_schema
+from muster.core.actions import ActionSchema, validate_action_schema
 from muster.core.case.constraints import Constraint, PolicyEntailmentDeriv
 from muster.core.case.facts import EntailedBy, EstablishedFact
 from muster.core.case.revision import CaseRevision
-from muster.core.expr.ir import freevars
+from muster.core.expr.ir import enum_ids, freevars
 from muster.core.results import Err, Ok, Result
 from muster.core.values.classification import AcquisitionClass, EvidenceLayer
-from muster.core.values.scalars import sort_of, value_in_domain
-from muster.core.values.sorts import EnumDomain, domain_is_finite
+from muster.core.values.scalars import VEnum, sort_of, value_in_domain
+from muster.core.values.sorts import Domain, EnumDomain, EnumSort, Sort, domain_is_finite
 from muster.core.values.symbols import SymbolRef
 from muster.core.wire.codec import encode
 from muster.policy.entailment import check_binders_are_disjoint
 from muster.policy.manifest import LoadedBundle
 from muster.policy.materialise import materialise
 from muster.policy.predicates import PredicateSpec, validate_predicate_schema
-from muster.policy.program import compile_program
+from muster.policy.program import DecisionProgram, compile_program
 from muster.solve.verdict import FragmentCapabilities
 
 
@@ -61,12 +67,105 @@ class PrepareFailure(Enum):
     UNSUPPORTED_FRAGMENT = "UnsupportedFragment"
     UNSUPPORTED_CASE_SIZE = "UnsupportedCaseSize"
     BINDER_SHADOWS_ARGUMENT = "BinderShadowsArgument"
+    UNDECLARED_ENUM_ORDER = "UndeclaredEnumOrder"
+    CONFLICTING_ENUM_ORDER = "ConflictingEnumOrder"
 
 
 @dataclass(frozen=True, slots=True)
 class PrepareRejection:
     failure: PrepareFailure
     detail: str
+
+
+#  An enum id and the member order the pinned artifacts give it.  One map, used
+#  twice: admission proves it covers everything a query of this case can
+#  mention, and the encoder reads the orders out of it.  Two derivations of the
+#  same table is how the encoder ends up binding an order admission never saw.
+type EnumOrders = dict[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class EnumOrderConflict:
+    """Two pinned artifacts give one enum two different member orders."""
+
+    enum_id: str
+    declared: tuple[str, ...]
+    conflicting: tuple[str, ...]
+
+    def __str__(self) -> str:
+        return f"enum {self.enum_id}: {list(self.declared)} against {list(self.conflicting)}"
+
+
+def declared_enum_orders(
+    declared: Iterable[tuple[Sort, Domain]], schema: ActionSchema
+) -> Result[EnumOrders, EnumOrderConflict]:
+    """The member order every pinned artifact states, keyed by enum id.
+
+    Three sources, and they must agree: the declared symbols' own domains, the
+    kind enumeration the action schema induces, and the bounds of every enum
+    field the schema declares.  Disagreement is refused rather than resolved by
+    traversal order -- an enum whose order depends on which artifact a loop
+    happened to read first has no canonical index, which is the whole of what
+    the declaration exists to supply.
+    """
+    orders: EnumOrders = {}
+
+    def note(enum_id: str, members: tuple[str, ...]) -> EnumOrderConflict | None:
+        existing = orders.get(enum_id)
+        if existing is not None and existing != members:
+            return EnumOrderConflict(enum_id, existing, members)
+        orders[enum_id] = members
+        return None
+
+    pairs = [
+        (sort.enum_id, domain.members)
+        for sort, domain in declared
+        if isinstance(sort, EnumSort) and isinstance(domain, EnumDomain)
+    ]
+    pairs.append((schema.kind_enum_id(), schema.kind_members()))
+    pairs.extend(
+        (spec.sort.enum_id, spec.bounds.members)
+        for kind in schema.kinds
+        for spec in kind.fields
+        if isinstance(spec.sort, EnumSort) and isinstance(spec.bounds, EnumDomain)
+    )
+    for enum_id, members in pairs:
+        conflict = note(enum_id, members)
+        if conflict is not None:
+            return Err(conflict)
+    return Ok(orders)
+
+
+def case_enum_ids(
+    *,
+    declared: Iterable[Sort],
+    established: Iterable[EstablishedFact],
+    constraints: Iterable[Constraint],
+    program: DecisionProgram,
+    schema: ActionSchema,
+) -> frozenset[str]:
+    """Every enum any query about this case could mention.
+
+    A superset of what one query mentions, deliberately: admission is answering
+    "could this case reach the encoder with an enum nobody ordered", and the
+    honest answer covers every constraint, every program branch and every
+    schema field, not only the ones a particular query happens to lower.
+    """
+    found: set[str] = {schema.kind_enum_id()}
+    found.update(sort.enum_id for sort in declared if isinstance(sort, EnumSort))
+    found.update(fact.value.enum_id for fact in established if isinstance(fact.value, VEnum))
+    for constraint in constraints:
+        found |= enum_ids(constraint.formula)
+    for rule in program.rules:
+        found |= enum_ids(rule.guard)
+    for action in program.action_terms():
+        for field in action.fields:
+            found |= enum_ids(field.term)
+    for kind in schema.kinds:
+        for spec in kind.fields:
+            if isinstance(spec.sort, EnumSort):
+                found.add(spec.sort.enum_id)
+    return frozenset(found)
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +262,10 @@ def prepare(
     if isinstance(compiled, Err):
         return Err(PrepareRejection(PrepareFailure.MALFORMED_PROGRAM, str(compiled.error)))
 
+    ordered = _check_enum_orders(revision, bundle, specs)
+    if isinstance(ordered, Err):
+        return ordered
+
     unresolved = revision.unresolved()
     if len(unresolved) > limits.max_unresolved:
         #  Told, not timed out. A silent timeout is the worst available answer.
@@ -231,6 +334,45 @@ def _check_layer_flow(
                     f"with derivation {type(constraint.derivation).__name__}",
                 )
             )
+    return Ok(None)
+
+
+def _check_enum_orders(
+    revision: CaseRevision,
+    bundle: LoadedBundle,
+    specs: dict[SymbolRef, PredicateSpec],
+) -> Result[None, PrepareRejection]:
+    """No query about this case can mention an enum nobody ordered.
+
+    Checked here rather than left to the encoder, because the encoder answers a
+    question about octets and this is a question about admission: a constraint
+    naming an enum the pinned artifacts never declare is malformed case input,
+    and the fail-closed answer to malformed input is a typed rejection.  With
+    this in place the encoder's own guard is unreachable, which is what makes it
+    an invariant rather than a runtime branch.
+    """
+    schema = bundle.action_schema
+    orders = declared_enum_orders(
+        ((spec.value_sort, spec.domain) for spec in specs.values()), schema
+    )
+    if isinstance(orders, Err):
+        return Err(PrepareRejection(PrepareFailure.CONFLICTING_ENUM_ORDER, str(orders.error)))
+
+    mentioned = case_enum_ids(
+        declared=(spec.value_sort for spec in specs.values()),
+        established=revision.established,
+        constraints=revision.constraints,
+        program=bundle.program,
+        schema=schema,
+    )
+    missing = sorted(mentioned - set(orders.value))
+    if missing:
+        return Err(
+            PrepareRejection(
+                PrepareFailure.UNDECLARED_ENUM_ORDER,
+                f"no artifact declares the member order of {', '.join(missing)}",
+            )
+        )
     return Ok(None)
 
 

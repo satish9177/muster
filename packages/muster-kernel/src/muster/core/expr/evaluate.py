@@ -1,9 +1,14 @@
 """The concrete evaluator.
 
 Pure, total for well-typed terms over a total assignment, and the only
-evaluation path in the system: replay, entailment materialisation, the bounded
-reference backend and the test oracle all call this one function, so there is no
-second interpreter to disagree with it.
+evaluation path in production: replay, entailment materialisation, the bounded
+reference backend and the witness validation in every solver adapter all call
+this one function, so nothing inside the system can disagree with it.
+
+Differential testing needs a second interpreter precisely because of that.  The
+enumerating oracle the differential suite judges by is written independently
+and deliberately does not call this -- an oracle sharing the interpreter it is
+checking would agree with every defect in it.
 
 It is nonetheless fail-closed rather than trusting: an unbound symbol or a sort
 it cannot combine is a typed error, never a coerced value.

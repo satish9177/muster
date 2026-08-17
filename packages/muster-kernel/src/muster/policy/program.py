@@ -274,23 +274,77 @@ def _check_action_term(
 def check_enum_tables(
     term: Term, enum_domains: Mapping[SymbolRef, EnumDomain]
 ) -> Result[None, ProgramError]:
-    """Every enum table must cover every declared member of its scrutinee.
+    """Every enum table must cover every member its scrutinee can take.
 
-    Coverage is checkable only where the scrutinee's declared members are known,
-    which is here: the sort checker knows sorts, and membership lives in the
-    domain beside the sort.
+    A bare variable is the easy case -- membership lives in the domain beside
+    its sort -- but it is not the only case the fragment permits.  A scrutinee
+    may be an ``ite`` over two variables, or a table whose arms are themselves
+    enum-valued, and skipping those meant a table missing an arm compiled here
+    and became ``EVALUATION_STUCK`` in some world nobody had enumerated yet.
+    Totality is a property of the program, so it is decided when the program is
+    compiled, not when an unlucky world reaches it.
+
+    :func:`reachable_members` bounds the composed shapes; where it cannot bound
+    one it says so, and an unbounded scrutinee is left alone rather than
+    refused.  Demanding coverage of members no declaration admits would reject
+    programs that are perfectly total.
     """
     for table in enum_tables(term):
-        if not isinstance(table.scrutinee, Leaf):
-            continue
-        domain = enum_domains.get(table.scrutinee.ref)
-        if domain is None:
+        required = reachable_members(table.scrutinee, enum_domains)
+        if required is None:
             continue
         covered = {arm.member for arm in table.arms}
-        missing = [member for member in domain.members if member not in covered]
+        missing = [member for member in required if member not in covered]
         if missing:
             return Err(ProgramError(ProgramFailure.ENUM_TABLE_NOT_EXHAUSTIVE, ", ".join(missing)))
     return Ok(None)
+
+
+def reachable_members(
+    term: Term, enum_domains: Mapping[SymbolRef, EnumDomain]
+) -> tuple[str, ...] | None:
+    """The members an enum-valued term can take, in a stable order.
+
+    An over-approximation, and deliberately so: it is used to decide what a
+    table must *cover*, and over-approximating there can only demand an arm the
+    evaluator might not have needed.  Under-approximating would let a
+    non-exhaustive table through, which is the defect this exists to stop.
+
+    ``None`` means "not bounded by anything stated here" -- a variable with no
+    declared domain, or a shape outside the enum-valued fragment.  It is a
+    different answer from the empty tuple and the caller must treat it as one.
+    """
+    match term:
+        case Leaf(ref):
+            domain = enum_domains.get(ref)
+            return domain.members if domain is not None else None
+        case LitEnum(value):
+            return (value.member,)
+        case Ite(_, if_true, if_false):
+            return _union(
+                reachable_members(if_true, enum_domains),
+                reachable_members(if_false, enum_domains),
+            )
+        case EnumTable(_, arms):
+            #  A table's value is one of its arms' values, whichever arm fires.
+            found: tuple[str, ...] | None = ()
+            for arm in arms:
+                found = _union(found, reachable_members(arm.term, enum_domains))
+            return found
+        case _:
+            #  The type checker gives an enum sort to exactly the four shapes
+            #  above, so a well-typed scrutinee never lands here. Answering
+            #  "unbounded" rather than asserting keeps this usable on terms
+            #  that have not been checked yet.
+            return None
+
+
+def _union(left: tuple[str, ...] | None, right: tuple[str, ...] | None) -> tuple[str, ...] | None:
+    """Order-preserving union. ``None`` is absorbing: unbounded stays unbounded."""
+    if left is None or right is None:
+        return None
+    seen = set(left)
+    return (*left, *(member for member in right if member not in seen))
 
 
 def enum_tables[L](term: Expr[L]) -> list[EnumTable[L]]:

@@ -14,6 +14,16 @@ every symbol in ``universe`` transitively, and carrying them again would let two
 values of this record disagree about one predicate.  The in-memory
 ``ProjectedCase`` that the oracle consumes pairs this record with the
 declarations resolved from that schema.
+
+Constraint labels are unique here, as they are in the revision this is projected
+from.  They have to be: the encoder turns each one into an assertion label, and
+a query cannot carry two assertions under one label.  Stating the rule on the
+value that carries the constraints, rather than only where a query is finally
+assembled, is what keeps the failure next to the mistake -- and it is why
+duplicate labels reaching a solver query is a programmer defect rather than
+something case data can cause.  Case data meets the same rule far earlier:
+``rebuild`` reports a repeated label as a typed ``DuplicateConstraintLabel``
+value on the public path, and ``CaseRevision`` refuses to hold one at all.
 """
 
 from __future__ import annotations
@@ -52,6 +62,9 @@ class LogicalCase:
             raise InvariantViolation("known facts are not in canonical order")
         if not is_canonically_ordered(self.constraints, lambda item: item.to_node()):
             raise InvariantViolation("constraints are not in canonical order")
+        labels = [constraint.label for constraint in self.constraints]
+        if len(set(labels)) != len(labels):
+            raise InvariantViolation("constraint labels are unique within a logical case")
 
     def to_node(self) -> NRec:
         return NRec(
