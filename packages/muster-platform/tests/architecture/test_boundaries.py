@@ -1,0 +1,652 @@
+"""Architecture contracts for the control plane, checked against the source.
+
+Two rules carry most of the weight and they point in opposite directions:
+
+    muster.platform  ->  muster.kernel     allowed
+    muster.kernel    ->  muster.platform   forbidden, and checked from both sides
+
+and inside this package, the functional core / imperative shell line:
+``orchestration`` is pure, ``casework`` never names an adapter, and a database
+driver appears only under ``adapters.sql``.  A clock appears nowhere at all.
+
+Everything here parses the source with ``ast``.  ``import-linter`` enforces an
+overlapping set of rules from its own graph, and having two independent
+implementations is deliberate: a defect in either tool's graph does not disable
+both.
+"""
+
+from __future__ import annotations
+
+import ast
+import tomllib
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from support.paths import PACKAGE_ROOT, REPOSITORY_ROOT
+
+pytestmark = pytest.mark.architecture
+
+PLATFORM_SOURCE = PACKAGE_ROOT / "src" / "muster" / "platform"
+KERNEL_SOURCE = REPOSITORY_ROOT / "packages" / "muster-kernel" / "src" / "muster"
+
+#  The dependency matrix, at module granularity rather than package
+#  granularity, because the real shape is finer than the packages are.
+#
+#  ``casework.ports`` is the contract every other layer is written against, and
+#  it is the *lowest* row here: it names protocols and value types and imports
+#  nothing but the kernel. Keying this table on packages alone would report a
+#  cycle where there is none -- ``casework.commands`` admits through
+#  ``ingest.admission``, which is written against ``casework.ports`` -- and
+#  a checker that cannot express the real rule would have to be relaxed until
+#  it stopped expressing anything.
+#
+#  Every module gets a row. A module with no row fails, which is how a layering
+#  discipline avoids dying quietly.
+ALLOWED: dict[str, frozenset[str]] = {
+    #  Package docstring modules. They import nothing, and they still get rows.
+    "": frozenset(),
+    "casework": frozenset(),
+    "ingest": frozenset(),
+    "adapters": frozenset(),
+    "adapters.sql": frozenset(),
+    #  The two adapters are peers and neither may reach the other. A memory
+    #  adapter that imported the SQL one would be sharing an implementation
+    #  rather than satisfying a contract, and the shared contract suite would
+    #  stop being evidence of anything.
+    "adapters.memory": frozenset({"casework.ports"}),
+    "orchestration": frozenset(),
+    #  Pure. Reads kernel values, returns a decision. Does not know a database
+    #  exists, and must not learn.
+    "orchestration.decisions": frozenset(),
+    "orchestration.decide": frozenset({"orchestration.decisions"}),
+    "orchestration.status": frozenset(),
+    #  The custody boundary: protocols and value types, and nothing below it.
+    "casework.ports": frozenset(),
+    "casework.snapshot": frozenset({"casework.ports"}),
+    "casework.advance": frozenset(
+        {
+            "casework.ports",
+            "casework.snapshot",
+            "orchestration.decide",
+            "orchestration.decisions",
+        }
+    ),
+    "casework.commands": frozenset(
+        {
+            "casework.ports",
+            "casework.snapshot",
+            "casework.advance",
+            "ingest.admission",
+            "orchestration.status",
+        }
+    ),
+    "ingest.admission": frozenset({"casework.ports"}),
+    #  The only layer allowed to know what a driver is.
+    "adapters.sql.migrations": frozenset(),
+    "adapters.sql.schema": frozenset({"adapters.sql.migrations"}),
+    "adapters.sql.content": frozenset({"casework.ports"}),
+    "adapters.sql.transcript": frozenset({"casework.ports"}),
+    "adapters.sql.head": frozenset({"casework.ports"}),
+    "adapters.sql.requests": frozenset({"casework.ports"}),
+    "adapters.sql.database": frozenset(
+        {
+            "casework.ports",
+            "adapters.sql.content",
+            "adapters.sql.transcript",
+            "adapters.sql.head",
+            "adapters.sql.requests",
+        }
+    ),
+}
+
+#  Packages the final architecture contains and this milestone does not.
+NOT_YET_BUILT = frozenset(
+    {"dispatch", "commit", "disclose", "authority", "gate", "api", "entrypoints"}
+)
+
+#  Third-party roots forbidden anywhere in this package. The database driver is
+#  exempt under ``adapters`` alone -- listed by subtree, so a second module
+#  reaching for it has to be added here in a diff somebody reviews.
+FORBIDDEN_EXTERNAL = frozenset(
+    {
+        "fastapi",
+        "starlette",
+        "flask",
+        "django",
+        "sqlalchemy",
+        "alembic",
+        "pydantic",
+        "httpx",
+        "requests",
+        "aiohttp",
+        "urllib3",
+        "google",
+        "boto3",
+        "grpc",
+        "redis",
+        "celery",
+        "kombu",
+        "kafka",
+        "temporalio",
+        "z3",
+    }
+)
+
+DRIVER = "psycopg"
+DRIVER_SUBTREE = "adapters.sql"
+
+#  Nondeterminism and ambient state. Permitted nowhere in this package.
+#
+#  There used to be one exempt module, ``adapters.clock``, and the rule was
+#  "the clock is confined to one file". Nothing ever imported that file: every
+#  command takes ``now`` as an argument, so the reading is supplied by whoever
+#  is at the imperative boundary. A confinement rule over an empty room proves
+#  nothing, so the exemption went with the module and what is left is the
+#  stronger statement -- no module here reads a clock at all. A milestone that
+#  genuinely needs one adds a module and an entry here, in a reviewed diff.
+AMBIENT_MODULES = frozenset({"time", "datetime", "random", "secrets", "uuid", "socket", "os"})
+AMBIENT_EXEMPT: frozenset[str] = frozenset()
+
+#  Milestone D+ vocabulary. Not reserved here, and not to be invented here.
+FORBIDDEN_DECLARATIONS = (
+    "authorizedaction",
+    "gatedecision",
+    "spendinglimit",
+    "executionreservation",
+    "finality",
+    "disbursement",
+    "payout",
+    "settlement",
+    "merkle",
+    "commitmentenvelope",
+    "disclosurepolicyresolver",
+    "authorityregistrysnapshot",
+)
+
+FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
+
+
+def _platform_files() -> Iterator[Path]:
+    yield from sorted(PLATFORM_SOURCE.rglob("*.py"))
+
+
+def _kernel_files() -> Iterator[Path]:
+    yield from sorted(KERNEL_SOURCE.rglob("*.py"))
+
+
+def _module_of(path: Path) -> str:
+    """A module's contract row: its dotted path below ``muster.platform``."""
+    relative = path.relative_to(PLATFORM_SOURCE).with_suffix("")
+    parts = [part for part in relative.parts if part != "__init__"]
+    return ".".join(parts)
+
+
+def _package_of(path: Path) -> str:
+    """The package a module belongs to, for the rules stated per package."""
+    row = _module_of(path)
+    return row.split(".")[0] if row else ""
+
+
+def _dotted(path: Path) -> str:
+    relative = path.relative_to(PLATFORM_SOURCE.parents[1]).with_suffix("")
+    parts = list(relative.parts)
+    if parts[-1] == "__init__":
+        parts.pop()
+    return ".".join(parts)
+
+
+def _imports(path: Path) -> Iterator[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield alias.name
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                pytest.fail(f"{path}: relative import at line {node.lineno}")
+            if node.module:
+                yield node.module
+
+
+def _platform_row(imported: str) -> str | None:
+    parts = imported.split(".")
+    if parts[:2] != ["muster", "platform"]:
+        return None
+    return ".".join(parts[2:])
+
+
+def test_the_platform_tree_is_not_empty() -> None:
+    """A scan that finds nothing would pass every check below."""
+    assert len(list(_platform_files())) > 10
+
+
+def test_the_kernel_never_imports_the_platform() -> None:
+    """The dependency reversal that would end the design, checked at the source.
+
+    A kernel that could reach the control plane could reach a database, a
+    clock and a credential, and every claim about the decision path being pure
+    would become a claim about discipline.
+    """
+    for path in _kernel_files():
+        for imported in _imports(path):
+            assert not imported.startswith("muster.platform"), f"{path} imports {imported}"
+
+
+def test_the_kernel_source_does_not_mention_the_platform_at_all() -> None:
+    """Read over raw text, so a dynamic import or a path trick is caught too."""
+    for path in _kernel_files():
+        assert "muster.platform" not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_kernel_declares_no_database_dependency() -> None:
+    manifest = tomllib.loads(
+        (KERNEL_SOURCE.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert manifest["project"]["dependencies"] == []
+    declared = [
+        requirement
+        for group in manifest["project"]["optional-dependencies"].values()
+        for requirement in group
+    ]
+    for requirement in declared:
+        assert DRIVER not in requirement
+        assert "postgres" not in requirement.lower()
+
+
+def test_the_platform_depends_on_the_kernel_and_says_so() -> None:
+    manifest = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = manifest["project"]["dependencies"]
+    assert any(requirement.startswith("muster-kernel") for requirement in dependencies)
+    assert any(requirement.startswith(f"{DRIVER}[") for requirement in dependencies)
+    #  Two dependencies. Every absence below is a fact about the lockfile.
+    assert len(dependencies) == 2
+    for requirement in dependencies:
+        for forbidden in FORBIDDEN_EXTERNAL:
+            assert forbidden not in requirement, f"{forbidden} is declared as a dependency"
+
+
+def _edges() -> set[tuple[str, str]]:
+    found: set[tuple[str, str]] = set()
+    for path in _platform_files():
+        source = _module_of(path)
+        for imported in _imports(path):
+            target = _platform_row(imported)
+            if target is not None and target != source:
+                found.add((source, target))
+    return found
+
+
+def test_every_internal_edge_is_permitted_by_the_matrix() -> None:
+    for source, target in sorted(_edges()):
+        assert source in ALLOWED, f"{source} has no contract row"
+        assert target in ALLOWED, f"{target} has no contract row"
+        assert target in ALLOWED[source], f"{source} may not import {target}"
+
+
+def test_the_internal_graph_is_acyclic() -> None:
+    """Direction, not only permission.
+
+    The matrix could in principle permit a cycle; this rebuilds the graph and
+    walks it, so a mutually-dependent pair fails even if both edges have rows.
+    """
+    outgoing: dict[str, set[str]] = {row: set() for row in ALLOWED}
+    for source, target in _edges():
+        outgoing[source].add(target)
+
+    visiting: set[str] = set()
+    settled: set[str] = set()
+
+    def walk(row: str, path: tuple[str, ...]) -> None:
+        if row in settled:
+            return
+        assert row not in visiting, f"cycle: {' -> '.join([*path, row])}"
+        visiting.add(row)
+        for neighbour in sorted(outgoing[row]):
+            walk(neighbour, (*path, row))
+        visiting.discard(row)
+        settled.add(row)
+
+    for row in sorted(outgoing):
+        walk(row, ())
+
+
+def test_every_platform_row_is_covered_by_a_contract() -> None:
+    present = {_module_of(path) for path in _platform_files()}
+    uncovered = present - set(ALLOWED) - NOT_YET_BUILT
+    assert not uncovered, f"rows with no contract: {sorted(uncovered)}"
+    stale = set(ALLOWED) - present
+    assert not stale, f"contracts for absent rows: {sorted(stale)}"
+
+
+def test_the_contract_names_no_module_from_a_later_milestone() -> None:
+    """A contract naming a module nobody has written proves nothing and rots."""
+    assert not (set(ALLOWED) & NOT_YET_BUILT)
+    for row in NOT_YET_BUILT:
+        assert not (PLATFORM_SOURCE / row).exists()
+
+
+def test_orchestration_is_pure() -> None:
+    """It reads kernel values and returns a decision. Nothing else is reachable.
+
+    No adapter, no repository protocol, no driver, no clock, no file. The
+    architecture calls this the functional core; this is the line that makes
+    the phrase mean something.
+    """
+    for path in _platform_files():
+        if _module_of(path) != "orchestration":
+            continue
+        for imported in _imports(path):
+            root = imported.split(".")[0]
+            if imported.startswith("muster.core"):
+                continue
+            if imported.startswith("muster.platform.orchestration"):
+                continue
+            assert root in {"__future__", "dataclasses", "enum", "typing", "collections"}, (
+                f"{path} imports {imported}"
+            )
+
+
+def test_casework_and_ingest_never_name_an_adapter() -> None:
+    """The shell depends on the protocols; only a composition root picks one."""
+    for path in _platform_files():
+        if _module_of(path) not in {"casework", "ingest"}:
+            continue
+        for imported in _imports(path):
+            assert not imported.startswith("muster.platform.adapters"), (
+                f"{_dotted(path)} names the adapter {imported}"
+            )
+
+
+def test_only_the_sql_adapter_imports_the_driver() -> None:
+    """The exemption is a subtree, and both halves are asserted.
+
+    That the adapter really does reach the driver, so the exemption is not
+    decoration -- and that nothing else does.
+    """
+    reached: set[str] = set()
+    for path in _platform_files():
+        row = _module_of(path)
+        for imported in _imports(path):
+            if imported.split(".")[0] != DRIVER:
+                continue
+            assert row.startswith(f"{DRIVER_SUBTREE}."), f"{row} imports {imported}"
+            reached.add(row)
+    assert reached, f"nothing under {DRIVER_SUBTREE} imports {DRIVER}"
+    assert all(row.startswith(f"{DRIVER_SUBTREE}.") for row in reached)
+    #  The exempt subtree is named after the concern it exists for. Widening the
+    #  constant to a parent package is the cheapest way to grant the exemption
+    #  to everything, so it is refused here by name.
+    assert DRIVER_SUBTREE == "adapters.sql"
+
+
+def _platform_contract_section() -> str:
+    text = (REPOSITORY_ROOT / "importlinter-platform.ini").read_text(encoding="utf-8")
+    return text.split("no-cloud-web-model-or-broker]")[1]
+
+
+def test_the_driver_exemption_matches_the_imports_that_exist() -> None:
+    """Two tools, one exemption, and no room for them to drift apart.
+
+    ``import-linter`` names the exempt edges one by one. This asserts that the
+    set it names is exactly the set that exists, so widening either side alone
+    fails: an import added without an exemption breaks the contract, and an
+    exemption left behind after an import is removed breaks this.
+    """
+    listed = _platform_contract_section().split("ignore_imports =")[1].split("source_modules =")[0]
+    exempted = {line.strip() for line in listed.splitlines() if "->" in line}
+
+    found = {
+        f"{_dotted(path)} -> {imported}"
+        for path in _platform_files()
+        for imported in _imports(path)
+        if imported.split(".")[0] == DRIVER
+    }
+    assert exempted == found
+
+
+def test_the_two_forbidden_lists_agree() -> None:
+    """This file and ``importlinter-platform.ini`` must ban the same packages.
+
+    Two independent checks of one rule are worth having; two checks of two
+    slightly different rules are worth nothing.
+    """
+    listed = _platform_contract_section().split("forbidden_modules =")[1]
+    declared = {
+        line.strip()
+        for line in listed.splitlines()
+        if line.startswith("    ") and line.strip() and "=" not in line
+    }
+    #  The driver is forbidden there and exempted per module; here it is
+    #  handled by its own test, which asserts the subtree rather than the ban.
+    assert declared - {DRIVER} == FORBIDDEN_EXTERNAL
+
+
+def test_no_platform_module_imports_a_forbidden_package() -> None:
+    for path in _platform_files():
+        for imported in _imports(path):
+            root = imported.split(".")[0]
+            assert root not in FORBIDDEN_EXTERNAL, f"{path} imports {imported}"
+
+
+def test_no_module_reads_an_ambient_clock_or_source_of_entropy() -> None:
+    """Time enters at the imperative boundary, which is outside this package.
+
+    Every command takes ``now`` as an argument, so a decision is reproducible
+    by supplying the reading it was made under. A module reaching for a clock
+    would make that false without changing any signature -- and it would do it
+    silently, because the argument would still be there and would still be
+    honoured everywhere except the one place that stopped needing it.
+    """
+    for path in _platform_files():
+        relative = _dotted(path).removeprefix("muster.platform.")
+        for imported in _imports(path):
+            root = imported.split(".")[0]
+            if root not in AMBIENT_MODULES:
+                continue
+            assert relative in AMBIENT_EXEMPT, f"{relative} imports {imported}"
+
+
+def test_no_module_declares_a_clock_of_its_own() -> None:
+    """The import ban catches the library; this catches a hand-rolled one.
+
+    Also the guard on the deletion itself: ``adapters.clock`` existed for a
+    milestone with nothing importing it, and a protocol nobody implements
+    outside its own test file is a decision taken without the information that
+    would inform it.
+    """
+    for path in _platform_files():
+        assert path.name != "clock.py", f"{path} is back"
+        for name in _declared_names(path):
+            lowered = name.lower()
+            assert "clock" not in lowered, f"{path} declares {name}"
+
+
+def test_every_time_argument_is_supplied_rather_than_read() -> None:
+    """A ``now`` parameter on every operation whose answer depends on the time.
+
+    Stated positively so the ban above is not the only evidence: the three
+    commands and the advance all take a reading, none of them derives one, and
+    the type of a reading is not the type of a length.
+    """
+    import inspect
+
+    from muster.platform.casework.advance import advance_case
+    from muster.platform.casework.commands import (
+        append_transcript_entry,
+        case_status,
+        open_case,
+    )
+    from muster.platform.orchestration.decide import decide
+
+    for function, parameter in (
+        (append_transcript_entry, "now"),
+        (case_status, "now"),
+        (advance_case, "now"),
+        (decide, "now"),
+        (open_case, "as_of"),
+    ):
+        signature = inspect.signature(function)
+        assert parameter in signature.parameters, f"{function.__name__} reads its own {parameter}"
+
+    #  And the one length in the signatures is typed as a length.
+    assert inspect.signature(decide).parameters["request_ttl"].annotation == "Duration"
+
+
+def test_membership_is_inserted_from_exactly_one_place_and_it_holds_the_case() -> None:
+    """The invariant is a command's, so the command has to be the only writer.
+
+    ``transcript.add`` inserts a member, and a member cannot be removed. What
+    makes an admission safe is not the repository -- the repository will insert
+    whatever it is handed -- but that the one function which calls it holds the
+    case first and rebuilds before it commits. A second caller would be a second
+    admission policy, and the one that forgot the hold would be found by a
+    production incident rather than by a suite.
+
+    Checked over the source because that is where the rule lives. A test that
+    exercised the current caller would say nothing about a future one.
+    """
+    callers = {
+        _module_of(path)
+        for path in _platform_files()
+        if "transcript.add(" in path.read_text(encoding="utf-8")
+    }
+    assert callers == {"casework.commands"}, f"membership is inserted from {sorted(callers)}"
+
+    #  And that caller takes the hold, in the same function, before it inserts.
+    commands = (PLATFORM_SOURCE / "casework" / "commands.py").read_text(encoding="utf-8")
+    body = commands.split("def _admit(")[1].split("\ndef ")[0]
+    assert body.index("heads.hold(") < body.index("transcript.add("), (
+        "_admit inserts membership before it holds the case"
+    )
+    assert body.index("heads.hold(") < body.index("admit_entry("), (
+        "_admit writes octets before it holds the case: two lock orders, one deadlock"
+    )
+
+
+def test_the_publication_holds_the_case_before_it_writes_or_swaps() -> None:
+    """Same rule from the other side, and for two reasons.
+
+    The hold is what lets TX B re-read the membership and know it is the set
+    that was analysed -- a head that has not moved is not a transcript that has
+    not grown. And taking it *first*, before any content, is what puts an
+    admission and a publication in one lock order so that neither can wait on
+    the other.
+
+    Checked over the source, because the order of two statements is the whole
+    property and a test that exercised the current order would pass for either.
+    """
+    advance = (PLATFORM_SOURCE / "casework" / "advance.py").read_text(encoding="utf-8")
+    body = advance.split("def _swap(")[1].split("\ndef ")[0]
+    hold = body.index("heads.hold(")
+    assert hold < body.index("transcript.members("), "TX B reads membership before holding"
+    assert hold < body.index("_put("), "TX B writes content before holding: two lock orders"
+    assert hold < body.index("heads.advance("), "TX B swaps before holding"
+
+
+def test_no_milestone_d_or_later_concept_is_declared() -> None:
+    """Commitments, disclosure, authority, the gate and settlement are not here.
+
+    Not prepared for, either: a speculative abstraction for a component nobody
+    has written is a design decision taken without the information that would
+    make it.
+    """
+    for path in _platform_files():
+        haystack = f"{path.name}\n{path.read_text(encoding='utf-8')}".lower()
+        for fragment in FORBIDDEN_DECLARATIONS:
+            for declaration in (f"class {fragment}", f"def {fragment}", f"{fragment} ="):
+                assert declaration not in haystack, f"{path} declares {fragment}"
+
+
+def _declared_names(path: Path) -> set[str]:
+    """Every class, function and module-level binding a file introduces.
+
+    Declarations rather than raw text, because prose is where a design says
+    what it deliberately does *not* contain -- and a scan that cannot tell
+    ``class Saga`` from "there is no saga" forces the explanation out of the
+    code to keep the test green.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+    return names
+
+
+def test_no_broker_queue_or_workflow_engine_appears() -> None:
+    """Persistence is the coordination mechanism at this stage, and only it.
+
+    Checked as imports and declarations. The import half is the one that
+    matters -- a broker cannot be used without being imported -- and the
+    declaration half catches a hand-rolled one.
+    """
+    libraries = ("celery", "kombu", "kafka", "temporalio", "airflow", "redis", "pika")
+    concepts = ("saga", "outbox", "deadletter", "dead_letter", "workflowengine", "eventbus")
+    for path in _platform_files():
+        for imported in _imports(path):
+            root = imported.split(".")[0].lower()
+            assert root not in libraries, f"{path} imports {imported}"
+        for name in _declared_names(path):
+            lowered = name.lower()
+            for concept in concepts:
+                assert concept not in lowered, f"{path} declares {name}"
+
+
+def test_no_http_surface_exists() -> None:
+    """A transport is an adapter over these commands and changes none of them.
+
+    Building one now would mean testing the transport instead of the thing this
+    milestone is about. The web frameworks are already banned by the import
+    contract; what is checked here is that nothing hand-rolls one.
+    """
+    banned_text = ("@app.", "@router.", "APIRouter", "uvicorn", "wsgi_app", "asgi_app")
+    for path in _platform_files():
+        text = path.read_text(encoding="utf-8")
+        for needle in banned_text:
+            assert needle not in text, f"{path} looks like an HTTP surface: {needle}"
+        for imported in _imports(path):
+            root = imported.split(".")[0]
+            assert root not in {"http", "socketserver", "wsgiref"}, f"{path} imports {imported}"
+
+
+def test_production_vocabulary_carries_no_phase_review_or_tool_names() -> None:
+    for path in _platform_files():
+        haystack = f"{path.name}\n{path.read_text(encoding='utf-8')}".lower()
+        for fragment in FORBIDDEN_TEXT:
+            assert fragment not in haystack, f"{path} mentions {fragment!r}"
+
+
+def test_no_platform_module_imports_the_reference_semantics() -> None:
+    needles = ("reference-semantics", "reference_semantics", "muster_spec")
+    for path in _platform_files():
+        text = path.read_text(encoding="utf-8")
+        for needle in needles:
+            assert needle not in text, f"{path} references {needle}"
+
+
+def test_no_type_ignore_is_used_to_reach_a_green_typecheck() -> None:
+    import re
+
+    pattern = re.compile(r"#\s*type:\s*ignore")
+    for path in _platform_files():
+        assert not pattern.search(path.read_text(encoding="utf-8")), path
+
+
+def test_no_sqlalchemy_type_can_reach_the_kernel() -> None:
+    """Stated as the general rule it is an instance of.
+
+    No persistence type crosses into a kernel signature, because the only
+    persistence types that exist are the driver's and they appear in exactly
+    one subtree, which the kernel cannot import and does not know about.
+    """
+    for path in _platform_files():
+        relative = _dotted(path).removeprefix("muster.platform.")
+        if relative.startswith(DRIVER_SUBTREE):
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "psycopg" not in text, f"{relative} names the driver"
+        assert "Connection" not in text, f"{relative} names a driver type"

@@ -9,12 +9,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from muster.core.results import InvariantViolation
+from muster.core.results import InvariantViolation, Result
 from muster.core.values.classification import AcquisitionClass
-from muster.core.values.symbols import SymbolRef, symbol_seq
+from muster.core.values.symbols import SymbolRef, read_symbol_ref, symbol_seq
 from muster.core.wire.codec import canonical_set
 from muster.core.wire.digests import Digest, DigestKind, digest_node
-from muster.core.wire.nodes import NAtom, NRec, NSeq
+from muster.core.wire.nodes import NAtom, Node, NRec, NSeq
+from muster.core.wire.shape import (
+    WireError,
+    decoded,
+    read_atom,
+    read_digest,
+    read_member,
+    read_rec,
+    read_seq,
+    read_set,
+)
 
 TAG_EVIDENCE_TARGET = "EvidenceTarget/v1"
 TAG_EVIDENCE_REQUEST = "EvidenceRequest/v1"
@@ -75,6 +85,40 @@ class EvidenceRequest:
     def digest(self) -> Digest:
         """The request id every reply must carry, binding the reply to this revision."""
         return digest_node(DigestKind.EVIDENCE_REQUEST, self.to_node())
+
+
+_ACQUISITION_CLASSES = frozenset(member.value for member in AcquisitionClass)
+
+
+def read_evidence_target(node: Node) -> EvidenceTarget:
+    proposition, acquisition_class, sources = read_rec(node, TAG_EVIDENCE_TARGET, 3)
+    return EvidenceTarget(
+        proposition=read_symbol_ref(proposition),
+        acquisition_class=AcquisitionClass(
+            read_member(acquisition_class, _ACQUISITION_CLASSES, "AcquisitionClass")
+        ),
+        permitted_source_classes=read_set(sources, read_atom, minimum=1),
+    )
+
+
+def read_evidence_request(node: Node) -> EvidenceRequest:
+    """The inverse of :meth:`EvidenceRequest.to_node`.
+
+    A request is durable intent whose identity is its own digest, so a store
+    that holds one has to be able to hand it back as the value the planner
+    produced rather than as octets a reader has to interpret for itself.
+    """
+    tenant_id, case_id, revision_digest, targets = read_rec(node, TAG_EVIDENCE_REQUEST, 4)
+    return EvidenceRequest(
+        tenant_id=read_atom(tenant_id),
+        case_id=read_atom(case_id),
+        revision_semantic_digest=read_digest(revision_digest),
+        targets=read_seq(targets, read_evidence_target, minimum=1),
+    )
+
+
+def decode_evidence_request(node: Node) -> Result[EvidenceRequest, WireError]:
+    return decoded(lambda: read_evidence_request(node))
 
 
 @dataclass(frozen=True, slots=True)

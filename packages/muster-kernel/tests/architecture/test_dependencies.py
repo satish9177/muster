@@ -416,6 +416,32 @@ def test_the_solver_exemption_matches_the_import_contract() -> None:
     assert exempted == found
 
 
+def test_the_forbidden_contract_covers_every_kernel_package() -> None:
+    """The blanket ban names the kernel's packages one by one, and misses none.
+
+    It used to name the ``muster`` namespace, which stopped being the kernel
+    alone the moment a second distribution shipped into it.  Enumerating is
+    correct and it is also fragile in one specific way -- a new kernel package
+    that nobody adds to the list would be silently uncovered -- so the list is
+    checked against the tree here.
+    """
+    text = (REPOSITORY_ROOT / "importlinter.ini").read_text(encoding="utf-8")
+    section = text.split("no-cloud-web-or-database-anywhere]")[1]
+    listed = section.split("source_modules =")[1].split("ignore_imports =")[0]
+    declared = {
+        line.strip()
+        for line in listed.splitlines()
+        if line.startswith("    ") and line.strip() and not line.strip().startswith(";")
+    }
+
+    present = {
+        f"{ROOT_PACKAGE}.{row.split('.')[0]}"
+        for path in _production_files()
+        if (row := _seam_of(_module_name(path))) is not None
+    }
+    assert declared == present, f"contract covers {sorted(declared)}, tree has {sorted(present)}"
+
+
 def test_the_two_forbidden_lists_agree() -> None:
     """This test and ``importlinter.ini`` must ban the same packages.
 

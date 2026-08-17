@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muster-platform"
+version = "0.1.0"
+description = "MUSTER control plane: durable case custody and the imperative shell around the deterministic kernel."
+requires-python = ">=3.12"
+
+#  Two dependencies, and the second one is the whole point of this milestone.
+#
+#  ``psycopg`` is the PostgreSQL driver.  Nothing else is here -- no ORM in
+#  particular.  Every operation that decides correctness in this package is a
+#  conditional statement whose exact SQL is the contract:
+#  ``INSERT ... ON CONFLICT DO NOTHING`` for an append-only set, and
+#  ``UPDATE ... WHERE revision_digest IS NOT DISTINCT FROM :parent`` for the one
+#  mutable row in the system.  A unit-of-work that decides for itself when to
+#  flush, and an identity map that can hand back an object the database no
+#  longer agrees with, would hide precisely the two things the concurrency
+#  suite exists to prove.
+#
+#  Deliberately absent, and each absence is a fact about the lockfile rather
+#  than a rule someone has to remember: no web framework, no cloud SDK, no
+#  model client, no broker, no task queue, no migration framework.
+dependencies = [
+    "muster-kernel==0.1.0",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["muster.platform*"]
+namespaces = true

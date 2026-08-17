@@ -24,14 +24,23 @@ from itertools import pairwise
 
 from muster.core.case.constraints import Constraint, NonEffect, constraint_seq, non_effect_seq
 from muster.core.case.facts import EstablishedFact, fact_seq
-from muster.core.results import InvariantViolation
+from muster.core.results import InvariantViolation, Result
 from muster.core.values.scalars import Value
 from muster.core.values.symbols import SymbolRef, symbol_seq
-from muster.core.values.times import HalfOpenInterval, Instant
+from muster.core.values.times import HalfOpenInterval, Instant, read_half_open
 from muster.core.wire.codec import canonical_order, is_canonically_ordered
 from muster.core.wire.digests import Digest, DigestKind, digest_node
 from muster.core.wire.nodes import NAtom, NInt, Node, NRec
-from muster.core.wire.shape import digests
+from muster.core.wire.shape import (
+    WireError,
+    decoded,
+    digests,
+    read_atom,
+    read_digest,
+    read_int,
+    read_rec,
+    read_seq,
+)
 
 TAG_AUTHORIZATION_CONTEXT = "AuthorizationContext/v1"
 TAG_REBUILD_INPUTS = "RebuildInputs/v1"
@@ -80,6 +89,25 @@ class AuthorizationContext:
         return digest_node(DigestKind.AUTHORIZATION_CONTEXT, self.to_node())
 
 
+def read_authorization_context(node: Node) -> AuthorizationContext:
+    """The inverse of :meth:`AuthorizationContext.to_node`.
+
+    A durable store holds the pinned context as canonical octets, and a
+    rebuild after a restart has nothing else to read it from.
+    """
+    version, key_registry, revocation, validity = read_rec(node, TAG_AUTHORIZATION_CONTEXT, 4)
+    return AuthorizationContext(
+        authorization_policy_version=read_int(version),
+        key_registry_snapshot_digest=read_digest(key_registry),
+        revocation_snapshot_digest=read_digest(revocation),
+        context_validity=read_half_open(validity),
+    )
+
+
+def decode_authorization_context(node: Node) -> Result[AuthorizationContext, WireError]:
+    return decoded(lambda: read_authorization_context(node))
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptPrefix:
     """The evidence a revision was built from, as a set of entry digests."""
@@ -101,6 +129,24 @@ class TranscriptPrefix:
 
     def digest(self) -> Digest:
         return digest_node(DigestKind.TRANSCRIPT_PREFIX, self.to_node())
+
+
+def read_transcript_prefix(node: Node) -> TranscriptPrefix:
+    """The inverse of :meth:`TranscriptPrefix.to_node`.
+
+    Replay is ``rebuild(RebuildInputs, store)``, and ``RebuildInputs`` names the
+    prefix by digest alone.  Recovering *which* entries a revision was built
+    from therefore means resolving that digest in the store and reading the
+    membership back out -- so the prefix has to be readable, not only writable.
+    """
+    tenant_id, case_id, entry_digests = read_rec(node, TAG_TRANSCRIPT_PREFIX, 3)
+    return TranscriptPrefix(
+        read_atom(tenant_id), read_atom(case_id), read_seq(entry_digests, read_digest)
+    )
+
+
+def decode_transcript_prefix(node: Node) -> Result[TranscriptPrefix, WireError]:
+    return decoded(lambda: read_transcript_prefix(node))
 
 
 @dataclass(frozen=True, slots=True)

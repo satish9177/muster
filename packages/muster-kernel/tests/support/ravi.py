@@ -21,6 +21,7 @@ from muster.solve.reference.bounded import BoundedEnumerationBackend
 from tests.conftest import FIXTURES
 
 CASE_FILE = FIXTURES / "ravi-saturday.json"
+ATTESTED_CASE_FILE = FIXTURES / "ravi-saturday-attested.json"
 LIMITS_FILE = FIXTURES / "engine-limits.json"
 
 RAVI = "RAVI"
@@ -41,6 +42,14 @@ def limits() -> EngineLimits:
 @cache
 def case_file() -> CaseFile:
     loaded = load_case_file(CASE_FILE)
+    assert isinstance(loaded, Ok), loaded
+    return loaded.value
+
+
+@cache
+def attested_case_file() -> CaseFile:
+    """The variant whose transcript carries the site and duration attestations."""
+    loaded = load_case_file(ATTESTED_CASE_FILE)
     assert isinstance(loaded, Ok), loaded
     return loaded.value
 

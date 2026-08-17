@@ -19,11 +19,20 @@ from muster.core.expr.ir import Binary, BinaryOp, Leaf, NAry, NAryOp
 from muster.core.expr.terms import Term, literal
 from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.values.classification import EvidenceLayer
-from muster.core.values.scalars import Value, VEnum, sort_of, value_in_domain
+from muster.core.values.scalars import Value, VEnum, read_value, sort_of, value_in_domain
 from muster.core.values.sorts import Domain, EnumDomain, EnumSort, IntSort, ScaledSort, Sort
 from muster.core.values.symbols import SymbolRef
 from muster.core.wire.codec import canonical_set
 from muster.core.wire.nodes import Node, NRec, NTagged
+from muster.core.wire.shape import (
+    WireError,
+    WireFailure,
+    decoded,
+    fail,
+    read_rec,
+    read_set,
+    read_tagged,
+)
 
 TAG_EXACT_VALUE = "ExactValue/v1"
 TAG_CLOSED_LOWER = "ClosedLowerBound/v1"
@@ -85,6 +94,30 @@ def relation_node(relation: AcquisitionRelation) -> Node:
             return NTagged("ClosedUpperBound", relation.to_node())
         case EnumSubset():
             return NTagged("EnumSubset", relation.to_node())
+
+
+def read_relation(node: Node) -> AcquisitionRelation:
+    """The inverse of :func:`relation_node`, over one canonical node."""
+    tag, payload = read_tagged(node, "AcquisitionRelation")
+    match tag:
+        case "ExactValue":
+            (value,) = read_rec(payload, TAG_EXACT_VALUE, 1)
+            return ExactValue(read_value(value))
+        case "ClosedLowerBound":
+            (bound,) = read_rec(payload, TAG_CLOSED_LOWER, 1)
+            return ClosedLowerBound(read_value(bound))
+        case "ClosedUpperBound":
+            (bound,) = read_rec(payload, TAG_CLOSED_UPPER, 1)
+            return ClosedUpperBound(read_value(bound))
+        case "EnumSubset":
+            (allowed,) = read_rec(payload, TAG_ENUM_SUBSET, 1)
+            return EnumSubset(read_set(allowed, read_value, minimum=1))
+        case _:
+            raise fail(WireFailure.UNKNOWN_VARIANT, "AcquisitionRelation", tag)
+
+
+def decode_relation(node: Node) -> Result[AcquisitionRelation, WireError]:
+    return decoded(lambda: read_relation(node))
 
 
 class RelationFailure(Enum):

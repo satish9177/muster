@@ -1,23 +1,41 @@
 #  MUSTER workspace root.
 #
-#  This file configures tooling only.  The distribution itself is declared in
-#  packages/muster-kernel/pyproject.toml.  Milestone A ships exactly one
-#  distribution; the platform and agent distributions do not exist yet.
+#  This file configures tooling only.  The distributions are declared in
+#  packages/*/pyproject.toml.  There are two: the deterministic kernel, which
+#  has no runtime dependency, and the control plane, which has a database
+#  driver.  The agent distribution does not exist yet.
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["packages/muster-kernel/tests"]
-pythonpath = ["packages/muster-kernel/src", "packages/muster-kernel"]
+testpaths = ["packages/muster-kernel/tests", "packages/muster-platform/tests"]
+#  The kernel suite is rooted one level above its ``tests`` package, so it
+#  imports ``tests.support``. The platform suite is rooted *at* its own
+#  ``tests`` directory instead, so its top-level test packages are ``support``,
+#  ``unit`` and the rest. Two importable packages both called ``tests`` would
+#  collide on the first collection, and the collision is silent about which one
+#  won -- so only one of them is named that.
+pythonpath = [
+    "packages/muster-kernel/src",
+    "packages/muster-kernel",
+    "packages/muster-platform/src",
+    "packages/muster-platform/tests",
+]
 addopts = "-q --strict-markers --strict-config"
 markers = [
     "golden: reproduces a frozen Phase-0.8 golden vector",
     "architecture: enforces a ratified dependency or import contract",
+    "postgres: needs a real PostgreSQL instance; skipped without MUSTER_TEST_DSN",
 ]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["packages/muster-kernel/src", "packages/muster-kernel/tests"]
+src = [
+    "packages/muster-kernel/src",
+    "packages/muster-kernel",
+    "packages/muster-platform/src",
+    "packages/muster-platform/tests",
+]
 #  ``spec/`` is non-production specification material.
 #  ``README.md`` is a pre-existing UTF-16 file this milestone does not own.
 extend-exclude = ["spec", "README.md"]
@@ -51,6 +69,7 @@ ignore = [
 #  A test that imports the thing it is about, where it is about it, reads better
 #  than one whose subject is hidden in a header. Production hoists every import.
 "packages/muster-kernel/tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
+"packages/muster-platform/tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
 
 [tool.ruff.lint.pylint]
 #  Several pure functions take their complete input tuple: ``load_bundle`` takes
@@ -65,8 +84,13 @@ ban-relative-imports = "all"
 
 [tool.mypy]
 python_version = "3.12"
-mypy_path = "packages/muster-kernel/src"
-files = ["packages/muster-kernel/src", "packages/muster-kernel/tests"]
+mypy_path = "packages/muster-kernel/src:packages/muster-platform/src"
+files = [
+    "packages/muster-kernel/src",
+    "packages/muster-kernel/tests",
+    "packages/muster-platform/src",
+    "packages/muster-platform/tests",
+]
 namespace_packages = true
 explicit_package_bases = true
 strict = true
