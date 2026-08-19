@@ -370,11 +370,63 @@ def admissibility_descriptors() -> AdmissibilityDescriptors:
     )
 
 
-def disclosure_policy() -> DisclosurePolicy:
-    """Carried because the manifest commits to its digest.
+#  Audience classes.  These are the ``role_in_case`` values a case officer signs
+#  into the construction record, plus the one role that is party to no case.
+#  There is no "everyone" and no default: an audience with no entry resolves to
+#  nothing and the query fails, which is the shape a disclosure decision has to
+#  have if a missing row is to be a refusal rather than a guess.
+AUDIENCE_WORKER = "WORKER"
+AUDIENCE_EMPLOYER = "EMPLOYER"
+AUDIENCE_SITE = "SITE"
+AUDIENCE_AUDITOR = "AUDITOR"
 
-    Milestone A publishes no views; redaction is milestone D.  The entries exist
-    so that the signed tuple is complete, not so that anything reads them.
+CONTEXT_NOTIFICATION = "NOTIFICATION"
+CONTEXT_AUDIT = "AUDIT"
+
+#  "Which policy governed this case", as paths.  Both are needed and they are
+#  not the same statement: the manifest digest names a bundle, the bundle pin is
+#  the revision's own claim about which bundle it was rebuilt under.  Disclosing
+#  only the first would let a reader check the policy they were handed without
+#  checking that the case actually ran under it.
+_POLICY_IDENTITY = ("bundle.manifest_digest", "revision.bundle_pin")
+
+_CASE_IDENTITY = ("case.tenant_id", "case.case_id")
+
+
+def disclosure_policy() -> DisclosurePolicy:
+    """Who may be told what, as data rather than as branches.
+
+    Four audiences and two contexts.  Nothing downstream asks "is this the
+    worker?"; it asks the policy for the entry keyed by outcome class, action
+    kind, audience and context, and discloses exactly the paths that entry
+    names.  A key with no entry is a refusal, not a default.
+
+    The content is the walkthrough's, not this module's invention:
+
+    * the **worker** sees the outcome, and the action once there is one;
+    * the **employer** sees the outcome and which policy governed it;
+    * the **site** sees only that a case existed and which policy governed it
+      -- not the outcome, not the amount, not a witness.  It contributed an
+      observation and has no interest in the payroll consequence, and this is
+      the entry the privacy claim is actually tested against;
+    * the **auditor** sees the case, the pins, the rebuild coordinates and the
+      outcome, under its own context.  Not the witness: an auditor checks that
+      the conclusion follows from the committed record, and a witness world is
+      a solver artifact carrying values for variables the case never resolved.
+
+    Every path named here is one the extractor emits for every outcome, or one
+    it emits for the outcome class the entry is keyed on.  A path outside the
+    frozen inventory is refused when the policy is pinned, not when a view is
+    built -- so a policy that could over-disclose cannot be pinned at all.
+
+    **What an audience learns beyond its paths.**  Entries are keyed on the
+    outcome class, and a view names the entry it applied, so any audience that
+    receives a view at all can tell which outcome class the case is in -- the
+    site included, whose paths deliberately exclude the outcome tag.  The site
+    still cannot see the outcome's content: not the action, not the amount, not
+    the witness, not the reachable set.  Authoring more rows for an audience
+    does not widen that channel and removing rows does not close it; it is a
+    property of the frozen four-part key.
     """
     return DisclosurePolicy(
         schema_version=1,
@@ -382,24 +434,97 @@ def disclosure_policy() -> DisclosurePolicy:
             DisclosureEntry(
                 outcome_class="DIVERGENT",
                 action_kind=None,
-                audience_class="WORKER",
-                disclosure_context="NOTIFICATION",
+                audience_class=AUDIENCE_WORKER,
+                disclosure_context=CONTEXT_NOTIFICATION,
                 reveals_sensitive_input=False,
                 inference_acknowledgement_ref=None,
-                permitted_paths=("case.tenant_id", "case.case_id", "kernel.outcome.tag"),
+                permitted_paths=(*_CASE_IDENTITY, "kernel.outcome.tag"),
             ),
             DisclosureEntry(
                 outcome_class="INVARIANT",
                 action_kind=ACTION_PAY,
-                audience_class="WORKER",
-                disclosure_context="NOTIFICATION",
+                audience_class=AUDIENCE_WORKER,
+                disclosure_context=CONTEXT_NOTIFICATION,
                 reveals_sensitive_input=False,
                 inference_acknowledgement_ref=None,
                 permitted_paths=(
-                    "case.tenant_id",
-                    "case.case_id",
+                    *_CASE_IDENTITY,
                     "kernel.outcome.tag",
                     "kernel.outcome.action",
+                ),
+            ),
+            DisclosureEntry(
+                outcome_class="DIVERGENT",
+                action_kind=None,
+                audience_class=AUDIENCE_EMPLOYER,
+                disclosure_context=CONTEXT_NOTIFICATION,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(*_CASE_IDENTITY, *_POLICY_IDENTITY, "kernel.outcome.tag"),
+            ),
+            DisclosureEntry(
+                outcome_class="INVARIANT",
+                action_kind=ACTION_PAY,
+                audience_class=AUDIENCE_EMPLOYER,
+                disclosure_context=CONTEXT_NOTIFICATION,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(*_CASE_IDENTITY, *_POLICY_IDENTITY, "kernel.outcome.tag"),
+            ),
+            DisclosureEntry(
+                outcome_class="DIVERGENT",
+                action_kind=None,
+                audience_class=AUDIENCE_SITE,
+                disclosure_context=CONTEXT_NOTIFICATION,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(*_CASE_IDENTITY, *_POLICY_IDENTITY),
+            ),
+            DisclosureEntry(
+                outcome_class="INVARIANT",
+                action_kind=ACTION_PAY,
+                audience_class=AUDIENCE_SITE,
+                disclosure_context=CONTEXT_NOTIFICATION,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(*_CASE_IDENTITY, *_POLICY_IDENTITY),
+            ),
+            DisclosureEntry(
+                outcome_class="DIVERGENT",
+                action_kind=None,
+                audience_class=AUDIENCE_AUDITOR,
+                disclosure_context=CONTEXT_AUDIT,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(
+                    *_CASE_IDENTITY,
+                    "certificate.schema_version",
+                    *_POLICY_IDENTITY,
+                    "revision.as_of",
+                    "revision.mode",
+                    "revision.authorizability",
+                    "kernel.outcome.tag",
+                    "kernel.outcome.reachable",
+                    "kernel.determinism_class",
+                ),
+            ),
+            DisclosureEntry(
+                outcome_class="INVARIANT",
+                action_kind=ACTION_PAY,
+                audience_class=AUDIENCE_AUDITOR,
+                disclosure_context=CONTEXT_AUDIT,
+                reveals_sensitive_input=False,
+                inference_acknowledgement_ref=None,
+                permitted_paths=(
+                    *_CASE_IDENTITY,
+                    "certificate.schema_version",
+                    *_POLICY_IDENTITY,
+                    "revision.as_of",
+                    "revision.mode",
+                    "revision.authorizability",
+                    "kernel.outcome.tag",
+                    "kernel.outcome.action",
+                    "kernel.determinism_class",
                 ),
             ),
         ),

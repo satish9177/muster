@@ -136,6 +136,7 @@ def test_the_schema_is_what_the_repositories_expect(scratch_database: str) -> No
         ("casework", "case_head"),
         ("casework", "transcript_entry"),
         ("casework", "evidence_request"),
+        ("casework", "case_commitment"),
     }
 
 
@@ -549,8 +550,10 @@ def test_a_downgrade_from_a_build_that_owns_a_different_schema_is_refused(
     assert remaining[0] == 1
     assert _held_locks(scratch_database) == 0
 
-    #  And the build that owns the schema can still revert it.
-    assert revert(scratch_database, to_version=0) == tuple(m.version for m in MIGRATIONS)
+    #  And the build that owns the schema can still revert it.  Reverting runs
+    #  newest-first, which is the only order that can work: a later migration's
+    #  tables may reference an earlier one's.
+    assert revert(scratch_database, to_version=0) == tuple(m.version for m in reversed(MIGRATIONS))
 
 
 def test_the_identity_does_not_depend_on_a_separator_no_statement_contains() -> None:

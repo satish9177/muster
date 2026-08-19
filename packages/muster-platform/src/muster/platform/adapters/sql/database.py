@@ -32,12 +32,14 @@ from dataclasses import dataclass
 
 import psycopg
 
+from muster.platform.adapters.sql.commitments import SqlCommitmentRepository
 from muster.platform.adapters.sql.content import SqlContentStore
 from muster.platform.adapters.sql.head import SqlCaseHeadRepository
 from muster.platform.adapters.sql.requests import SqlEvidenceRequestRepository
 from muster.platform.adapters.sql.transcript import SqlTranscriptRepository
 from muster.platform.casework.ports import CaseHeadRepository as CaseHeadRepositoryPort
 from muster.platform.casework.ports import (
+    CommitmentRepository,
     ContentStore,
     EvidenceRequestRepository,
     TenantScope,
@@ -47,7 +49,7 @@ from muster.platform.casework.ports import (
 
 @dataclass(frozen=True, slots=True)
 class SqlTenantScope:
-    """Four repositories, one connection, one tenant, and no way to change it."""
+    """Five repositories, one connection, one tenant, and no way to change it."""
 
     connection: psycopg.Connection[tuple[object, ...]]
     _tenant_id: str
@@ -71,6 +73,10 @@ class SqlTenantScope:
     @property
     def requests(self) -> EvidenceRequestRepository:
         return SqlEvidenceRequestRepository(self.connection, self._tenant_id)
+
+    @property
+    def commitments(self) -> CommitmentRepository:
+        return SqlCommitmentRepository(self.connection, self._tenant_id)
 
 
 @dataclass(frozen=True, slots=True)

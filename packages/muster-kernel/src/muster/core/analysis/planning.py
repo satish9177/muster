@@ -18,12 +18,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from muster.core.analysis.worlds import World
-from muster.core.evidence.requests import EvidenceRequest, HumanEscalation
-from muster.core.values.symbols import SymbolRef, symbol_seq
+from muster.core.analysis.worlds import World, read_world
+from muster.core.evidence.requests import (
+    EvidenceRequest,
+    HumanEscalation,
+    read_evidence_request,
+    read_human_escalation,
+)
+from muster.core.values.symbols import SymbolRef, read_symbol_ref, symbol_seq
 from muster.core.wire.digests import Digest
 from muster.core.wire.nodes import NAtom, Node, NRec, NSeq, NTagged, NUnit
-from muster.core.wire.shape import NONE_NODE, atoms
+from muster.core.wire.shape import (
+    NONE_NODE,
+    WireFailure,
+    atoms,
+    fail,
+    read_atom,
+    read_digest,
+    read_option,
+    read_rec,
+    read_seq,
+    read_tagged,
+)
 
 TAG_DELETION_WITNESS = "DeletionWitness/v1"
 TAG_PROVEN_SUPPORT = "ProvenSupport/v1"
@@ -108,6 +124,37 @@ def support_node(support: SupportResult) -> Node:
             return NTagged("SufficientSupportIrredundanceUnproved", support.to_node())
 
 
+def read_deletion_witness(node: Node) -> DeletionWitness:
+    member, left, right = read_rec(node, TAG_DELETION_WITNESS, 3)
+    return DeletionWitness(read_symbol_ref(member), read_world(left), read_world(right))
+
+
+def read_support(node: Node) -> SupportResult:
+    """The inverse of :func:`support_node`."""
+    tag, payload = read_tagged(node, "SupportResult")
+    match tag:
+        case "ProvenIrredundantSupport":
+            members, handle, witnesses = read_rec(payload, TAG_PROVEN_SUPPORT, 3)
+            return ProvenIrredundantSupport(
+                members=read_seq(members, read_symbol_ref),
+                sufficiency_handle=read_digest(handle),
+                deletion_witnesses=read_seq(witnesses, read_deletion_witness),
+            )
+        case "SufficientSupportIrredundanceUnproved":
+            members, inconclusive, reasons = read_rec(payload, TAG_UNPROVEN_SUPPORT, 3)
+            return SufficientSupportIrredundanceUnproved(
+                members=read_seq(members, read_symbol_ref),
+                inconclusive=read_seq(inconclusive, read_symbol_ref),
+                reasons=read_seq(reasons, read_atom),
+            )
+        case _:
+            raise fail(
+                WireFailure.UNKNOWN_VARIANT,
+                "ProvenIrredundantSupport | SufficientSupportIrredundanceUnproved",
+                tag,
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class NoActionRequired:
     reason: NoActionReason
@@ -147,6 +194,51 @@ def planning_node(outcome: PlanningOutcome) -> Node:
             return NTagged("PlanningIndeterminate", NAtom(reason))
 
 
+def read_planning_outcome(
+    node: Node, *, no_action_reason: NoActionReason | None
+) -> PlanningOutcome:
+    """The inverse of :func:`planning_node`, up to the one field it does not carry.
+
+    ``NoActionRequired`` encodes as a payload-less variant -- the frozen shape --
+    so its ``reason`` is genuinely absent from the octets and cannot be read out
+    of them.  The caller supplies it instead, from the analysis outcome that
+    produced it: ``Invariant`` gives ``ACTION_INVARIANT`` and ``Infeasible``
+    gives ``INFEASIBLE``, which is exactly the mapping the planner applied on the
+    way in.
+
+    ``None`` means the caller's outcome explains no silence, and then this
+    refuses.  The refusal matters more than it looks: re-encoding is *blind*
+    here, because the reason is not in the octets -- a wrong reason round-trips
+    perfectly and no digest check anywhere can see it.  So the one field a
+    round-trip cannot police is the one field this will not fabricate.
+    """
+    tag, payload = read_tagged(node, "PlanningOutcome")
+    match tag:
+        case "NoActionRequired":
+            if not isinstance(payload, NUnit):
+                raise fail(WireFailure.UNEXPECTED_NODE, "unit", type(payload).__name__)
+            if no_action_reason is None:
+                raise fail(
+                    WireFailure.OUT_OF_RANGE,
+                    "an outcome that explains a NoActionRequired plan",
+                    "a plan requesting nothing under an outcome that requests something",
+                )
+            return NoActionRequired(no_action_reason)
+        case "EvidenceRequested":
+            return EvidenceRequested(read_evidence_request(payload))
+        case "NoSufficientSetAcquirable":
+            return NoSufficientSetAcquirable(read_human_escalation(payload))
+        case "PlanningIndeterminate":
+            return PlanningIndeterminate(read_atom(payload))
+        case _:
+            raise fail(
+                WireFailure.UNKNOWN_VARIANT,
+                "NoActionRequired | EvidenceRequested | NoSufficientSetAcquirable "
+                "| PlanningIndeterminate",
+                tag,
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class PlanningRecord:
     planning_outcome: PlanningOutcome
@@ -161,3 +253,12 @@ class PlanningRecord:
                 NONE_NODE if support is None else NTagged("Some", support_node(support)),
             ),
         )
+
+
+def read_planning_record(node: Node, *, no_action_reason: NoActionReason | None) -> PlanningRecord:
+    """The inverse of :meth:`PlanningRecord.to_node`."""
+    outcome, support = read_rec(node, TAG_PLANNING_RECORD, 2)
+    return PlanningRecord(
+        planning_outcome=read_planning_outcome(outcome, no_action_reason=no_action_reason),
+        support=read_option(support, read_support),
+    )

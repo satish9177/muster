@@ -194,7 +194,42 @@ _INITIAL_DOWN: tuple[str, ...] = (
 )
 
 
-MIGRATIONS: tuple[Migration, ...] = (Migration(1, "case_custody", _INITIAL_UP, _INITIAL_DOWN),)
+#  The commitment table.  A separate migration rather than an edit to the one
+#  above, because version 1 has been applied to databases this build must be
+#  able to bring forward -- editing it in place would change its identity and
+#  the runner would refuse the database rather than upgrade it.
+#
+#  Keyed by the revision it commits, so one case accumulates one immutable row
+#  per published revision and nothing is ever updated in place.  The foreign key
+#  is to the *case*, not to the revision: a revision digest lives in the head
+#  row, which moves, and a commitment for a revision that is no longer head is
+#  still a true statement about that revision.
+_COMMITMENT_UP: tuple[str, ...] = (
+    """
+    CREATE TABLE casework.case_commitment (
+        tenant_id       text   NOT NULL,
+        case_id         text   NOT NULL,
+        revision_digest bytea  NOT NULL,
+        envelope        bytea  NOT NULL,
+        PRIMARY KEY (tenant_id, case_id, revision_digest),
+        CONSTRAINT case_commitment_revision_digest_width
+            CHECK (octet_length(revision_digest) = 32),
+        CONSTRAINT case_commitment_envelope_not_empty
+            CHECK (octet_length(envelope) > 0),
+        CONSTRAINT case_commitment_case_exists
+            FOREIGN KEY (tenant_id, case_id)
+            REFERENCES casework.case_head (tenant_id, case_id)
+    )
+    """,
+)
+
+_COMMITMENT_DOWN: tuple[str, ...] = ("DROP TABLE casework.case_commitment",)
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(1, "case_custody", _INITIAL_UP, _INITIAL_DOWN),
+    Migration(2, "case_commitment", _COMMITMENT_UP, _COMMITMENT_DOWN),
+)
 
 #  The ledger. Created by the runner rather than by a migration, because a
 #  migration cannot record itself before the table recording it exists. It

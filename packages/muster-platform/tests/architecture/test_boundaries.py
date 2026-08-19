@@ -97,14 +97,74 @@ ALLOWED: dict[str, frozenset[str]] = {
             "adapters.sql.transcript",
             "adapters.sql.head",
             "adapters.sql.requests",
+            "adapters.sql.commitments",
+        }
+    ),
+    "adapters.sql.commitments": frozenset({"casework.ports"}),
+    #  The only module allowed to know what a cryptography library is. It
+    #  implements the two commitment ports and orchestrates nothing.
+    "adapters.crypto": frozenset({"commit.domains", "commit.envelope", "commit.salts"}),
+    #  The commitment layer. The five rows below it are *pure* -- they compute
+    #  octets from values and reach no database, no policy interpreter and no
+    #  audience. Only ``commit.publish``, the imperative top of the package,
+    #  knows that durable state or a disclosure policy exists.
+    "commit": frozenset(),
+    "commit.domains": frozenset(),
+    "commit.paths": frozenset({"commit.domains"}),
+    "commit.salts": frozenset({"commit.domains"}),
+    "commit.envelope": frozenset(),
+    "commit.record": frozenset({"commit.paths", "commit.salts"}),
+    "commit.tree": frozenset({"commit.domains", "commit.paths", "commit.salts"}),
+    "commit.build": frozenset(
+        {"commit.envelope", "commit.paths", "commit.record", "commit.salts", "commit.tree"}
+    ),
+    #  Reaches ``disclose.policy`` and nothing else under ``disclose``: a
+    #  commitment refuses to pin a policy that could over-disclose, so the
+    #  validator has to run before the envelope is signed. It must never reach
+    #  the view builder or the audience resolver -- those are decisions about a
+    #  reader, and a commitment has no reader.
+    "commit.publish": frozenset(
+        {
+            "casework.advance",
+            "casework.ports",
+            "casework.snapshot",
+            "commit.build",
+            "commit.envelope",
+            "commit.record",
+            "commit.salts",
+            "disclose.policy",
+        }
+    ),
+    #  The disclosure layer.
+    "disclose": frozenset(),
+    "disclose.audience": frozenset(),
+    "disclose.policy": frozenset({"commit.paths"}),
+    "disclose.views": frozenset(
+        {"commit.build", "commit.envelope", "commit.tree", "disclose.audience", "disclose.policy"}
+    ),
+    "disclose.verify": frozenset(
+        {
+            "commit.envelope",
+            "commit.paths",
+            "commit.tree",
+            "disclose.audience",
+            "disclose.policy",
+            "disclose.views",
+        }
+    ),
+    "disclose.queries": frozenset(
+        {
+            "casework.snapshot",
+            "commit.publish",
+            "disclose.audience",
+            "disclose.policy",
+            "disclose.views",
         }
     ),
 }
 
 #  Packages the final architecture contains and this milestone does not.
-NOT_YET_BUILT = frozenset(
-    {"dispatch", "commit", "disclose", "authority", "gate", "api", "entrypoints"}
-)
+NOT_YET_BUILT = frozenset({"dispatch", "authority", "gate", "api", "entrypoints"})
 
 #  Third-party roots forbidden anywhere in this package. The database driver is
 #  exempt under ``adapters`` alone -- listed by subtree, so a second module
@@ -134,8 +194,15 @@ FORBIDDEN_EXTERNAL = frozenset(
     }
 )
 
+#  Libraries confined to one adapter subtree each, and the subtree is named
+#  after the concern it exists for. Widening either constant to a parent
+#  package is the cheapest way to grant the exemption to everything, so both
+#  halves are asserted below: that the subtree really does reach the library,
+#  and that nothing else does.
 DRIVER = "psycopg"
 DRIVER_SUBTREE = "adapters.sql"
+
+CONFINED: dict[str, str] = {DRIVER: DRIVER_SUBTREE, "cryptography": "adapters.crypto"}
 
 #  Nondeterminism and ambient state. Permitted nowhere in this package.
 #
@@ -149,7 +216,10 @@ DRIVER_SUBTREE = "adapters.sql"
 AMBIENT_MODULES = frozenset({"time", "datetime", "random", "secrets", "uuid", "socket", "os"})
 AMBIENT_EXEMPT: frozenset[str] = frozenset()
 
-#  Milestone D+ vocabulary. Not reserved here, and not to be invented here.
+#  Milestone E+ vocabulary. Not reserved here, and not to be invented here.
+#  The commitment and disclosure fragments this list used to carry were removed
+#  when milestone D built them; what is left is the gate, settlement and the
+#  authority registry, none of which this package may prepare for.
 FORBIDDEN_DECLARATIONS = (
     "authorizedaction",
     "gatedecision",
@@ -159,10 +229,9 @@ FORBIDDEN_DECLARATIONS = (
     "disbursement",
     "payout",
     "settlement",
-    "merkle",
-    "commitmentenvelope",
-    "disclosurepolicyresolver",
     "authorityregistrysnapshot",
+    "sourcedirectory",
+    "evidencerequestdispatch",
 )
 
 FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
@@ -260,8 +329,11 @@ def test_the_platform_depends_on_the_kernel_and_says_so() -> None:
     dependencies = manifest["project"]["dependencies"]
     assert any(requirement.startswith("muster-kernel") for requirement in dependencies)
     assert any(requirement.startswith(f"{DRIVER}[") for requirement in dependencies)
-    #  Two dependencies. Every absence below is a fact about the lockfile.
-    assert len(dependencies) == 2
+    #  Three dependencies, and the third arrived with the commitment layer: a
+    #  signature a participant can check without holding the ability to forge
+    #  one needs an asymmetric primitive, and the standard library has none.
+    assert any(requirement.startswith("cryptography") for requirement in dependencies)
+    assert len(dependencies) == 3
     for requirement in dependencies:
         for forbidden in FORBIDDEN_EXTERNAL:
             assert forbidden not in requirement, f"{forbidden} is declared as a dependency"
@@ -359,26 +431,27 @@ def test_casework_and_ingest_never_name_an_adapter() -> None:
             )
 
 
-def test_only_the_sql_adapter_imports_the_driver() -> None:
+@pytest.mark.parametrize("library", sorted(CONFINED))
+def test_a_confined_library_is_reached_from_its_subtree_and_nowhere_else(library: str) -> None:
     """The exemption is a subtree, and both halves are asserted.
 
-    That the adapter really does reach the driver, so the exemption is not
+    That the adapter really does reach the library, so the exemption is not
     decoration -- and that nothing else does.
     """
+    subtree = CONFINED[library]
     reached: set[str] = set()
     for path in _platform_files():
         row = _module_of(path)
         for imported in _imports(path):
-            if imported.split(".")[0] != DRIVER:
+            if imported.split(".")[0] != library:
                 continue
-            assert row.startswith(f"{DRIVER_SUBTREE}."), f"{row} imports {imported}"
+            assert row == subtree or row.startswith(f"{subtree}."), f"{row} imports {imported}"
             reached.add(row)
-    assert reached, f"nothing under {DRIVER_SUBTREE} imports {DRIVER}"
-    assert all(row.startswith(f"{DRIVER_SUBTREE}.") for row in reached)
-    #  The exempt subtree is named after the concern it exists for. Widening the
-    #  constant to a parent package is the cheapest way to grant the exemption
-    #  to everything, so it is refused here by name.
-    assert DRIVER_SUBTREE == "adapters.sql"
+    assert reached, f"nothing under {subtree} imports {library}"
+    #  Named by hand rather than derived, so widening a constant to a parent
+    #  package fails here instead of silently granting the exemption to
+    #  everything below it.
+    assert CONFINED == {"psycopg": "adapters.sql", "cryptography": "adapters.crypto"}
 
 
 def _platform_contract_section() -> str:
@@ -386,8 +459,8 @@ def _platform_contract_section() -> str:
     return text.split("no-cloud-web-model-or-broker]")[1]
 
 
-def test_the_driver_exemption_matches_the_imports_that_exist() -> None:
-    """Two tools, one exemption, and no room for them to drift apart.
+def test_the_confinement_exemptions_match_the_imports_that_exist() -> None:
+    """Two tools, one exemption list, and no room for them to drift apart.
 
     ``import-linter`` names the exempt edges one by one. This asserts that the
     set it names is exactly the set that exists, so widening either side alone
@@ -397,11 +470,14 @@ def test_the_driver_exemption_matches_the_imports_that_exist() -> None:
     listed = _platform_contract_section().split("ignore_imports =")[1].split("source_modules =")[0]
     exempted = {line.strip() for line in listed.splitlines() if "->" in line}
 
+    #  Compared at the root, because that is the granularity the ban is stated
+    #  at: the contract forbids the distribution, not one of its submodules, and
+    #  an exemption naming a submodule would leave the others banned.
     found = {
-        f"{_dotted(path)} -> {imported}"
+        f"{_dotted(path)} -> {imported.split('.')[0]}"
         for path in _platform_files()
         for imported in _imports(path)
-        if imported.split(".")[0] == DRIVER
+        if imported.split(".")[0] in CONFINED
     }
     assert exempted == found
 
@@ -418,9 +494,9 @@ def test_the_two_forbidden_lists_agree() -> None:
         for line in listed.splitlines()
         if line.startswith("    ") and line.strip() and "=" not in line
     }
-    #  The driver is forbidden there and exempted per module; here it is
-    #  handled by its own test, which asserts the subtree rather than the ban.
-    assert declared - {DRIVER} == FORBIDDEN_EXTERNAL
+    #  A confined library is forbidden there and exempted per module; here it
+    #  is handled by its own test, which asserts the subtree rather than the ban.
+    assert declared - set(CONFINED) == FORBIDDEN_EXTERNAL
 
 
 def test_no_platform_module_imports_a_forbidden_package() -> None:
@@ -545,8 +621,8 @@ def test_the_publication_holds_the_case_before_it_writes_or_swaps() -> None:
     assert hold < body.index("heads.advance("), "TX B swaps before holding"
 
 
-def test_no_milestone_d_or_later_concept_is_declared() -> None:
-    """Commitments, disclosure, authority, the gate and settlement are not here.
+def test_no_milestone_e_or_later_concept_is_declared() -> None:
+    """Authority, the gate, settlement and dispatch are not here.
 
     Not prepared for, either: a speculative abstraction for a component nobody
     has written is a design decision taken without the information that would
@@ -575,6 +651,90 @@ def _declared_names(path: Path) -> set[str]:
         elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             names.add(node.id)
     return names
+
+
+def test_no_disclosure_module_can_reach_a_case_salt() -> None:
+    """The privacy claim, stated as a reachability rule rather than a habit.
+
+    ``commit.salts`` is the only module that holds a case salt or derives
+    anything under one. Nothing that decides what a *reader* is shown may
+    import it, directly or through the matrix -- so "the salt never reaches a
+    view" is a property of the graph rather than of every future author
+    remembering it.
+    """
+    salt_module = "commit.salts"
+    for row, permitted in ALLOWED.items():
+        if row.startswith("disclose"):
+            assert salt_module not in permitted, f"{row} may import {salt_module}"
+
+    #  And in the graph that actually exists, not only the one permitted.
+    for source, target in _edges():
+        if source.startswith("disclose"):
+            assert target != salt_module, f"{source} imports {target}"
+
+
+def test_only_one_module_under_commit_knows_that_durable_state_exists() -> None:
+    """The pure half of the commitment layer computes octets and nothing else.
+
+    Six modules turn a decided record into a tree and an envelope; one -- the
+    imperative top -- reads a head and writes a row. Keeping that split is what
+    makes the tree testable without a database and the envelope reproducible
+    without one.
+    """
+    reaching = {
+        row
+        for row, permitted in ALLOWED.items()
+        if row.startswith("commit")
+        and any(other.startswith(("casework", "adapters")) for other in permitted)
+    }
+    assert reaching == {"commit.publish"}
+
+
+def test_the_case_salt_is_constructed_in_exactly_two_places() -> None:
+    """Where a secret comes into existence is worth naming out loud.
+
+    One module *declares* the type; one adapter *derives* a value of it. A
+    third construction site would be a second answer to "where does a case
+    salt come from", and the interesting kind of wrong answer is a literal.
+    """
+    constructing = {
+        _module_of(path)
+        for path in _platform_files()
+        if "CaseSalt(" in path.read_text(encoding="utf-8")
+    }
+    assert constructing == {"commit.salts", "adapters.crypto"}
+
+
+def test_the_keyed_primitive_appears_only_where_a_key_does() -> None:
+    """``hmac`` is a *keyed* operation, so its import list is a key inventory.
+
+    Two sites, and each holds one key: the case salt, and the salt root the
+    local adapter derives it from. A third would be a second answer to "what is
+    keyed under what", which is the question the whole privacy argument rests
+    on.
+
+    ``hashlib`` is deliberately not confined the same way -- an unkeyed digest
+    is not a secret operation, and the migration ledger legitimately hashes its
+    own statements -- so the sites are named instead of derived.
+    """
+    keyed: set[str] = set()
+    unkeyed: set[str] = set()
+    for path in _platform_files():
+        row = _module_of(path)
+        for imported in _imports(path):
+            root = imported.split(".")[0]
+            if root == "hmac":
+                keyed.add(row)
+            elif root == "hashlib":
+                unkeyed.add(row)
+
+    assert keyed == {"commit.salts", "adapters.crypto"}
+    assert unkeyed == {
+        "commit.domains",
+        "commit.salts",
+        "adapters.crypto",
+        "adapters.sql.migrations",
+    }
 
 
 def test_no_broker_queue_or_workflow_engine_appears() -> None:

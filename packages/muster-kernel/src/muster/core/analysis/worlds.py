@@ -12,11 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from muster.core.results import InvariantViolation
-from muster.core.values.scalars import Value
-from muster.core.values.symbols import SymbolRef
+from muster.core.values.scalars import Value, read_value
+from muster.core.values.symbols import SymbolRef, read_symbol_ref
 from muster.core.wire.codec import canonical_order, is_canonically_ordered
 from muster.core.wire.digests import Digest, DigestKind, digest_node
-from muster.core.wire.nodes import NRec, NSeq
+from muster.core.wire.nodes import Node, NRec, NSeq
+from muster.core.wire.shape import WireFailure, fail, read_rec, read_seq
 
 TAG_BINDING = "Binding/v1"
 TAG_WORLD = "World/v1"
@@ -50,6 +51,32 @@ class World:
 
     def assignment(self) -> dict[SymbolRef, Value]:
         return {binding.ref: binding.value for binding in self.bindings}
+
+
+def read_binding(node: Node) -> Binding:
+    ref, value = read_rec(node, TAG_BINDING, 2)
+    return Binding(read_symbol_ref(ref), read_value(value))
+
+
+def read_world(node: Node) -> World:
+    """The inverse of :meth:`World.to_node`, refusing what the constructor would.
+
+    ``World`` enforces uniqueness and canonical order by raising, which is right
+    for a value the system builds: producing an unordered world is a defect.  It
+    is the wrong answer for octets that arrived from a store, where a violation
+    is a *finding about the octets* and has to reach the caller as one.  So both
+    invariants are checked here first and reported as wire failures; the
+    constructor then never raises, and no decode of a stored artifact turns a
+    corrupt row into an exception on a reading path.
+    """
+    (bindings,) = read_rec(node, TAG_WORLD, 1)
+    read = read_seq(bindings, read_binding)
+    refs = [binding.ref for binding in read]
+    if len(set(refs)) != len(refs):
+        raise fail(WireFailure.NOT_CANONICAL, "a world binding each reference once", "a repeat")
+    if not is_canonically_ordered(read, lambda binding: binding.to_node()):
+        raise fail(WireFailure.NOT_CANONICAL, "world bindings in canonical order", "out of order")
+    return World(read)
 
 
 def world_of(assignment: dict[SymbolRef, Value]) -> World:

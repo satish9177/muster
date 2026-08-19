@@ -22,6 +22,7 @@ from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.values.scalars import (
     Value,
     derived_filler,
+    read_value,
     render,
     sort_of,
     value_in_domain,
@@ -29,8 +30,14 @@ from muster.core.values.scalars import (
 )
 from muster.core.values.sorts import Domain, Sort, domain_matches_sort
 from muster.core.wire.digests import Digest, DigestKind, digest_node
-from muster.core.wire.nodes import NAtom, NBool, NInt, NRec, NSeq
-from muster.core.wire.shape import option_node
+from muster.core.wire.nodes import NAtom, NBool, NInt, Node, NRec, NSeq
+from muster.core.wire.shape import (
+    option_node,
+    read_atom,
+    read_digest,
+    read_rec,
+    read_seq,
+)
 
 TAG_ACTION_FIELD = "ActionField/v1"
 TAG_ACTION = "Action/v1"
@@ -102,6 +109,28 @@ class ConsequentialAction:
             f"{field.name}={render(field.value)}" for field in self.consequential_fields
         )
         return f"{self.kind}({rendered})"
+
+
+def read_action_field(node: Node) -> ActionField:
+    name, value = read_rec(node, TAG_ACTION_FIELD, 2)
+    return ActionField(read_atom(name), read_value(value))
+
+
+def read_consequential_action(node: Node) -> ConsequentialAction:
+    """The inverse of :meth:`ConsequentialAction.to_node`.
+
+    Only the *projection* has a reader, and the unprojected ``Action`` does not.
+    A stored action is only ever read back as part of something that was
+    decided, and what was decided is the projection: reconstructing an
+    ``Action`` from a certificate would produce a value that reads like an
+    instruction while missing every diagnostic field the projection dropped.
+    """
+    action_schema_digest, kind, fields = read_rec(node, TAG_CONSEQUENTIAL_ACTION, 3)
+    return ConsequentialAction(
+        action_schema_digest=read_digest(action_schema_digest),
+        kind=read_atom(kind),
+        consequential_fields=read_seq(fields, read_action_field),
+    )
 
 
 @dataclass(frozen=True, slots=True)

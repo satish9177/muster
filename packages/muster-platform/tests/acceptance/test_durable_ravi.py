@@ -34,10 +34,19 @@ pytestmark = pytest.mark.postgres
 
 #  Frozen in packages/muster-kernel/tests/acceptance/test_determinism.py.
 #  Transcribed, not imported: two copies that must agree is the point.
-RAVI_REVISION_DIGEST = "51438b713114d3becc772a840a49f8b46c8cd213adf74d237cb10dd8bdec34a7"
-RAVI_LOGICAL_CASE_DIGEST = "14729c8dbca70a6ea3272b025af278c74ce77fac1714ab59f458fc8952a64e8e"
-RAVI_CERTIFICATE_DIGEST = "53f6f155a2fe67f0725671e2b9e3163c7bb4a531892db73b5e55109837b56a23"
-WORKFORCE_MANIFEST_DIGEST = "a6f51be4d74e3470fdba490d9d7e9ba0b79fbee5daf399a43f9692ee81dc4b11"
+#
+#  Moved once, deliberately, by milestone D: the workforce bundle's disclosure
+#  policy gained the ratified employer, site and auditor entries.  A disclosure
+#  entry is bundle data, the manifest commits to the policy's digest, a revision
+#  pins the manifest, and an entailed constraint cites the manifest it was
+#  derived under -- so the manifest, the revision, the logical case and the
+#  certificate all move together.  **No decision moved**: Ravi is still
+#  divergent, the plan still names both Saturday observations, and the attested
+#  revision still closes as invariant.
+RAVI_REVISION_DIGEST = "2361f3237bb622302f1057b720cd19e312c0466b1819143bc420965849eaffa0"
+RAVI_LOGICAL_CASE_DIGEST = "9036cf41b6aec3ea5a38836df6a72063b980dbb9357d5e5b6efe06b3f1b733eb"
+RAVI_CERTIFICATE_DIGEST = "473a0772f20524f6d7daf685e4b345086366b5983f5d183fbf5daa516b92191d"
+WORKFORCE_MANIFEST_DIGEST = "4ec52a0bdb95707347f9788343eb3d50dd4daef7903024eb059acc482ef26692"
 
 
 @pytest.fixture(autouse=True)

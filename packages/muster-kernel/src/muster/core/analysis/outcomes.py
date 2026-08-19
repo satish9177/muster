@@ -17,13 +17,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from muster.core.actions import ConsequentialAction
-from muster.core.analysis.worlds import World
-from muster.core.values.fingerprint import DeterminismClass, SolverFingerprint
+from muster.core.actions import ConsequentialAction, read_consequential_action
+from muster.core.analysis.worlds import World, read_world
+from muster.core.values.fingerprint import (
+    DeterminismClass,
+    SolverFingerprint,
+    read_solver_fingerprint,
+)
 from muster.core.wire.codec import canonical_set
 from muster.core.wire.digests import Digest, DigestKind, digest_node
 from muster.core.wire.nodes import NAtom, NInt, Node, NRec, NTagged
-from muster.core.wire.shape import atoms, digests
+from muster.core.wire.shape import (
+    WireFailure,
+    atoms,
+    digests,
+    fail,
+    read_atom,
+    read_digest,
+    read_int,
+    read_member,
+    read_rec,
+    read_seq,
+    read_set,
+    read_tagged,
+)
 
 TAG_TRUNCATED_REACHABLE = "TruncatedReachable/v1"
 TAG_INVARIANT_OUTCOME = "InvariantOutcome/v1"
@@ -187,6 +204,68 @@ def proposed_action(outcome: AnalysisOutcome) -> ConsequentialAction | None:
     return outcome.action if isinstance(outcome, Invariant) else None
 
 
+_NOT_COMPUTED_REASONS = frozenset(member.value for member in NotComputedReason)
+_INDETERMINATE_REASONS = frozenset(member.value for member in IndeterminateReason)
+_DETERMINISM_CLASSES = frozenset(member.value for member in DeterminismClass)
+
+
+def read_reachable(node: Node) -> ReachableActions:
+    tag, payload = read_tagged(node, "ReachableActions")
+    match tag:
+        case "Exact":
+            return ExactReachable(read_set(payload, read_consequential_action))
+        case "Truncated":
+            sample, cap = read_rec(payload, TAG_TRUNCATED_REACHABLE, 2)
+            return TruncatedReachable(read_set(sample, read_consequential_action), read_int(cap))
+        case "NotComputed":
+            return NotComputed(
+                NotComputedReason(read_member(payload, _NOT_COMPUTED_REASONS, "NotComputedReason"))
+            )
+        case _:
+            raise fail(WireFailure.UNKNOWN_VARIANT, "Exact | Truncated | NotComputed", tag)
+
+
+def read_outcome(node: Node) -> AnalysisOutcome:
+    """The inverse of :func:`outcome_node`.
+
+    Total over the four variants and refusing every fifth tag, because this is
+    what a reader of *stored* octets has in place of the type system: an outcome
+    it cannot name is an outcome it must not guess at.
+    """
+    tag, payload = read_tagged(node, "AnalysisOutcome")
+    match tag:
+        case "Invariant":
+            action, witness, query = read_rec(payload, TAG_INVARIANT_OUTCOME, 3)
+            return Invariant(
+                action=read_consequential_action(action),
+                witness=read_world(witness),
+                invariance_query_digest=read_digest(query),
+            )
+        case "Divergent":
+            reachable, left, right = read_rec(payload, TAG_DIVERGENT_OUTCOME, 3)
+            return Divergent(
+                reachable=read_reachable(reachable),
+                left=read_world(left),
+                right=read_world(right),
+            )
+        case "Infeasible":
+            (contributing,) = read_rec(payload, TAG_INFEASIBLE_OUTCOME, 1)
+            return Infeasible(read_seq(contributing, read_atom))
+        case "Indeterminate":
+            (reason,) = read_rec(payload, TAG_INDETERMINATE_OUTCOME, 1)
+            return Indeterminate(
+                IndeterminateReason(
+                    read_member(reason, _INDETERMINATE_REASONS, "IndeterminateReason")
+                )
+            )
+        case _:
+            raise fail(
+                WireFailure.UNKNOWN_VARIANT,
+                "Invariant | Divergent | Infeasible | Indeterminate",
+                tag,
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class KernelAnalysisRecord:
     """What the kernel produced, and enough to replay how it produced it.
@@ -216,3 +295,19 @@ class KernelAnalysisRecord:
 
     def digest(self) -> Digest:
         return digest_node(DigestKind.KERNEL_ANALYSIS_RECORD, self.to_node())
+
+
+def read_kernel_analysis_record(node: Node) -> KernelAnalysisRecord:
+    """The inverse of :meth:`KernelAnalysisRecord.to_node`."""
+    logical_case, outcome, queries, fingerprint, determinism = read_rec(
+        node, TAG_KERNEL_ANALYSIS_RECORD, 5
+    )
+    return KernelAnalysisRecord(
+        logical_case_digest=read_digest(logical_case),
+        outcome=read_outcome(outcome),
+        query_digests=read_seq(queries, read_digest),
+        fingerprint=read_solver_fingerprint(fingerprint),
+        determinism_class=DeterminismClass(
+            read_member(determinism, _DETERMINISM_CLASSES, "DeterminismClass")
+        ),
+    )

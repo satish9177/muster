@@ -33,6 +33,7 @@ the substrate:
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
@@ -48,7 +49,9 @@ from muster.platform.adapters.sql.schema import migrate
 from muster.platform.casework.ports import (
     CaseHead,
     CaseworkDatabase,
+    CommitmentFailure,
     HeadFailure,
+    PublishedCommitment,
     RecordedRequest,
     RequestFailure,
     StoreFailure,
@@ -597,6 +600,102 @@ def test_a_request_stops_being_outstanding_when_the_head_moves(
     with custody.database.reading(custody.tenant_id) as scope:
         after = scope.requests.outstanding(case_id)
     assert isinstance(after, Ok) and after.value == ()
+
+
+#  ---- commitment envelopes -------------------------------------------------
+
+
+def _commitment(case_id: str, *, seed: bytes = b"") -> PublishedCommitment:
+    """A commitment row. The octets are arbitrary: no adapter decodes them.
+
+    What both adapters enforce is that a row is written once, keyed by the
+    revision it commits, and never rewritten -- and that is a property of the
+    table rather than of the envelope inside it.
+    """
+    return PublishedCommitment(
+        case_id=case_id,
+        revision_digest=Digest(hashlib.sha256(b"revision" + seed).digest()),
+        envelope_octets=b"signed envelope" + seed,
+    )
+
+
+def test_a_commitment_needs_a_case(custody: Custody, case_id: str) -> None:
+    with custody.database.writing(custody.tenant_id) as scope:
+        published = scope.commitments.publish(_commitment(case_id))
+    assert isinstance(published, Err)
+    assert published.error.failure is CommitmentFailure.UNKNOWN_CASE
+
+
+def test_publishing_a_commitment_twice_creates_one_row_and_keeps_the_first(
+    custody: Custody, case_id: str
+) -> None:
+    """First writer wins, and the loser is told it created nothing.
+
+    Two publications of one revision agree about every field except the
+    signature, which is not reproducible. Keeping the earlier one is what makes
+    the artifact a participant verified yesterday the artifact they can verify
+    today.
+    """
+    _open(custody, case_id)
+    first = _commitment(case_id)
+    second = PublishedCommitment(
+        case_id=first.case_id,
+        revision_digest=first.revision_digest,
+        envelope_octets=b"a second, equally valid signature",
+    )
+
+    with custody.database.writing(custody.tenant_id) as scope:
+        created = scope.commitments.publish(first)
+    assert isinstance(created, Ok) and created.value is True
+
+    with custody.database.writing(custody.tenant_id) as scope:
+        again = scope.commitments.publish(second)
+    assert isinstance(again, Ok) and again.value is False
+
+    with custody.database.reading(custody.tenant_id) as scope:
+        stored = scope.commitments.read(case_id, first.revision_digest)
+    assert isinstance(stored, Ok), stored
+    assert stored.value == first
+
+
+def test_two_revisions_of_one_case_are_two_commitments(custody: Custody, case_id: str) -> None:
+    _open(custody, case_id)
+    first = _commitment(case_id, seed=b"-r1")
+    second = _commitment(case_id, seed=b"-r2")
+    assert first.revision_digest != second.revision_digest
+
+    with custody.database.writing(custody.tenant_id) as scope:
+        assert isinstance(scope.commitments.publish(first), Ok)
+        assert isinstance(scope.commitments.publish(second), Ok)
+
+    with custody.database.reading(custody.tenant_id) as scope:
+        for expected in (first, second):
+            found = scope.commitments.read(case_id, expected.revision_digest)
+            assert isinstance(found, Ok), found
+            assert found.value == expected
+
+
+def test_reading_an_uncommitted_revision_is_a_typed_absence(custody: Custody, case_id: str) -> None:
+    """Early rather than wrong: a head becomes head before it is committed."""
+    _open(custody, case_id)
+    with custody.database.reading(custody.tenant_id) as scope:
+        missing = scope.commitments.read(case_id, Digest(b"3" * 32))
+    assert isinstance(missing, Err)
+    assert missing.error.failure is CommitmentFailure.COMMITMENT_ABSENT
+
+
+def test_one_tenants_commitment_is_not_another_tenants(custody: Custody, case_id: str) -> None:
+    """The key leads with the tenant, so a cross-tenant read finds nothing."""
+    _open(custody, case_id)
+    commitment = _commitment(case_id)
+    with custody.database.writing(custody.tenant_id) as scope:
+        assert isinstance(scope.commitments.publish(commitment), Ok)
+
+    elsewhere = f"{custody.tenant_id}-other"
+    with custody.database.reading(elsewhere) as scope:
+        found = scope.commitments.read(case_id, commitment.revision_digest)
+    assert isinstance(found, Err)
+    assert found.error.failure is CommitmentFailure.COMMITMENT_ABSENT
 
 
 #  ---- transactions ---------------------------------------------------------

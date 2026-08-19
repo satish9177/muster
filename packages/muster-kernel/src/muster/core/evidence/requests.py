@@ -134,3 +134,17 @@ class HumanEscalation:
 
     def to_node(self) -> NRec:
         return NRec(TAG_HUMAN_ESCALATION, (NAtom(self.reason), symbol_seq(self.unacquirable)))
+
+
+def read_human_escalation(node: Node) -> HumanEscalation:
+    """The inverse of :meth:`HumanEscalation.to_node`.
+
+    ``minimum=1`` rather than a check afterwards: an escalation naming nothing
+    is refused by the constructor with an exception, and octets from a store
+    have to be refused with a value instead.
+    """
+    reason, unacquirable = read_rec(node, TAG_HUMAN_ESCALATION, 2)
+    return HumanEscalation(
+        reason=read_atom(reason),
+        unacquirable=read_seq(unacquirable, read_symbol_ref, minimum=1),
+    )

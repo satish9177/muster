@@ -5,9 +5,12 @@ module interprets them.  Putting the rules themselves in the bundle while
 admissibility consumed the policy IR is what made the Phase-0 dependency graph
 cyclic.
 
-The disclosure policy is carried for one reason in Milestone A -- the manifest
-commits to its digest, and a bundle with a field left out is not a bundle.  No
-redaction logic exists here; that is milestone D.
+The disclosure policy is carried for one reason -- the manifest commits to its
+digest, and a bundle with a field left out is not a bundle.  No redaction logic
+is here and none belongs here: this kernel decides, and who may be told what is
+a control-plane question.  What did arrive with milestone D is a *reader*, so
+that a participant checking a view can turn the policy octets they hold into
+the value the check takes.  Reading a policy is not applying one.
 """
 
 from __future__ import annotations
@@ -19,8 +22,19 @@ from muster.core.results import InvariantViolation
 from muster.core.values.times import Instant
 from muster.core.wire.codec import canonical_set
 from muster.core.wire.digests import Digest, DigestKind, digest_node, digest_node_of
-from muster.core.wire.nodes import NAtom, NBool, NInt, NRec, NSeq
-from muster.core.wire.shape import atom_or_none, atoms, option_node
+from muster.core.wire.nodes import NAtom, NBool, NInt, Node, NRec, NSeq
+from muster.core.wire.shape import (
+    atom_or_none,
+    atoms,
+    option_node,
+    read_atom,
+    read_bool,
+    read_digest,
+    read_int,
+    read_option,
+    read_rec,
+    read_seq,
+)
 
 TAG_ADMISSIBILITY_DESCRIPTOR = "AdmissibilityDescriptor/v1"
 TAG_ADMISSIBILITY_DESCRIPTORS = "AdmissibilityDescriptors/v1"
@@ -201,3 +215,31 @@ class RatificationSet:
             if candidate.digest() == ref:
                 return candidate
         return None
+
+
+def read_disclosure_entry(node: Node) -> DisclosureEntry:
+    fields = read_rec(node, TAG_DISCLOSURE_ENTRY, 7)
+    return DisclosureEntry(
+        outcome_class=read_atom(fields[0]),
+        action_kind=read_option(fields[1], read_atom),
+        audience_class=read_atom(fields[2]),
+        disclosure_context=read_atom(fields[3]),
+        reveals_sensitive_input=read_bool(fields[4]),
+        inference_acknowledgement_ref=read_option(fields[5], read_digest),
+        permitted_paths=read_seq(fields[6], read_atom),
+    )
+
+
+def read_disclosure_policy(node: Node) -> DisclosurePolicy:
+    """The pinned policy, back from octets.
+
+    A reader who is verifying a view holds this policy out of band -- from the
+    bundle they were given, not from the view they are checking -- so something
+    has to turn the octets they hold into the value the check takes.  Without
+    it, "supply your own policy" would mean "supply the sender's".
+    """
+    schema_version, entries = read_rec(node, TAG_DISCLOSURE_POLICY, 2)
+    return DisclosurePolicy(
+        schema_version=read_int(schema_version),
+        entries=read_seq(entries, read_disclosure_entry),
+    )

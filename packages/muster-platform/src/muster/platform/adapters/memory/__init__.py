@@ -52,10 +52,14 @@ from muster.core.wire.digests import Digest, DigestKind, digest_octets
 from muster.platform.casework.ports import (
     CaseHead,
     CaseHeadRepository,
+    CommitmentError,
+    CommitmentFailure,
+    CommitmentRepository,
     ContentStore,
     EvidenceRequestRepository,
     HeadError,
     HeadFailure,
+    PublishedCommitment,
     RecordedRequest,
     RequestError,
     RequestFailure,
@@ -91,6 +95,7 @@ class MemoryRecords:
     heads: dict[tuple[str, str], CaseHead] = field(default_factory=dict)
     members: dict[tuple[str, str], frozenset[Digest]] = field(default_factory=dict)
     requests: dict[tuple[str, str, Digest], RecordedRequest] = field(default_factory=dict)
+    commitments: dict[tuple[str, str, Digest], PublishedCommitment] = field(default_factory=dict)
 
     def copy(self) -> MemoryRecords:
         """A copy a transaction can write to and then abandon.
@@ -104,6 +109,7 @@ class MemoryRecords:
             heads=dict(self.heads),
             members=dict(self.members),
             requests=dict(self.requests),
+            commitments=dict(self.commitments),
         )
 
 
@@ -382,12 +388,50 @@ class MemoryEvidenceRequestRepository:
         return Ok(tuple(sorted(found, key=lambda request: request.request_id.octets)))
 
 
+#  ---- commitment envelopes ------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryCommitmentRepository:
+    """One immutable envelope per published revision.  No update, no delete."""
+
+    records: MemoryRecords
+    tenant_id: str
+    writable: bool
+
+    def publish(self, commitment: PublishedCommitment) -> Result[bool, CommitmentError]:
+        _require_writable(self.writable, "casework.case_commitment")
+        if (self.tenant_id, commitment.case_id) not in self.records.heads:
+            return Err(CommitmentError(CommitmentFailure.UNKNOWN_CASE, commitment.case_id))
+        key = (self.tenant_id, commitment.case_id, commitment.revision_digest)
+        if key in self.records.commitments:
+            #  First writer wins, and the loser is told it created nothing --
+            #  which is what makes publishing idempotent rather than merely
+            #  repeatable.
+            return Ok(False)
+        self.records.commitments[key] = commitment
+        return Ok(True)
+
+    def read(
+        self, case_id: str, revision_digest: Digest
+    ) -> Result[PublishedCommitment, CommitmentError]:
+        found = self.records.commitments.get((self.tenant_id, case_id, revision_digest))
+        if found is None:
+            return Err(
+                CommitmentError(
+                    CommitmentFailure.COMMITMENT_ABSENT,
+                    f"{case_id} has no commitment for {revision_digest.hex}",
+                )
+            )
+        return Ok(found)
+
+
 #  ---- transaction scopes --------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class MemoryTenantScope:
-    """Four repositories over one set of records, one tenant, one transaction."""
+    """Five repositories over one set of records, one tenant, one transaction."""
 
     records: MemoryRecords
     _tenant_id: str
@@ -412,6 +456,10 @@ class MemoryTenantScope:
     @property
     def requests(self) -> EvidenceRequestRepository:
         return MemoryEvidenceRequestRepository(self.records, self._tenant_id, self.writable)
+
+    @property
+    def commitments(self) -> CommitmentRepository:
+        return MemoryCommitmentRepository(self.records, self._tenant_id, self.writable)
 
 
 def _require_writable(writable: bool, table: str) -> None:

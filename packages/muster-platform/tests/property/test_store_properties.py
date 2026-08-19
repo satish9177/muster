@@ -142,8 +142,17 @@ def test_arrival_order_does_not_reach_the_transcript_prefix(
 def test_membership_counts_entries_not_deliveries(
     database: SqlDatabase, tenant_id: str, deliveries: list[int]
 ) -> None:
-    """Duplicates collapse, however many times each one arrives."""
-    case_id = f"case-dup-{len(deliveries)}-{sum(deliveries)}-{deliveries[0]}"
+    """Duplicates collapse, however many times each one arrives.
+
+    The case identifier is derived from the whole delivery sequence, as its
+    sibling above derives one from the whole order.  A summary of it -- length,
+    sum, first element -- is not injective: ``[0, 1, 2]`` and ``[0, 0, 3]``
+    share all three and have different member sets, so two examples in one run
+    would land on one case, membership would accumulate across them, and the
+    count below would be a count of both.  The tenant is fresh per test and not
+    per example, which is what makes that reachable at all.
+    """
+    case_id = f"case-dup-{'-'.join(str(index) for index in deliveries)}"
     casework = ravi.casework(database)
     built = ravi.ravi(tenant_id, case_id)
     open_ravi(casework, built)

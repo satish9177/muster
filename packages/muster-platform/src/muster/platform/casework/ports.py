@@ -1,6 +1,6 @@
 """The custody boundary, stated as protocols that name no database.
 
-Four repositories, two transaction scopes, and one structural decision that the
+Five repositories, two transaction scopes, and one structural decision that the
 tenant-isolation tests lean on entirely:
 
 **A repository does not exist until a tenant has been named.**  ``TenantScope``
@@ -18,6 +18,11 @@ distinction is enforced in the schema by which foreign keys exist -- see
 ``adapters.sql.migrations`` -- and it is the reason ``ContentStore`` has no
 delete: pruning a cache is an operator's deliberate act against the table, not
 an operation the application is given.
+
+The commitment repository is the one artifact that sits on neither side of that
+line cleanly, and it says so: its *content* is derived and reproducible, its
+*signature* is not, so it is stored as an immutable authored artifact and never
+recomputed in place.
 """
 
 from __future__ import annotations
@@ -336,6 +341,66 @@ class EvidenceRequestRepository(Protocol):
         ...
 
 
+#  ---- commitment envelopes -----------------------------------------------
+
+
+class CommitmentFailure(Enum):
+    UNKNOWN_CASE = "UNKNOWN_CASE"
+    #: No envelope has been published for this revision.  A normal state, not a
+    #: fault: a revision becomes head first and is committed immediately after,
+    #: and a reader that arrives between the two is early rather than wrong.
+    COMMITMENT_ABSENT = "COMMITMENT_ABSENT"
+
+
+@dataclass(frozen=True, slots=True)
+class CommitmentError:
+    failure: CommitmentFailure
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedCommitment:
+    """A signed envelope, as the octets it was signed as.
+
+    Octets rather than a decoded value, for the same reason the content store
+    holds octets: the signature covers a canonical encoding, and a store that
+    decoded and re-encoded would be asserting its own codec agrees with the one
+    that signed.  It either returns what was written or it is broken.
+    """
+
+    case_id: str
+    revision_digest: Digest
+    envelope_octets: bytes
+
+
+class CommitmentRepository(Protocol):
+    """One immutable envelope per published revision.
+
+    Append-only and insert-if-absent, like everything else that is authored
+    rather than derived -- and an envelope is *both*, which is why it is stored
+    at all.  Its content is a function of the record and the case salt, so it
+    is reproducible; its signature is not, because the signing primitive is
+    randomised and a managed key will not re-issue the same octets.  Storing it
+    is therefore the only way a participant can be handed the same authenticated
+    envelope twice.
+
+    There is no update and no delete.  A second publication of one revision
+    keeps the first envelope: two valid signatures over identical content are
+    equally true, and choosing the later one would mean a participant who
+    checked yesterday cannot check the same artifact today.
+    """
+
+    def publish(self, commitment: PublishedCommitment) -> Result[bool, CommitmentError]:
+        """Insert if absent. ``True`` when this call created the row."""
+        ...
+
+    def read(
+        self, case_id: str, revision_digest: Digest
+    ) -> Result[PublishedCommitment, CommitmentError]:
+        """The envelope published for this revision, or a typed absence."""
+        ...
+
+
 #  ---- transaction scopes -------------------------------------------------
 
 
@@ -352,6 +417,8 @@ class TenantScope(Protocol):
     def heads(self) -> CaseHeadRepository: ...
     @property
     def requests(self) -> EvidenceRequestRepository: ...
+    @property
+    def commitments(self) -> CommitmentRepository: ...
 
 
 class CaseworkDatabase(Protocol):

@@ -10,6 +10,15 @@ exactly when an entry has arrived and not yet been published, which is a normal
 state and not a fault, and conflating them would either replay a head that
 never existed or advance a case while ignoring evidence it already holds.
 
+``read_certificate`` is the third, and it is a read rather than a derivation on
+purpose.  A revision is a pure function of the rebuild inputs and the store, so
+replaying it proves the case; a *certificate* also records what a particular
+solver, at a particular version, under a particular budget, answered -- and the
+certificate binds that fingerprint precisely because it is not a constant of the
+system.  Recomputing one therefore asks today's engine to reproduce yesterday's
+answer, which it may legitimately decline to do after an operator raises a bound
+or changes a backend.  So the revision is replayed and the certificate is read.
+
 ``read_published`` is why the prefix is stored at all.  A prefix digest is a
 hash of a digest list and nothing recovers the list from it, so a revision
 cannot be rebuilt from ``RebuildInputs`` and a store unless the store holds the
@@ -28,6 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
+from muster.core.analysis.certificate import AnalysisCertificate, read_analysis_certificate
 from muster.core.case.revision import (
     AuthorizationContext,
     TranscriptPrefix,
@@ -42,7 +52,7 @@ from muster.core.evidence.transcript import (
     read_case_construction,
     read_entry,
 )
-from muster.core.results import Err, Ok, Result
+from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.wire.codec import decode
 from muster.core.wire.digests import Digest, DigestKind
 from muster.core.wire.nodes import Node
@@ -101,6 +111,60 @@ def read_published(scope: TenantScope, case_id: str) -> Result[CaseSnapshot, Sna
     if isinstance(prefix, Err):
         return prefix
     return _assemble(scope, head.value, prefix.value.entry_digests)
+
+
+def read_certificate(
+    scope: TenantScope, head: CaseHead
+) -> Result[AnalysisCertificate, SnapshotError]:
+    """The certificate the head names, as the value that was assembled.
+
+    Three checks, and each one closes a different door.
+
+    The **store** hands back only octets that hash to the key they are stored
+    under, so a row edited in place is refused before anything reads it.
+
+    The **round trip** is checked here: the decoded certificate is re-encoded
+    and its digest compared against the key it came from.  That is not a
+    restatement of the store's check -- it is the claim that *this reader is
+    lossless for these octets*.  Every leaf a commitment publishes is
+    re-encoded from the value this returns, so a reader that quietly dropped a
+    field would produce a smaller record that still verified against itself.
+    It cannot: the digest would move, and the read fails instead.
+
+    The **binding** is checked last, because an artifact that says which case it
+    belongs to should be believed about it or refused, never ignored -- the same
+    rule every other read in this module follows.
+
+    What is *not* checked here is the revision: a certificate cites one by
+    digest, and comparing that against a replayed revision needs the replay,
+    which is the caller's.
+    """
+    digest = head.certificate_digest
+    if digest is None:
+        return Err(SnapshotError(SnapshotFailure.NOT_ANALYSED, head.case_id))
+    octets = scope.content.get(DigestKind.ANALYSIS_CERTIFICATE, digest)
+    if isinstance(octets, Err):
+        return Err(_store_error(octets.error))
+    certificate = _read(octets.value, read_analysis_certificate, "AnalysisCertificate")
+    if isinstance(certificate, Err):
+        return certificate
+    if certificate.value.digest() != digest:
+        return Err(
+            SnapshotError(
+                SnapshotFailure.CONTENT_UNREADABLE,
+                f"AnalysisCertificate: re-encoding what was read under {digest.hex} "
+                f"produces {certificate.value.digest().hex}",
+            )
+        )
+    bound = _bound(
+        (certificate.value.tenant_id, certificate.value.case_id),
+        scope.tenant_id,
+        head.case_id,
+        "AnalysisCertificate",
+    )
+    if isinstance(bound, Err):
+        return bound
+    return certificate
 
 
 def _read_prefix(scope: TenantScope, head: CaseHead) -> Result[TranscriptPrefix, SnapshotError]:
@@ -192,11 +256,27 @@ def _read_context(
 
 
 def _read[T](octets: bytes, reader: Callable[[Node], T], what: str) -> Result[T, SnapshotError]:
+    """Stored octets as a typed value, or a refusal -- never an exception.
+
+    Two failure modes, and the second is the one worth naming.  A typed reader
+    reports a shape it cannot parse by raising ``WireDecodeError``, which
+    ``decoded`` turns into a value.  A *constructor* reports an invariant the
+    parsed shape violates -- a world binding one reference twice, a request
+    naming one proposition twice -- by raising ``InvariantViolation``, which is
+    right when the system is building the value and wrong here: these octets
+    came from a store, so a violated invariant is a finding about the row, and
+    a finding has to reach the caller as a value.  Left uncaught it would be an
+    exception on the reading path, where a corrupt row is meant to look like a
+    refusal and not like a crash.
+    """
     node = decode(octets)
     if isinstance(node, Err):
         return Err(SnapshotError(SnapshotFailure.CONTENT_UNREADABLE, f"{what}: {node.error}"))
     decoded_node = node.value
-    read = decoded(lambda: reader(decoded_node))
+    try:
+        read = decoded(lambda: reader(decoded_node))
+    except InvariantViolation as violation:
+        return Err(SnapshotError(SnapshotFailure.CONTENT_UNREADABLE, f"{what}: {violation}"))
     if isinstance(read, Err):
         return Err(SnapshotError(SnapshotFailure.CONTENT_UNREADABLE, f"{what}: {read.error}"))
     return Ok(read.value)

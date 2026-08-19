@@ -6,6 +6,16 @@ Domain separation is worth nothing unless the namespace is closed, so the kind
 is an enumeration rather than a string: an undeclared domain is unrepresentable
 at the call site, not merely rejected inside it.  Each kind names the single
 wire type whose canonical encoding is its preimage.
+
+The namespace has a second half that is not here.  A few domains have a
+preimage that is *not* one wire type -- the two children of a commitment-tree
+node, the empty tree, a keyed salt label -- and those are declared beside the
+code that owns those preimages, in the control plane's commitment layer, which
+this kernel does not name and cannot import.  The two enumerations are
+disjoint, and a test says so.  Splitting them keeps the
+sentence above true: a member of this enumeration always names a type.  What
+both halves share is :func:`domain_separator`, so the octets a preimage opens
+with are written once.
 """
 
 from __future__ import annotations
@@ -18,16 +28,16 @@ from muster.core.results import InvariantViolation
 from muster.core.wire.codec import encode
 from muster.core.wire.nodes import DIGEST_OCTETS, NDigest, Node
 
-_PREFIX = b"muster/v1/"
+DOMAIN_PREFIX: bytes = b"muster/v1/"
 
 
 class DigestKind(Enum):
-    """The digest domains this kernel uses.
+    """The type digest domains, each naming one frozen Phase-0.8 wire type.
 
-    Every member names a frozen Phase-0.8 type domain.  Auxiliary domains
-    (Merkle nodes, field salts, commitments) belong to milestone D and are
-    deliberately absent: reserving a domain before its preimage exists is how
-    two domains end up colliding later.
+    A member is added when something encodes that type and digests it, never
+    in advance: reserving a domain before its preimage exists is how two
+    domains end up colliding later.  The commitment members below arrived with
+    milestone D, which is the first thing that builds the preimages they name.
     """
 
     SYMBOL_REF = "SYMBOL_REF"
@@ -68,6 +78,16 @@ class DigestKind(Enum):
     EVIDENCE_REQUEST = "EVIDENCE_REQUEST"
     ANALYSIS_CERTIFICATE = "ANALYSIS_CERTIFICATE"
 
+    #  Commitment and disclosure.  Each preimage here is the canonical encoding
+    #  of the type the member is named after, exactly as above; the domains
+    #  whose preimage is not a single type live in the platform's enumeration.
+    MERKLE_LEAF = "MERKLE_LEAF"
+    MERKLE_ROOT = "MERKLE_ROOT"
+    COMMITMENT_ENVELOPE = "COMMITMENT_ENVELOPE"
+    DISCLOSURE_ENTRY = "DISCLOSURE_ENTRY"
+    PARTICIPANT_VIEW = "PARTICIPANT_VIEW"
+    AUDITOR_VIEW = "AUDITOR_VIEW"
+
 
 @dataclass(frozen=True, slots=True)
 class Digest:
@@ -97,10 +117,21 @@ def digest_node_of(digest: Digest) -> NDigest:
     return digest.to_node()
 
 
+def domain_separator(domain: str) -> bytes:
+    """The octets every preimage under ``domain`` opens with.
+
+    Exported because the auxiliary domains live in another package and this
+    construction must not be written twice.  It takes a ``str`` rather than a
+    ``DigestKind`` for that reason alone, and it is not a hashing function: a
+    caller holding a separator still has to say what it is separating, so
+    forgetting the domain is not something this makes possible.
+    """
+    return DOMAIN_PREFIX + domain.encode("ascii") + b"\x00"
+
+
 def digest_octets(kind: DigestKind, octets: bytes) -> Digest:
     """Digest a preimage that is already canonical octets."""
-    body = hashlib.sha256(_PREFIX + kind.value.encode("ascii") + b"\x00" + octets)
-    return Digest(body.digest())
+    return Digest(hashlib.sha256(domain_separator(kind.value) + octets).digest())
 
 
 def digest_node(kind: DigestKind, node: Node) -> Digest:

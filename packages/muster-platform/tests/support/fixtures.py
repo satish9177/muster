@@ -141,6 +141,7 @@ def reset_tenant(dsn: str, tenant_id: str) -> None:
     with psycopg.connect(dsn) as connection:
         for statement in (
             "DELETE FROM casework.evidence_request WHERE tenant_id = %s",
+            "DELETE FROM casework.case_commitment WHERE tenant_id = %s",
             "DELETE FROM casework.transcript_entry WHERE tenant_id = %s",
             "DELETE FROM casework.case_head WHERE tenant_id = %s",
             "DELETE FROM store.content WHERE tenant_id = %s",

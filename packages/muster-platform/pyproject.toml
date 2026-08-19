@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "MUSTER control plane: durable case custody and the imperative shell around the deterministic kernel."
 requires-python = ">=3.12"
 
-#  Two dependencies, and the second one is the whole point of this milestone.
+#  Three dependencies, and each one is confined to a single adapter subtree.
 #
 #  ``psycopg`` is the PostgreSQL driver.  Nothing else is here -- no ORM in
 #  particular.  Every operation that decides correctness in this package is a
@@ -20,12 +20,23 @@ requires-python = ">=3.12"
 #  longer agrees with, would hide precisely the two things the concurrency
 #  suite exists to prove.
 #
+#  ``cryptography`` arrived with the commitment layer, and the reason is a
+#  property rather than a convenience.  A participant must be able to verify
+#  their own view and forge nobody's, including their own, so the envelope
+#  signature has to be asymmetric -- and the standard library has no asymmetric
+#  primitive at all.  It appears under ``adapters/crypto`` and nowhere else, the
+#  same confinement the driver has, asserted by two independent checks.
+#
 #  Deliberately absent, and each absence is a fact about the lockfile rather
 #  than a rule someone has to remember: no web framework, no cloud SDK, no
-#  model client, no broker, no task queue, no migration framework.
+#  model client, no broker, no task queue, no migration framework.  In
+#  particular there is still no cloud key management client: the two commitment
+#  ports name the primitives, not the custody, so the managed implementation is
+#  a later adapter rather than a dependency taken now.
 dependencies = [
     "muster-kernel==0.1.0",
     "psycopg[binary]>=3.2,<4",
+    "cryptography>=43,<52",
 ]
 
 [tool.setuptools.packages.find]
