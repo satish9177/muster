@@ -27,6 +27,8 @@ from muster.admissibility.derive import (
     derive,
 )
 from muster.application.rebuild import RebuildFailure, rebuild, transcript_prefix
+from muster.core.authority.check import AuthorityView
+from muster.core.evidence.solicitation import SolicitationView
 from muster.core.evidence.transcript import Attestation, Statement
 from muster.core.results import Err, Ok
 from muster.core.values.times import HalfOpenInterval
@@ -52,6 +54,24 @@ def _snapshot(**changes: object) -> AdmissibilitySnapshot:
     return dataclasses.replace(base, **changes)  # type: ignore[arg-type]
 
 
+def _authority(snapshot: AdmissibilitySnapshot) -> AuthorityView:
+    """The case's own pinned authority, at the snapshot's tenant and instant.
+
+    Taken from the fixture rather than minted, so a guard test that changed the
+    tenant finds Q-12(c) refusing it -- which is the correct answer and one of
+    the things these tests are for.
+    """
+    case = ravi.case_file()
+    return AuthorityView(
+        snapshot=case.authority_snapshot,
+        revocation=case.revocation_snapshot,
+        tenant_id=snapshot.tenant_id,
+        authorization_policy_version=(case.authorization_context.authorization_policy_version),
+        case_scope_coordinates=case.construction.case_scope_coordinates,
+        as_of=snapshot.as_of,
+    )
+
+
 def _derive(snapshot: AdmissibilitySnapshot, descriptors: object | None = None) -> object:
     bundle = ravi.bundle()
     return derive(
@@ -59,6 +79,11 @@ def _derive(snapshot: AdmissibilitySnapshot, descriptors: object | None = None) 
         descriptors if descriptors is not None else bundle.admissibility_descriptors,  # type: ignore[arg-type]
         bundle.predicate_schema,
         bundle.predicate_schema.digest(),
+        _authority(snapshot),
+        #  Nothing solicited: these cases test the bundle half of Q-12(a), and
+        #  an empty view narrows nothing -- which is the reading a case that
+        #  issued no requests has.
+        SolicitationView.of(snapshot.tenant_id, snapshot.case_id, ()),
     )
 
 
@@ -265,6 +290,9 @@ def test_two_attested_bounds_on_one_proposition_do_not_collide() -> None:
         entries,
         bundle,
         case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Ok), built
     labels = [
@@ -291,7 +319,16 @@ def test_a_revision_cannot_be_built_under_a_lapsed_authorization_context() -> No
         case.rebuild_inputs(bundle.digest(), prefix.digest()),
         authorization_context_digest=lapsed.digest(),
     )
-    built = rebuild(inputs, case.construction, case.entries, bundle, lapsed)
+    built = rebuild(
+        inputs,
+        case.construction,
+        case.entries,
+        bundle,
+        lapsed,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
+    )
     assert isinstance(built, Err)
     assert built.error.failure is RebuildFailure.AUTHORIZATION_CONTEXT_NOT_VALID
 
@@ -309,6 +346,9 @@ def test_the_authorization_context_must_be_the_one_the_inputs_pin() -> None:
         case.entries,
         bundle,
         other,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Err)
     assert built.error.failure is RebuildFailure.AUTHORIZATION_CONTEXT_DIGEST_MISMATCH

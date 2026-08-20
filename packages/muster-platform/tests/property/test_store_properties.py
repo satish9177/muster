@@ -116,7 +116,7 @@ def test_arrival_order_does_not_reach_the_transcript_prefix(
         for entry in chosen:
             from muster.platform.ingest.admission import admit_entry
 
-            admitted = admit_entry(scope, case_id, entry)
+            admitted = admit_entry(scope, case_id, entry, ravi.admission_authority(built))
             assert isinstance(admitted, Ok), admitted
             added = scope.transcript.add(case_id, admitted.value.entry_digest)
             assert isinstance(added, Ok), added
@@ -161,7 +161,9 @@ def test_membership_counts_entries_not_deliveries(
 
     with database.writing(tenant_id) as scope:
         for index in deliveries:
-            admitted = admit_entry(scope, case_id, built.entries[index])
+            admitted = admit_entry(
+                scope, case_id, built.entries[index], ravi.admission_authority(built)
+            )
             assert isinstance(admitted, Ok), admitted
             added = scope.transcript.add(case_id, admitted.value.entry_digest)
             assert isinstance(added, Ok), added

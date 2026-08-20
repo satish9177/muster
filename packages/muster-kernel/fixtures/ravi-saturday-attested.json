@@ -6,12 +6,62 @@
   "mode": "OPERATIONAL",
   "authorization_context": {
     "authorization_policy_version": 1,
-    "key_registry_snapshot_digest": "7f7980ab04166b65bf4e9b22405394aebb19ddd0d11ebe06c06d575a5e0e9c50",
-    "revocation_snapshot_digest": "e4d3b2b4a6ca8e12ca5d9fcf398352312b81fbfc3151575808d05ff68cfdc4fb",
     "validity": {
       "start": 1785913600000000,
       "end": 1786086400000000
     }
+  },
+  "authority_registry": {
+    "registry_id": "authority-registry-1",
+    "authorization_policy_version": 1,
+    "published_at": 1785000000000000,
+    "grants": [
+      {
+        "key_ref": "key-hr-payroll-1",
+        "principal_id": "EMPLOYER-1",
+        "source_class": "HR_PAYROLL_SYSTEM",
+        "permitted_predicates": [
+          "daily_rate",
+          "scheduled"
+        ],
+        "resource_scope": [
+          {
+            "kind": "EMPLOYER",
+            "value": "EMPLOYER-1"
+          }
+        ],
+        "validity": {
+          "start": 1785000000000000,
+          "end": 1790000000000000
+        },
+        "authorization_policy_version": 1
+      },
+      {
+        "key_ref": "key-site-a-1",
+        "principal_id": "SITE-A",
+        "source_class": "SITE_ACCESS_CONTROL",
+        "permitted_predicates": [
+          "present_on_site",
+          "on_site_duration"
+        ],
+        "resource_scope": [
+          {
+            "kind": "SITE",
+            "value": "SITE-A"
+          }
+        ],
+        "validity": {
+          "start": 1785000000000000,
+          "end": 1790000000000000
+        },
+        "authorization_policy_version": 1
+      }
+    ]
+  },
+  "revocation": {
+    "registry_id": "revocation-registry-1",
+    "published_at": 1785000000000000,
+    "revoked_key_refs": []
   },
   "case_construction": {
     "created_at": 1785827200000000,
@@ -38,6 +88,16 @@
         "competences": [
           "SITE_ACCESS_CONTROL"
         ]
+      }
+    ],
+    "case_scope_coordinates": [
+      {
+        "kind": "SITE",
+        "value": "SITE-A"
+      },
+      {
+        "kind": "EMPLOYER",
+        "value": "EMPLOYER-1"
       }
     ],
     "signer_key_ref": "key-case-officer-1"
@@ -242,7 +302,7 @@
         "unit": "INR",
         "scale": 2
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -275,7 +335,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -308,7 +368,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -341,7 +401,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -374,7 +434,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -407,7 +467,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -440,7 +500,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -473,7 +533,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -506,7 +566,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -539,7 +599,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -572,7 +632,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -605,7 +665,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -638,7 +698,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -671,7 +731,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -704,7 +764,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -737,7 +797,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -770,7 +830,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785913600000000,
       "issued_at": 1785996400000000,
       "validity": {
@@ -825,7 +885,7 @@
       "value_sort": {
         "kind": "bool"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785956800000000,
       "issued_at": 1785998200000000,
       "validity": {
@@ -858,7 +918,7 @@
       "value_sort": {
         "kind": "int"
       },
-      "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+      "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
       "observed_at": 1785956800000000,
       "issued_at": 1785998200000000,
       "validity": {

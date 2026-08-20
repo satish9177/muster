@@ -258,7 +258,16 @@ def test_a_case_declaring_both_twins_is_refused_with_a_typed_value() -> None:
         case.rebuild_inputs(ravi.bundle().digest(), prefix.digest()),
         construction_digest=construction.digest(),
     )
-    outcome = rebuild(inputs, construction, case.entries, ravi.bundle(), case.authorization_context)
+    outcome = rebuild(
+        inputs,
+        construction,
+        case.entries,
+        ravi.bundle(),
+        case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
+    )
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RebuildFailure.DUPLICATE_CONSTRAINT_LABEL
     assert outcome.error.detail == constraint_label("C-DOM", TWIN_LEFT)

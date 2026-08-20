@@ -138,7 +138,7 @@ def _admit_without_advancing(
     from muster.platform.ingest.admission import admit_entry
 
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added

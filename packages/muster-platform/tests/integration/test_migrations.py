@@ -128,7 +128,7 @@ def test_the_schema_is_what_the_repositories_expect(scratch_database: str) -> No
             (row[0], row[1])
             for row in connection.execute(
                 "SELECT table_schema, table_name FROM information_schema.tables "
-                "WHERE table_schema IN ('store', 'casework')"
+                "WHERE table_schema IN ('store', 'casework', 'authority', 'catalog')"
             ).fetchall()
         }
     assert tables == {
@@ -137,16 +137,37 @@ def test_the_schema_is_what_the_repositories_expect(scratch_database: str) -> No
         ("casework", "transcript_entry"),
         ("casework", "evidence_request"),
         ("casework", "case_commitment"),
+        ("authority", "registry_snapshot"),
+        ("authority", "revocation_snapshot"),
+        #  Milestone E, migration 4: the one mutable row in the schema.  Listed
+        #  here rather than tolerated, because this assertion is an equality and
+        #  that is what makes it worth having -- a table nobody meant to add
+        #  fails it.
+        ("authority", "publication_state"),
+        ("catalog", "agent_snapshot"),
     }
 
 
 @pytest.mark.postgres
-def test_no_gate_settlement_or_agent_table_is_created(scratch_database: str) -> None:
-    """Milestone C owns two schemas and builds nothing for a later milestone.
+def test_no_gate_settlement_or_agent_runtime_table_is_created(scratch_database: str) -> None:
+    """Nothing is built for a milestone that does not exist yet.
 
     An authorization table created "ready for the gate" would be a schema whose
     owner does not exist, in a design whose whole point about the gate is that
     it owns its own state.
+
+    **The deny-list narrowed at milestone E, and narrowing it is the point.**
+    ``agent`` was on it because nothing about agents existed; ``catalog.
+    agent_snapshot`` now does, and it is a *published, signed, immutable
+    artifact* -- the fleet as a value, exactly like an authority snapshot.  What
+    stays forbidden is the thing the old entry was actually guarding against:
+    an agent **runtime**, which would need mutable per-agent rows -- a session,
+    a heartbeat, a queue, a lease, a credential.  Those are the tables that
+    would mean MUSTER had started running agents rather than cataloguing them,
+    and none of them exists.
+
+    Stated as names rather than as a rule about intent, so that adding one is a
+    diff somebody has to argue for.
     """
     migrate(scratch_database)
     with psycopg.connect(scratch_database) as connection:
@@ -165,8 +186,25 @@ def test_no_gate_settlement_or_agent_table_is_created(scratch_database: str) -> 
         }
     assert "gate" not in schemas
     assert "policy" not in schemas
-    for forbidden in ("authorization_attempt", "settlement", "execution_receipt", "agent"):
+    for forbidden in (
+        "authorization_attempt",
+        "settlement",
+        "execution_receipt",
+        #  Agent *runtime* state, which is what milestone E must not have grown.
+        "agent_session",
+        "agent_heartbeat",
+        "agent_lease",
+        "agent_queue",
+        "agent_credential",
+        "agent_instance",
+        "dispatch",
+    ):
         assert not any(forbidden in name for name in names), forbidden
+
+    #  And the catalog is exactly one table holding exactly one kind of thing:
+    #  published snapshots.  A second catalog table would be where per-agent
+    #  mutable state started.
+    assert {name for name in names if "agent" in name} == {"agent_snapshot"}
 
 
 @pytest.mark.postgres

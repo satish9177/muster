@@ -83,6 +83,9 @@ def test_the_attested_ravi_certificate_round_trips_exactly() -> None:
         case.entries,
         ravi.bundle(),
         case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Ok), built
     produced = analyse_revision(built.value, ravi.bundle(), ravi.backend(), ravi.limits())

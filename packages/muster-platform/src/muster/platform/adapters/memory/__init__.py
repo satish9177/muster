@@ -50,8 +50,10 @@ from muster.core.case.revision import RebuildInputs, RebuildMode
 from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.wire.digests import Digest, DigestKind, digest_octets
 from muster.platform.casework.ports import (
+    AuthorityRepository,
     CaseHead,
     CaseHeadRepository,
+    CatalogRepository,
     CommitmentError,
     CommitmentFailure,
     CommitmentRepository,
@@ -59,6 +61,10 @@ from muster.platform.casework.ports import (
     EvidenceRequestRepository,
     HeadError,
     HeadFailure,
+    Publication,
+    PublicationError,
+    PublicationFailure,
+    PublicationState,
     PublishedCommitment,
     RecordedRequest,
     RequestError,
@@ -96,6 +102,21 @@ class MemoryRecords:
     members: dict[tuple[str, str], frozenset[Digest]] = field(default_factory=dict)
     requests: dict[tuple[str, str, Digest], RecordedRequest] = field(default_factory=dict)
     commitments: dict[tuple[str, str, Digest], PublishedCommitment] = field(default_factory=dict)
+    #  Authority, revocation and catalog publications, keyed by tenant and by
+    #  the digest of the *unsigned* snapshot -- the same key the tables use,
+    #  which is the key an authorization context pins.  Three dictionaries
+    #  rather than one with a discriminator, mirroring three tables rather than
+    #  one, so that "authority" and "fleet" stay two questions here too.
+    authority_snapshots: dict[tuple[str, Digest], Publication] = field(default_factory=dict)
+    revocation_snapshots: dict[tuple[str, Digest], Publication] = field(default_factory=dict)
+    catalog_snapshots: dict[tuple[str, Digest], Publication] = field(default_factory=dict)
+    #  The one mutable row, mirroring ``authority.publication_state``: which
+    #  registry a *new* case may open under, and how many times authority state
+    #  has moved.  There is no lock here and there does not need to be -- this
+    #  adapter has no concurrency to order -- but the *value* has to exist, or
+    #  the pure suites would exercise a different admission path from the
+    #  durable one and prove nothing about it.
+    publication_state: dict[str, PublicationState] = field(default_factory=dict)
 
     def copy(self) -> MemoryRecords:
         """A copy a transaction can write to and then abandon.
@@ -110,6 +131,10 @@ class MemoryRecords:
             members=dict(self.members),
             requests=dict(self.requests),
             commitments=dict(self.commitments),
+            authority_snapshots=dict(self.authority_snapshots),
+            revocation_snapshots=dict(self.revocation_snapshots),
+            catalog_snapshots=dict(self.catalog_snapshots),
+            publication_state=dict(self.publication_state),
         )
 
 
@@ -429,6 +454,221 @@ class MemoryCommitmentRepository:
 #  ---- transaction scopes --------------------------------------------------
 
 
+#  ---- authority and catalog publications ---------------------------------
+
+
+def _publish_into(
+    table: dict[tuple[str, Digest], Publication],
+    tenant_id: str,
+    publication: Publication,
+    writable: bool,
+    what: str,
+) -> Result[bool, PublicationError]:
+    """Insert if absent. First writer wins, and the loser is told it created nothing.
+
+    Not "last writer wins with extra steps": two publications of one snapshot
+    carry identical content and differ only in a randomised signature, so
+    keeping the first is what makes the artifact stable for a reader who
+    verified it earlier.
+    """
+    _require_writable(writable, what)
+    key = (tenant_id, publication.snapshot_digest)
+    if key in table:
+        return Ok(False)
+    table[key] = publication
+    return Ok(True)
+
+
+def _read_from(
+    table: dict[tuple[str, Digest], Publication],
+    tenant_id: str,
+    snapshot_digest: Digest,
+    what: str,
+) -> Result[Publication, PublicationError]:
+    found = table.get((tenant_id, snapshot_digest))
+    if found is None:
+        return Err(
+            PublicationError(
+                PublicationFailure.PUBLICATION_ABSENT,
+                f"{what} holds nothing under {snapshot_digest.hex}",
+            )
+        )
+    return Ok(found)
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryAuthorityRepository:
+    """Authority and revocation snapshots.  No update, no delete, no ``latest``.
+
+    The missing ``latest`` is the same absence the port declares and the SQL
+    adapter implements: authority is reached through the pin a revision
+    carries, never through "what is current", so the substitution that would
+    re-decide a historical case under today's grants has no method to call.
+    """
+
+    records: MemoryRecords
+    tenant_id: str
+    writable: bool
+
+    def publish_authority(self, publication: Publication) -> Result[bool, PublicationError]:
+        return _publish_into(
+            self.records.authority_snapshots,
+            self.tenant_id,
+            publication,
+            self.writable,
+            "authority.registry_snapshot",
+        )
+
+    def read_authority(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]:
+        return _read_from(
+            self.records.authority_snapshots,
+            self.tenant_id,
+            snapshot_digest,
+            "authority.registry_snapshot",
+        )
+
+    def publish_revocation(self, publication: Publication) -> Result[bool, PublicationError]:
+        return _publish_into(
+            self.records.revocation_snapshots,
+            self.tenant_id,
+            publication,
+            self.writable,
+            "authority.revocation_snapshot",
+        )
+
+    def read_revocation(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]:
+        return _read_from(
+            self.records.revocation_snapshots,
+            self.tenant_id,
+            snapshot_digest,
+            "authority.revocation_snapshot",
+        )
+
+    def in_force_authority(self) -> Result[PublicationState, PublicationError]:
+        return self._state()
+
+    def hold_publication_state(self) -> Result[PublicationState, PublicationError]:
+        #  Nothing to hold.  A single-threaded in-memory store has no schedule
+        #  to constrain, so the honest implementation is the read -- and saying
+        #  so here is better than a lock object that would suggest this adapter
+        #  tests the ordering.  The ordering is a property of PostgreSQL row
+        #  locks and is tested against PostgreSQL.
+        return self._state()
+
+    def set_in_force_authority(
+        self, snapshot_digest: Digest
+    ) -> Result[PublicationState, PublicationError]:
+        moved = self._advanced()
+        return Ok(self._store(replace(moved, in_force_authority_digest=snapshot_digest)))
+
+    def set_in_force_revocation(
+        self, snapshot_digest: Digest
+    ) -> Result[PublicationState, PublicationError]:
+        moved = self._advanced()
+        return Ok(self._store(replace(moved, in_force_revocation_digest=snapshot_digest)))
+
+    def _advanced(self) -> PublicationState:
+        """This tenant's state with the epoch moved on, creating it if absent.
+
+        Written out rather than expressed as ``**kwargs`` over ``replace``: a
+        keyword-argument spread over a frozen dataclass typechecks against
+        nothing, so a caller could set ``epoch`` to a digest and the checker
+        would agree.  Two explicit call sites are the version that cannot.
+        """
+        _require_writable(self.writable, "authority.publication_state")
+        held = self.records.publication_state.get(self.tenant_id)
+        if held is None:
+            return PublicationState(None, None, 1)
+        return replace(held, epoch=held.epoch + 1)
+
+    def _store(self, state: PublicationState) -> PublicationState:
+        self.records.publication_state[self.tenant_id] = state
+        return state
+
+    def _state(self) -> Result[PublicationState, PublicationError]:
+        held = self.records.publication_state.get(self.tenant_id)
+        if held is None:
+            return Err(
+                PublicationError(
+                    PublicationFailure.PUBLICATION_STATE_ABSENT,
+                    f"{self.tenant_id}: no authority is in force",
+                )
+            )
+        return Ok(held)
+
+    def revocations(self) -> Result[tuple[Publication, ...], PublicationError]:
+        mine = [
+            publication
+            for (tenant_id, _), publication in self.records.revocation_snapshots.items()
+            if tenant_id == self.tenant_id
+        ]
+        #  Sorted for the same reason the SQL adapter orders: the caller takes
+        #  the union, so this decides nothing except that two runs agree.
+        return Ok(
+            tuple(
+                sorted(
+                    mine,
+                    key=lambda entry: (entry.published_at, entry.snapshot_digest.octets),
+                )
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryCatalogRepository:
+    """Fleet catalog snapshots, with the recency lookup routing needs."""
+
+    records: MemoryRecords
+    tenant_id: str
+    writable: bool
+
+    def publish(self, publication: Publication) -> Result[bool, PublicationError]:
+        return _publish_into(
+            self.records.catalog_snapshots,
+            self.tenant_id,
+            publication,
+            self.writable,
+            "catalog.agent_snapshot",
+        )
+
+    def read(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]:
+        return _read_from(
+            self.records.catalog_snapshots,
+            self.tenant_id,
+            snapshot_digest,
+            "catalog.agent_snapshot",
+        )
+
+    def latest(self) -> Result[Publication, PublicationError]:
+        mine = [
+            publication
+            for (tenant_id, _), publication in self.records.catalog_snapshots.items()
+            if tenant_id == self.tenant_id
+        ]
+        if not mine:
+            return Err(
+                PublicationError(
+                    PublicationFailure.PUBLICATION_ABSENT,
+                    f"{self.tenant_id} has published no catalog",
+                )
+            )
+        newest = max(entry.published_at for entry in mine)
+        at_the_top = [entry for entry in mine if entry.published_at == newest]
+        if len(at_the_top) > 1:
+            #  Refused, not arbitrated, and both adapters answer the same way
+            #  for the same reason: a tie broken by digest discards one of two
+            #  fleets by content nobody chose or inspects -- and if the
+            #  discarded one is the operator's correction, a retired agent
+            #  stays routable with no signal anywhere.
+            return Err(
+                PublicationError(
+                    PublicationFailure.PUBLICATION_AMBIGUOUS,
+                    f"{self.tenant_id} published two catalogs at {newest}",
+                )
+            )
+        return Ok(at_the_top[0])
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryTenantScope:
     """Five repositories over one set of records, one tenant, one transaction."""
@@ -460,6 +700,14 @@ class MemoryTenantScope:
     @property
     def commitments(self) -> CommitmentRepository:
         return MemoryCommitmentRepository(self.records, self._tenant_id, self.writable)
+
+    @property
+    def authority(self) -> AuthorityRepository:
+        return MemoryAuthorityRepository(self.records, self._tenant_id, self.writable)
+
+    @property
+    def catalog(self) -> CatalogRepository:
+        return MemoryCatalogRepository(self.records, self._tenant_id, self.writable)
 
 
 def _require_writable(writable: bool, table: str) -> None:

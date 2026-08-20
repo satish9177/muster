@@ -60,13 +60,22 @@ from support.commitment import (
     reader,
 )
 from support.fixtures import append_all, open_ravi, reset_tenant
+from tests.support.semantics import semantic_core
 
 pytestmark = pytest.mark.postgres
 
-#  Frozen in packages/muster-kernel/tests/acceptance/test_determinism.py.
-#  Transcribed, not imported: two copies that must agree is the point.
-RAVI_REVISION_DIGEST = "2361f3237bb622302f1057b720cd19e312c0466b1819143bc420965849eaffa0"
-RAVI_CERTIFICATE_DIGEST = "473a0772f20524f6d7daf685e4b345086366b5983f5d183fbf5daa516b92191d"
+#  What Ravi decides, blind to every identity.  Frozen in the kernel's
+#  milestone-E transition audit, where it is shown to be the value the
+#  committed milestone-D tree produced.
+#
+#  The revision and certificate *digests* stopped being cross-session constants
+#  at milestone E, because this suite signs its attestations for real and ECDSA
+#  is randomised -- see ``test_durable_ravi`` for the full argument.  Here the
+#  identity this run produced is captured and every later read is required to
+#  reproduce it, which is what a disclosure suite actually needs: that the view
+#  a participant is handed cites the revision the case published, not a number
+#  written down last week.
+RAVI_SEMANTIC_CORE = "1187f910cde54fc7edd9736f9f70607c78b8158be6a4e2db5891d50ba6507b0f"
 
 #  What each audience is entitled to, transcribed from the pinned bundle so that
 #  a policy change has to be made twice and cannot be made by accident.
@@ -177,9 +186,9 @@ def test_the_ravi_case_discloses_four_views_and_moves_no_decision(
 
     #  3. The published deterministic revision, unchanged by anything here.
     assert advanced.head.revision_digest is not None
-    assert advanced.head.revision_digest.hex == RAVI_REVISION_DIGEST
     assert advanced.head.certificate_digest is not None
-    assert advanced.head.certificate_digest.hex == RAVI_CERTIFICATE_DIGEST
+    revision_digest = advanced.head.revision_digest.hex
+    assert semantic_core(advanced.analysis.revision, advanced.analysis) == RAVI_SEMANTIC_CORE
     assert outcome_class(advanced.analysis.kernel.outcome) == "DIVERGENT"
     assert isinstance(advanced.analysis.kernel.outcome, Divergent)
     assert isinstance(advanced.decision, Dispatch)
@@ -191,7 +200,7 @@ def test_the_ravi_case_discloses_four_views_and_moves_no_decision(
     assert isinstance(committed, Ok), committed
     published = committed.value
     assert published.published
-    assert published.revision_digest.hex == RAVI_REVISION_DIGEST
+    assert published.revision_digest.hex == revision_digest
     envelope = published.commitment.envelope
     assert envelope.tenant_id == case.tenant_id
     assert envelope.case_id == case.case_id
@@ -378,7 +387,7 @@ def test_a_superseded_revision_becomes_unreachable_rather_than_stale(
     first = commit_case(work, tenant_id=case.tenant_id, case_id=case.case_id)
     assert isinstance(first, Ok), first
     r1 = first.value.revision_digest
-    assert r1.hex == RAVI_REVISION_DIGEST
+    assert first.value.record.certificate.revision_semantic_digest == r1
 
     #  The site attests, the head advances, and r1 is no longer head. The two
     #  fixtures share a construction record and the second is the first plus

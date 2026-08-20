@@ -21,6 +21,7 @@ from muster.platform.adapters.sql.database import SqlDatabase
 from muster.platform.casework.commands import case_status
 from muster.platform.casework.ports import HeadFailure, StoreFailure, TranscriptFailure
 from muster.platform.ingest.admission import AdmissionFailure, admit_entry
+from support import authority as A
 from support import ravi
 from support.fixtures import append_all, open_ravi
 
@@ -83,7 +84,7 @@ def test_one_tenant_cannot_append_to_another_tenants_case(
     open_ravi(casework, mine)
 
     with database.writing(other_tenant_id) as scope:
-        refused = admit_entry(scope, case_id, mine.entries[0])
+        refused = admit_entry(scope, case_id, mine.entries[0], ravi.admission_authority(mine))
     assert isinstance(refused, Err)
     assert refused.error.failure is AdmissionFailure.TENANT_MISMATCH
 
@@ -91,7 +92,7 @@ def test_one_tenant_cannot_append_to_another_tenants_case(
     #  not have: the membership row is keyed by tenant and the case is not there.
     theirs = ravi.ravi(other_tenant_id, case_id)
     with database.writing(other_tenant_id) as scope:
-        admitted = admit_entry(scope, case_id, theirs.entries[0])
+        admitted = admit_entry(scope, case_id, theirs.entries[0], ravi.admission_authority(theirs))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case_id, admitted.value.entry_digest)
     assert isinstance(added, Err)
@@ -110,7 +111,7 @@ def test_one_tenant_cannot_reference_another_tenants_stored_octets(
     mine = ravi.ravi(tenant_id, case_id)
     open_ravi(casework, mine)
     with database.writing(tenant_id) as scope:
-        admitted = admit_entry(scope, case_id, mine.entries[0])
+        admitted = admit_entry(scope, case_id, mine.entries[0], ravi.admission_authority(mine))
     assert isinstance(admitted, Ok), admitted
 
     theirs = ravi.ravi(other_tenant_id, case_id)
@@ -214,18 +215,22 @@ def test_a_construction_record_cannot_declare_another_tenants_principal_as_a_par
     from muster.platform.ingest.admission import admit_case_construction
 
     case = ravi.ravi(tenant_id, case_id)
-    smuggled = replace(
-        case.construction,
-        parties=(
-            replace(case.construction.parties[0], tenant_id=other_tenant_id),
-            *case.construction.parties[1:],
-        ),
+    #  Re-signed by a genuine officer, so the refusal below is the party check
+    #  and not the signature check standing in for it.
+    smuggled = A.sign_construction(
+        replace(
+            case.construction,
+            parties=(
+                replace(case.construction.parties[0], tenant_id=other_tenant_id),
+                *case.construction.parties[1:],
+            ),
+        )
     )
     assert smuggled.tenant_id == tenant_id
     assert smuggled.case_id == case_id
 
     with database.writing(tenant_id) as scope:
-        refused = admit_case_construction(scope, case_id, smuggled)
+        refused = admit_case_construction(scope, case_id, smuggled, A.officer_verifier())
         assert isinstance(refused, Err), refused
         assert refused.error.failure is AdmissionFailure.TENANT_MISMATCH
         assert other_tenant_id in refused.error.detail
@@ -254,12 +259,18 @@ def test_a_case_is_not_rebuilt_from_a_construction_record_with_a_foreign_party(
     open_ravi(casework, case)
     append_all(casework, case, now=ravi.NOW)
 
-    smuggled = replace(
-        case.construction,
-        parties=(
-            replace(case.construction.parties[0], tenant_id=other_tenant_id),
-            *case.construction.parties[1:],
-        ),
+    #  Signed by a genuine officer, because the read door now verifies the
+    #  officer signature before it looks at the parties.  An unsigned forgery
+    #  would be refused one line earlier and this test would stop being a test
+    #  of the party check.
+    smuggled = A.sign_construction(
+        replace(
+            case.construction,
+            parties=(
+                replace(case.construction.parties[0], tenant_id=other_tenant_id),
+                *case.construction.parties[1:],
+            ),
+        )
     )
     #  Stored under its *own* digest and the head repointed at it, rather than
     #  overwritten beneath the original key. Overwriting would be caught by the

@@ -15,6 +15,18 @@ of domain exist and they must be disjoint and jointly exhaustive:
 
 `digests.digest()` refuses any domain not in the union, so an undeclared domain
 is unusable rather than merely undocumented.
+
+**Two withdrawals landed with G1 (section 12.4), and neither is a
+supplement.**  `KEY_REGISTRY_SNAPSHOT` committed to key *existence*, so the
+only question it could answer was "does this key exist"; it is replaced by the
+TYPE domain `AUTHORITY_REGISTRY_SNAPSHOT`, whose preimage is a snapshot
+answering "may this key say this, here, now".  Two live authority preimages
+would be a downgrade path, so the old one is gone rather than deprecated.
+`REVOCATION_SNAPSHOT` followed it for a related reason: its auxiliary preimage
+was an untenanted `SEQ[Digest]`, and Q-12(f) has to *resolve* the snapshot to
+ask whether a key is in it -- something resolved by digest alone carries
+neither a tenant nor a publisher signature, so an untenanted list is equally
+valid under every tenant.  It is now a type with both.
 """
 
 from __future__ import annotations
@@ -26,8 +38,6 @@ AUXILIARY_DIGEST_DOMAINS: dict[str, str] = {
     "FIELD_SALT": "HMAC key = salt_case; message = ascii(path)",
     "CASE_COMMITMENT": "HMAC key = salt_case; message = the 32 octets of the case digest",
     "REVISION_COMMITMENT": "HMAC key = salt_case; message = the 32 octets of revision_semantic_digest",
-    "KEY_REGISTRY_SNAPSHOT": "key_ref || 0x00 || SHA-256(key material), ascending by key_ref",
-    "REVOCATION_SNAPSHOT": "canonical(SEQ[Digest]) of the revoked signing-key references",
     "CONSTRAINT_LABEL": "canonical(ATOM) of Constraint.label -- a commitment path segment",
     "NON_EFFECT_KEY": "canonical(SEQ[ATOM]) of (NonEffect.rule_id, NonEffect.subject)",
     "GOLDEN_VECTOR_CORPUS": "name || 0x00 || octets || 0x00 for each vector, in declared order",

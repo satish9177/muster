@@ -276,6 +276,12 @@ CASE_CONSTRUCTION = sign_record(
                 ]
             ),
             Seq([F.Q_REF]),
+            #  [G1] Where this case is, signed by the officer who opened it.
+            #  accepted_quantity carries its own purchase order in an argument,
+            #  so this coordinate is not what Q-12(d) resolves for *that*
+            #  predicate -- it is what a case-level predicate would resolve
+            #  against, and it is here so the record can carry one at all.
+            SetV([Rec("ResourceScope/v1", [Atom("cost_centre"), Atom("CC-7")])]),
             Atom("key-case-1"),
             Rec("Signature/v1", [Atom("PLACEHOLDER"), Bytes(b"")]),
         ],
@@ -295,12 +301,111 @@ TRANSCRIPT_PREFIX = Rec(
 )
 TRANSCRIPT_PREFIX_DIGEST = digest_node("TRANSCRIPT_PREFIX", TRANSCRIPT_PREFIX)
 
+#  [G1] The authority the worked scenario is decided under.
+#
+#  One grant, and it is deliberately narrow: the goods-receipt system's key may
+#  attest exactly ``accepted_quantity``, for exactly ``PO-4471``, in exactly
+#  this tenant, under exactly authorization-policy version 3.  Every clause of
+#  Q-12 has something to check, and the two ratified adversarial requirements
+#  are refusals *against this snapshot*: a worker key resolves no grant at all
+#  (Q-12(b)), and a key granted a different purchase order resolves one that
+#  fails on scope alone (Q-12(d)).
+AUTHORITY_GRANT = Rec(
+    "AuthorityGrant/v1",
+    [
+        Atom("key-gr-1"),
+        Atom("WH-1"),
+        Atom(F.TENANT),
+        Atom("GOODS_RECEIPT_SYSTEM"),
+        SetV([Atom("accepted_quantity")]),
+        SetV([Rec("ResourceScope/v1", [Atom("purchase_order"), Atom("PO-4471")])]),
+        F.interval(F.T_2026_01_01, F.T_2026_06_01 + 365 * 86_400_000_000),
+        Int(3),
+    ],
+)
+
+AUTHORITY_REGISTRY_SNAPSHOT = Rec(
+    "AuthorityRegistrySnapshot/v1",
+    [
+        Atom("authority-registry-1"),
+        Atom(F.TENANT),
+        Int(3),
+        Seq([AUTHORITY_GRANT]),
+        Int(F.T_2026_01_01),
+    ],
+)
+AUTHORITY_REGISTRY_SNAPSHOT_DIGEST = digest_node(
+    "AUTHORITY_REGISTRY_SNAPSHOT", AUTHORITY_REGISTRY_SNAPSHOT
+)
+
+SIGNED_AUTHORITY_REGISTRY_SNAPSHOT = sign_record(
+    REG,
+    F.KEYRING,
+    Rec(
+        "SignedAuthorityRegistrySnapshot/v1",
+        [
+            Rec(
+                "AuthorityRegistrySnapshotBody/v1",
+                [AUTHORITY_REGISTRY_SNAPSHOT, Atom("key-authority-publisher-1")],
+            ),
+            Rec("Signature/v1", [Atom("PLACEHOLDER"), Bytes(b"")]),
+        ],
+    ),
+    "SignedAuthorityRegistrySnapshot",
+)
+
+REVOCATION_SNAPSHOT = Rec(
+    "RevocationSnapshot/v1",
+    [
+        Atom("revocation-registry-1"),
+        Atom(F.TENANT),
+        SetV([]),
+        Int(F.T_2026_01_01),
+    ],
+)
+REVOCATION_SNAPSHOT_DIGEST = digest_node("REVOCATION_SNAPSHOT", REVOCATION_SNAPSHOT)
+
+#  [E] The fleet, published against that authority snapshot and granting
+#  nothing.  The profile advertises exactly the acquisition the grant permits,
+#  which is what makes the separation testable rather than accidental: a
+#  catalog that could only ever agree with the registry would prove nothing.
+AGENT_CATALOG_SNAPSHOT = Rec(
+    "AgentCatalogSnapshot/v1",
+    [
+        Atom("agent-catalog-1"),
+        Atom(F.TENANT),
+        Seq(
+            [
+                Rec(
+                    "AgentProfile/v1",
+                    [
+                        Atom("agent-goods-receipt"),
+                        Int(1),
+                        Atom(F.TENANT),
+                        Atom("WH-1"),
+                        Atom("GOODS_RECEIPT_SYSTEM"),
+                        SetV([Atom("accepted_quantity")]),
+                        SetV(
+                            [Rec("ResourceScope/v1", [Atom("purchase_order"), Atom("PO-4471")])]
+                        ),
+                        Atom("local://agent-goods-receipt"),
+                        Atom("ACTIVE"),
+                    ],
+                )
+            ]
+        ),
+        Int(F.T_2026_01_01),
+        AUTHORITY_REGISTRY_SNAPSHOT_DIGEST,
+    ],
+)
+AGENT_CATALOG_SNAPSHOT_DIGEST = digest_node("AGENT_CATALOG_SNAPSHOT", AGENT_CATALOG_SNAPSHOT)
+
 AUTHORIZATION_CONTEXT = Rec(
     "AuthorizationContext/v1",
     [
         Int(3),
-        Digest(F.KEYRING.snapshot_digest()),
-        digest_node("REVOCATION_SNAPSHOT", Seq([])),
+        AUTHORITY_REGISTRY_SNAPSHOT_DIGEST,
+        REVOCATION_SNAPSHOT_DIGEST,
         F.interval(F.T_2026_06_01, F.T_2026_06_01 + 30 * 86_400_000_000),
     ],
 )

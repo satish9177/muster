@@ -41,6 +41,7 @@ from muster.core.values.sorts import (
 )
 from muster.core.values.symbols import SymbolRef
 from muster.core.wire.codec import encode
+from tests.support import authority
 
 SOURCE = "SITE_ACCESS_CONTROL"
 COLOUR = SymbolRef("colour", ("W-1",))
@@ -48,29 +49,34 @@ DURATION = SymbolRef("on_site_duration", ("W-1", "SAT"))
 
 
 def _enum_info(members: tuple[str, ...]) -> PredicateInfo:
-    return PredicateInfo(
-        value_sort=EnumSort("colour"),
-        domain=EnumDomain(members),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE}),
-    )
+    return authority.info(EnumSort("colour"), EnumDomain(members), EvidenceLayer.OBSERVATION)
 
 
 def _int_info() -> PredicateInfo:
-    return PredicateInfo(
-        value_sort=IntSort(),
-        domain=IntRange(0, 1440),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE}),
-    )
+    return authority.info(IntSort(), IntRange(0, 1440), EvidenceLayer.OBSERVATION)
 
 
 def _bool_info() -> PredicateInfo:
-    return PredicateInfo(
-        value_sort=BoolSort(),
-        domain=BoolDomain(),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE}),
+    return authority.info(BoolSort(), BoolDomain(), EvidenceLayer.OBSERVATION)
+
+
+def _validated(
+    relation: object, info: PredicateInfo, *, proposition: SymbolRef = DURATION
+) -> object:
+    """Validate under a view that grants exactly this claim.
+
+    Every test below is about Q-4 to Q-11, so the authority input is arranged
+    to be satisfied rather than removed -- there is no switch that skips Q-12,
+    here or anywhere.  What that costs is one helper; what it buys is that no
+    test in this file can pass because a check was not run.
+    """
+    claim = authority.claim(proposition)
+    return validate_relation(
+        relation,  # type: ignore[arg-type]
+        info.value_sort,
+        info,
+        claim,
+        authority.granting(info, claim),
     )
 
 
@@ -174,7 +180,7 @@ def test_an_empty_subset_is_unrepresentable_rather_than_rejected() -> None:
 def test_an_ordering_relation_needs_an_ordered_sort() -> None:
     """Q-5. Without it a bound against a boolean rebuilds into an ill-typed term."""
     for info in (_bool_info(), _enum_info(("RED", "BLUE"))):
-        outcome = validate_relation(ClosedUpperBound(VBool(True)), info.value_sort, info, SOURCE)
+        outcome = _validated(ClosedUpperBound(VBool(True)), info)
         assert isinstance(outcome, Err)
         assert outcome.error.failure is RelationFailure.NON_NUMERIC_RELATION
 
@@ -182,9 +188,7 @@ def test_an_ordering_relation_needs_an_ordered_sort() -> None:
 def test_an_enum_subset_needs_an_enum_sort() -> None:
     """Q-6."""
     info = _int_info()
-    outcome = validate_relation(
-        EnumSubset((VEnum("colour", "RED"),)), info.value_sort, info, SOURCE
-    )
+    outcome = _validated(EnumSubset((VEnum("colour", "RED"),)), info)
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RelationFailure.INVALID_ENUM_SUBSET
 
@@ -192,28 +196,18 @@ def test_an_enum_subset_needs_an_enum_sort() -> None:
 def test_every_member_of_a_subset_is_checked_not_only_the_first() -> None:
     """A loop that inspected only the first member would pass a bad second."""
     info = _enum_info(("RED", "BLUE"))
-    outcome = validate_relation(
-        EnumSubset((VEnum("colour", "RED"), VEnum("colour", "MAUVE"))),
-        info.value_sort,
-        info,
-        SOURCE,
-    )
+    outcome = _validated(EnumSubset((VEnum("colour", "RED"), VEnum("colour", "MAUVE"))), info)
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RelationFailure.VALUE_OUT_OF_DOMAIN
 
 
 def test_a_valid_upper_bound_is_admitted() -> None:
     info = _int_info()
-    outcome = validate_relation(ClosedUpperBound(VInt(600)), info.value_sort, info, SOURCE)
+    outcome = _validated(ClosedUpperBound(VInt(600)), info)
     assert isinstance(outcome, Ok)
 
 
 def test_a_valid_enum_subset_is_admitted() -> None:
     info = _enum_info(("RED", "BLUE", "GREEN"))
-    outcome = validate_relation(
-        EnumSubset((VEnum("colour", "RED"), VEnum("colour", "BLUE"))),
-        info.value_sort,
-        info,
-        SOURCE,
-    )
+    outcome = _validated(EnumSubset((VEnum("colour", "RED"), VEnum("colour", "BLUE"))), info)
     assert isinstance(outcome, Ok)

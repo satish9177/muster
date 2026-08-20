@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from muster.core.authority.check import AuthorityView, SourceClaim
 from muster.core.case.constraints import (
     AttestedRelationDeriv,
     Constraint,
@@ -41,6 +42,7 @@ from muster.core.evidence.relations import (
     lower_relation,
     validate_relation,
 )
+from muster.core.evidence.solicitation import SolicitationView
 from muster.core.evidence.transcript import (
     Attestation,
     Statement,
@@ -68,6 +70,11 @@ LABEL_PREFIX_DOMAIN = "C-DOM"
 REASON_CLAIM_INERT = "ADVERSE_INTEREST_ABSENT"
 REASON_RECEIPT_EXPIRED = "ReceiptNotValidAtAsOf"
 REASON_PROCEDURE_NOT_ADMISSIBLE = "MeasurementProcedureNotAdmissible"
+#  A receipt citing a request that belongs to another tenant or another case.
+#  Named separately from the class refusals because it is a different finding
+#  with a different fix: nothing about this key or this class is wrong, and the
+#  operator needs to see that the *solicitation* was borrowed.
+REASON_BORROWED_SOLICITATION = "RequestIssuedByAnotherCase"
 
 #  The rules this build interprets. A descriptor outside this set is refused
 #  rather than skipped.
@@ -139,8 +146,18 @@ def derive(
     descriptors: AdmissibilityDescriptors,
     schema: PredicateSchema,
     pinned_schema_digest: Digest,
+    authority: AuthorityView,
+    solicitation: SolicitationView,
 ) -> Result[DerivationOutcome, DerivationError]:
-    """Run every descriptor Milestone A interprets, in a fixed order."""
+    """Run every descriptor Milestone A interprets, in a fixed order.
+
+    ``solicitation`` carries the second half of Q-12(a).  It is a separate
+    argument from ``authority`` because the two answer different questions from
+    different artifacts: the view says what a *key* may say, and the
+    solicitation says what this case *asked for*.  Folding them together would
+    put a request inside the type whose whole documented promise is that it is
+    assembled from the revision's pins alone.
+    """
     for rule_id in INTERPRETED_RULES:
         if descriptors.descriptor(rule_id) is None:
             #  The bundle owns the rules as data; a rule this module needs but
@@ -177,6 +194,8 @@ def derive(
                     schema=schema,
                     pinned_schema_digest=pinned_schema_digest,
                     descriptors=descriptors,
+                    authority=authority,
+                    solicitation=solicitation,
                 )
                 if isinstance(produced, Err):
                     return produced
@@ -254,6 +273,8 @@ def _attested_relation(
     schema: PredicateSchema,
     pinned_schema_digest: Digest,
     descriptors: AdmissibilityDescriptors,
+    authority: AuthorityView,
+    solicitation: SolicitationView,
 ) -> Result[DerivationOutcome, DerivationError]:
     payload = receipt.payload
     version = _version(descriptors, RULE_ATTESTED_RELATION)
@@ -287,11 +308,37 @@ def _attested_relation(
     if spec is None:
         return Err(DerivationError(DerivationFailure.PREDICATE_SCHEMA_MISMATCH, str(ref)))
 
+    #  Q-12(a), **both halves**, resolved before validation rather than inside
+    #  it: the bundle's permitted classes for this predicate, narrowed by the
+    #  target of the request this receipt cites.
+    #
+    #  This is the clause a durable transcript could otherwise walk past.
+    #  Membership in the transcript says an entry arrived and was admitted; it
+    #  does not say the conditions that admitted it still hold, and the
+    #  architecture is explicit that the rebuild re-evaluates Q-12 from the
+    #  pinned artifacts rather than inheriting the control plane's verdict.
+    #  Without the narrowing here, a receipt whose class the *request* forbade
+    #  would be refused at the door and yet gain full effect on every rebuild
+    #  afterwards -- so "it is in the transcript" would have been enough to make
+    #  it consequential, which is exactly what must not be true.
+    permitted = solicitation.permitted_source_classes(
+        payload.request_id, ref, frozenset(spec.permitted_source_classes)
+    )
+    if permitted is None:
+        #  The receipt cites a request another case issued.  Refused rather
+        #  than narrowed, and refused rather than treated as unsolicited: one
+        #  case's solicitation must not reach into another, and admission
+        #  refuses the same citation for the same reason.  A recorded
+        #  non-effect rather than a fatal error, like every other inadmissible
+        #  receipt -- the record says it arrived and was refused.
+        return Ok(_only_non_effect(version, ref, REASON_BORROWED_SOLICITATION))
     info = PredicateInfo(
         value_sort=spec.value_sort,
         domain=spec.domain,
         layer=spec.layer,
-        permitted_source_classes=frozenset(spec.permitted_source_classes),
+        permitted_source_classes=permitted,
+        arg_kinds=spec.arg_kinds,
+        resource_scope_kinds=spec.resource_scope_kinds,
     )
     #  The descriptor names the measurement procedures the bundle admits and the
     #  predicate schema names the procedure a predicate is measured by. A
@@ -304,9 +351,23 @@ def _attested_relation(
     ):
         return Ok(_only_non_effect(version, ref, REASON_PROCEDURE_NOT_ADMISSIBLE))
 
-    validated = validate_relation(payload.relation, payload.value_sort, info, payload.source_class)
+    #  Q-12 runs here, authoritatively, against the snapshot the *revision*
+    #  pinned -- never the one the receipt would prefer and never the current
+    #  one.  A receipt that fails it becomes a recorded non-effect rather than
+    #  a fatal rebuild error: evidence that is not admissible must have no
+    #  effect, and the record must still say that it arrived and was refused.
+    #  Refusing the whole rebuild would instead freeze a case permanently the
+    #  first time a key's grant lapsed under an entry already in the transcript.
+    claim = SourceClaim(
+        tenant_id=payload.tenant_id,
+        signer_key_ref=payload.signer_key_ref,
+        source_class=payload.source_class,
+        proposition=ref,
+        authorization_policy_version=payload.authorization_policy_version,
+    )
+    validated = validate_relation(payload.relation, payload.value_sort, info, claim, authority)
     if isinstance(validated, Err):
-        return Ok(_only_non_effect(version, ref, validated.error.failure.value))
+        return Ok(_only_non_effect(version, ref, str(validated.error.failure.value)))
 
     lowered = lower_relation(payload.relation, ref, spec.domain)
     receipt_digest = receipt.digest()

@@ -23,10 +23,23 @@ from muster.core.wire.digests import Digest
 from muster.platform.casework.advance import Advanced, Casework
 from muster.platform.casework.commands import Appended, append_transcript_entry, open_case
 from muster.platform.casework.ports import CaseHead
-from support.ravi import RaviCase
+from support.ravi import RaviCase, publish_authority
 
 
 def open_ravi(casework: Casework, case: RaviCase) -> CaseHead:
+    """Publish the case's authority state, then open the case.
+
+    Both, in that order, and it is not a convenience.  A case pins the
+    authority snapshot it will be judged under, and admission resolves that pin
+    before it will store a receipt -- so a suite that opened cases without
+    publishing would be a suite in which nothing is ever admitted, and every
+    test would fail for the same uninformative reason.
+
+    Publishing here rather than in each test also makes the *absence* of it
+    expressible: a test about an unpublished snapshot opens its case by hand
+    and gets the fail-closed refusal, which is a thing worth being able to say.
+    """
+    publish_authority(casework.database, case)
     opened = open_case(
         casework,
         tenant_id=case.tenant_id,
@@ -137,6 +150,14 @@ def reset_tenant(dsn: str, tenant_id: str) -> None:
     and case*, so those tests cannot each invent a fresh tenant the way the
     rest of the suite does -- they have to share one identity and start from
     nothing.
+
+    **The authority and catalog publications are erased too**, and they have to
+    be.  Publisher keypairs are generated per session, so a snapshot published
+    by an earlier run carries a signature over a key that no longer exists --
+    and publication is insert-if-absent, so the stale row would win and every
+    admission in the suite would fail on a signature nobody could verify.  That
+    is the correct production behaviour meeting a fixture that changes its keys
+    between runs; the fixture is the part that gives way.
     """
     with psycopg.connect(dsn) as connection:
         for statement in (
@@ -145,6 +166,14 @@ def reset_tenant(dsn: str, tenant_id: str) -> None:
             "DELETE FROM casework.transcript_entry WHERE tenant_id = %s",
             "DELETE FROM casework.case_head WHERE tenant_id = %s",
             "DELETE FROM store.content WHERE tenant_id = %s",
+            #  Before the registry, because it names a registry row under a
+            #  foreign key: "the authority in force" may only ever be a
+            #  snapshot that was actually published, which is worth a
+            #  constraint and costs one line of ordering here.
+            "DELETE FROM authority.publication_state WHERE tenant_id = %s",
+            "DELETE FROM authority.registry_snapshot WHERE tenant_id = %s",
+            "DELETE FROM authority.revocation_snapshot WHERE tenant_id = %s",
+            "DELETE FROM catalog.agent_snapshot WHERE tenant_id = %s",
         ):
             connection.execute(statement, (tenant_id,))
 

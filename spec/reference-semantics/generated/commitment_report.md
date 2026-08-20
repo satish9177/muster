@@ -45,11 +45,11 @@ fixed width, and do not leak the identifier of an undisclosed item.
 ## The worked scenario
 
 - committed leaves: **24**
-- merkle: `16128d905bc53362f4abd60ac4e741693b8c93aea7373b7d242ecc90869b76ec`
-- root: `02743aff28ced52f399f77ccffab4fd204d378f555c102c9ff4f4c25f4cef8d4`
-- case commitment (salted): `c5e3625611f970831a8faac71962d8d8cf2e049035a866cfd9730b7cb1a54e8b`
-- revision commitment (salted): `3c3d685d2609d830220af529860b2acd9d83060b23d37a711068ba6c4d7a543b`
-- revision semantic digest (private): `19b4360987bf1f377dfd976b37a13ae879e4f03ad0e34937c3d791ffba91c2ed`
+- merkle: `0eb4618fd28b6607b5c6aa589226cd32f096fb5b223e7c286e037d35eb378ca3`
+- root: `96c2a1a1649c78cb2bf2ea91f98d5b794950b7a213daba5abdc905cc62f82aae`
+- case commitment (salted): `414806a88e2e8a475354728c5d824d65b21f7373d4cc141de2edb4234f0079fd`
+- revision commitment (salted): `3cb40590b8e35aabb8ae70a6fd07150ffc181637e5c5e1601b624fc18621b5b5`
+- revision semantic digest (private): `aa610c6c315c51e6f992ad46ea65066c797c1da6e1f9780869b80e975af1f69d`
 
 The last two differ, and only the salted form appears in the envelope.  That
 is [B11]: a raw semantic digest is a deterministic function of inputs a

@@ -226,9 +226,154 @@ _COMMITMENT_UP: tuple[str, ...] = (
 _COMMITMENT_DOWN: tuple[str, ...] = ("DROP TABLE casework.case_commitment",)
 
 
+#  Authority and catalog publications.  A third migration rather than an edit,
+#  for the reason the second one was.
+#
+#  Both tables are keyed by the digest of the **unsigned** snapshot, because
+#  that is what an authorization context pins and what a discovery result
+#  names.  Keying by the signed wrapper's digest would need an index between a
+#  pin and the artifact it names, which is one more place for the two to
+#  disagree.
+#
+#  Neither has a foreign key to a case, and neither has one to ``store.content``
+#  -- authority is tenant state that exists before any case pins it, and a case
+#  that pins a snapshot which was never published fails closed at resolution
+#  rather than being prevented at insert time.  There is no ``UPDATE`` and no
+#  ``DELETE`` path to either: withdrawing a grant is publishing a successor.
+#
+#  They are two tables and not one with a ``kind`` column.  Authority answers
+#  "who may attest what" and the catalog answers "which agent exists"; one
+#  table would put both behind one statement, and the first question about any
+#  such statement is which of the two a given row is.
+_AUTHORITY_UP: tuple[str, ...] = (
+    "CREATE SCHEMA IF NOT EXISTS authority",
+    """
+    CREATE TABLE authority.registry_snapshot (
+        tenant_id       text    NOT NULL,
+        snapshot_digest bytea   NOT NULL,
+        signed_octets   bytea   NOT NULL,
+        published_at    bigint  NOT NULL,
+        PRIMARY KEY (tenant_id, snapshot_digest),
+        CONSTRAINT registry_snapshot_digest_width
+            CHECK (octet_length(snapshot_digest) = 32),
+        CONSTRAINT registry_snapshot_not_empty
+            CHECK (octet_length(signed_octets) > 0)
+    )
+    """,
+    """
+    CREATE TABLE authority.revocation_snapshot (
+        tenant_id       text    NOT NULL,
+        snapshot_digest bytea   NOT NULL,
+        signed_octets   bytea   NOT NULL,
+        published_at    bigint  NOT NULL,
+        PRIMARY KEY (tenant_id, snapshot_digest),
+        CONSTRAINT revocation_snapshot_digest_width
+            CHECK (octet_length(snapshot_digest) = 32),
+        CONSTRAINT revocation_snapshot_not_empty
+            CHECK (octet_length(signed_octets) > 0)
+    )
+    """,
+    "CREATE SCHEMA IF NOT EXISTS catalog",
+    """
+    CREATE TABLE catalog.agent_snapshot (
+        tenant_id       text    NOT NULL,
+        snapshot_digest bytea   NOT NULL,
+        signed_octets   bytea   NOT NULL,
+        published_at    bigint  NOT NULL,
+        PRIMARY KEY (tenant_id, snapshot_digest),
+        CONSTRAINT agent_snapshot_digest_width
+            CHECK (octet_length(snapshot_digest) = 32),
+        CONSTRAINT agent_snapshot_not_empty
+            CHECK (octet_length(signed_octets) > 0)
+    )
+    """,
+    #  "The newest catalog for this tenant" is the one routing query that is
+    #  not a point lookup, and the primary key does not serve it. The digest is
+    #  in the index so the ordering is total: two catalogs published at one
+    #  instant resolve the same way on every read.
+    """
+    CREATE INDEX agent_snapshot_by_recency
+        ON catalog.agent_snapshot (tenant_id, published_at DESC, snapshot_digest DESC)
+    """,
+)
+
+_AUTHORITY_DOWN: tuple[str, ...] = (
+    "DROP TABLE catalog.agent_snapshot",
+    "DROP TABLE authority.revocation_snapshot",
+    "DROP TABLE authority.registry_snapshot",
+    "DROP SCHEMA catalog",
+    "DROP SCHEMA authority",
+)
+
+
+#  The publication state: one row per tenant, and the only mutable row in this
+#  schema.  A fourth migration rather than an edit to the third, for the reason
+#  every migration here is its own: an applied migration is a fact about a
+#  deployed database and rewriting one makes the ledger a description of the
+#  file rather than of the database.
+#
+#  **Why a row and not a query.**  "The authority currently in force" could be
+#  derived as the registry snapshot with the greatest published_at, and that
+#  would be wrong twice.  It would make the answer depend on a publisher's
+#  clock -- two snapshots at one instant have no order, and the tie would be
+#  broken by a digest nobody chose.  And it would give the deciding path a
+#  *query* to run, where what it needs is a row to lock: the ordering between
+#  revocation and admission is a lock conflict on one tuple, and there is no
+#  tuple to conflict on in "the maximum of a column".
+#
+#  **Why it may be updated when nothing else here may.**  It holds no history.
+#  Every snapshot it has ever named is still in registry_snapshot under its own
+#  digest, immutable, and every case that pinned one still resolves it. What
+#  this row records is the present-tense answer to "what may a case opened now
+#  pin", which has no past to destroy.
+#
+#  Three columns because there are three facts, and they move independently.
+#  Publishing a registry snapshot moves in_force_digest and the epoch;
+#  publishing a revocation snapshot moves in_force_revocation and the epoch. A
+#  revocation changes what keys may say without changing which registry is in
+#  force, so collapsing the two digests into one would make each publication
+#  overwrite the other's answer.
+#
+#  **Both digests are nullable, and that is not laxness.**  A tenant can have
+#  published a registry and not yet a revocation list, or the reverse, and
+#  neither order is wrong -- they are two publishers' acts. What is wrong is
+#  opening a case while either is missing, and that is refused where cases are
+#  opened rather than encoded as NOT NULL here: a NOT NULL column would make
+#  the *first* publication of either kind impossible, which is a constraint on
+#  the publisher rather than on the case. G7 asks for fail-closed absence, and
+#  absence has to be representable before it can be refused.
+_PUBLICATION_STATE_UP: tuple[str, ...] = (
+    """
+    CREATE TABLE authority.publication_state (
+        tenant_id            text    NOT NULL,
+        in_force_digest      bytea,
+        in_force_revocation  bytea,
+        epoch                bigint  NOT NULL,
+        PRIMARY KEY (tenant_id),
+        CONSTRAINT publication_state_digest_width
+            CHECK (in_force_digest IS NULL OR octet_length(in_force_digest) = 32),
+        CONSTRAINT publication_state_revocation_width
+            CHECK (in_force_revocation IS NULL OR octet_length(in_force_revocation) = 32),
+        CONSTRAINT publication_state_epoch_positive
+            CHECK (epoch >= 1),
+        CONSTRAINT publication_state_names_a_published_snapshot
+            FOREIGN KEY (tenant_id, in_force_digest)
+            REFERENCES authority.registry_snapshot (tenant_id, snapshot_digest),
+        CONSTRAINT publication_state_names_a_published_revocation
+            FOREIGN KEY (tenant_id, in_force_revocation)
+            REFERENCES authority.revocation_snapshot (tenant_id, snapshot_digest)
+    )
+    """,
+)
+
+_PUBLICATION_STATE_DOWN: tuple[str, ...] = ("DROP TABLE authority.publication_state",)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "case_custody", _INITIAL_UP, _INITIAL_DOWN),
     Migration(2, "case_commitment", _COMMITMENT_UP, _COMMITMENT_DOWN),
+    Migration(3, "authority_and_catalog", _AUTHORITY_UP, _AUTHORITY_DOWN),
+    Migration(4, "authority_publication_state", _PUBLICATION_STATE_UP, _PUBLICATION_STATE_DOWN),
 )
 
 #  The ledger. Created by the runner rather than by a migration, because a

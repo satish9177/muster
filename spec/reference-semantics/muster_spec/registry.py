@@ -50,6 +50,7 @@ REBUILD_MODES = ("OPERATIONAL", "COUNTERFACTUAL")
 AUTHORIZABILITY = ("AUTHORIZABLE", "NEVER_AUTHORIZABLE")
 OUTCOME_CLASSES = ("INVARIANT", "DIVERGENT", "INFEASIBLE", "INDETERMINATE")
 PROOF_SIDES = ("L", "R")
+AGENT_LIFECYCLES = ("ACTIVE", "RETIRED")
 
 
 def _f(name: str, type_: TypeExpr, note: str = "") -> FieldDecl:
@@ -394,6 +395,14 @@ record(
         _f("layer", AtomIn(LAYERS)),
         _f("acquisition", AtomIn(ACQUISITION_CLASSES)),
         _f("permitted_source_classes", SetOf(ATOM)),
+        _f(
+            "resource_scope_kinds",
+            SetOf(ATOM),
+            "[G1] the resource kinds authority over this predicate is scoped by. "
+            "Q-12(d) resolves each from arg_kinds where the predicate carries it "
+            "and from CaseConstructionRecord.case_scope_coordinates otherwise; a "
+            "kind neither supplies is UNDETERMINABLE and refuses, never 'any'",
+        ),
         _f("measurement_class", OptOf(ATOM)),
     ],
 )
@@ -710,6 +719,13 @@ record(
         _f("contract_ref", OptOf(ATOM)),
         _f("parties", SeqOf(Ref("PartyRecord"))),
         _f("declared_instances", SeqOf(Ref("SymbolRef"))),
+        _f(
+            "case_scope_coordinates",
+            SetOf(Ref("ResourceScope")),
+            "[G1] where this case is: its site, cost centre, purchase order. "
+            "Signed by the officer who opened the case, so Q-12(d) reads the "
+            "resource from an artifact no source could author",
+        ),
         _f("signer_key_ref", ATOM),
         _f("signature", Ref("Signature")),
     ],
@@ -774,6 +790,205 @@ union(
     ],
     digest_kind="TRANSCRIPT_ENTRY",
     persistence="persisted",
+)
+
+
+# ==========================================================================
+# 6b. source authority  [G1 -- section 12.4]
+# ==========================================================================
+#
+# One grant is one authorization to say one class of thing about one
+# enumerated scope.  There is no wildcard in any field at any level: both
+# enumerated fields carry a minimum of one member, and no ANY/* value exists to
+# put in them.  Absence is unrepresentable, not permissive.
+
+record(
+    "ResourceScope",
+    "ResourceScope/v1",
+    [
+        _f("scope_kind", ATOM, "drawn from the bundle's declared resource_scope_kinds"),
+        _f("scope_value", ATOM, "an exact identifier.  Matching is set membership over the pair"),
+    ],
+    note=(
+        "[G1] There is NO ANY / * / wildcard value -- unrepresentable, not "
+        "rejected.  Matching is equality over the whole pair, so a grant over "
+        "site-1 does not reach site-10."
+    ),
+)
+
+record(
+    "AuthorityGrant",
+    "AuthorityGrant/v1",
+    [
+        _f("key_ref", ATOM, "the signing key"),
+        _f("principal_id", ATOM, "the source INSTANCE holding it"),
+        _f("tenant_scope", ATOM, "exactly one tenant"),
+        _f("source_class", ATOM, "exactly one class -- an ATOM, not a set"),
+        _f("permitted_predicates", SetOf(ATOM, min_count=1), "predicate ids, enumerated"),
+        _f("resource_scope", SetOf(Ref("ResourceScope"), min_count=1), "resources, enumerated"),
+        _f("validity", Ref("HalfOpenInterval"), "[start, end)"),
+        _f("authorization_policy_version", INT),
+    ],
+    note=(
+        "[G1] Every element the governing rule needs, bound inside the "
+        "signature: key, principal, tenant, class, predicates, resource scope "
+        "and validity.  source_class is signer-supplied in a payload and is "
+        "worthless on its own -- it selects which grant must exist and creates "
+        "none."
+    ),
+)
+
+record(
+    "AuthorityRegistrySnapshot",
+    "AuthorityRegistrySnapshot/v1",
+    [
+        _f("registry_id", ATOM),
+        _f("tenant_id", ATOM),
+        _f("authorization_policy_version", INT),
+        _f("grants", SeqOf(Ref("AuthorityGrant")), "ascending by canonical octets, UNIQUE"),
+        _f("published_at", Ref("Instant")),
+    ],
+    digest_kind="AUTHORITY_REGISTRY_SNAPSHOT",
+    persistence="persisted",
+    unique_by=(("grants", ("key_ref", "source_class")),),
+    note=(
+        "[G1] Pinned by AuthorizationContext, which is inside CaseRevision -- so "
+        "changing what a key may say changes the revision digest and there is no "
+        "swappable authority field anywhere.  Two grants on one "
+        "(key_ref, source_class) mean the snapshot is malformed: ambiguity fails "
+        "closed and is NOT resolved by precedence."
+    ),
+)
+
+record(
+    "AuthorityRegistrySnapshotBody",
+    "AuthorityRegistrySnapshotBody/v1",
+    [
+        _f("snapshot", Ref("AuthorityRegistrySnapshot")),
+        _f("signer_key_ref", ATOM, "the PUBLISHER, never a source"),
+    ],
+    digest_kind="AUTHORITY_REGISTRY_SNAPSHOT_BODY",
+)
+
+record(
+    "SignedAuthorityRegistrySnapshot",
+    "SignedAuthorityRegistrySnapshot/v1",
+    [_f("body", Ref("AuthorityRegistrySnapshotBody")), _f("signature", Ref("Signature"))],
+    persistence="persisted",
+    signing=SigningSpec(
+        "signature", "body", "body.signer_key_ref", "AUTHORITY_REGISTRY_SNAPSHOT_BODY"
+    ),
+    note=(
+        "[G1/G7] The publisher of authority is not a source and not the envelope "
+        "signer.  Three signing roles, three key populations: a component that "
+        "could publish grants and attest under them could grant itself authority "
+        "and then exercise it."
+    ),
+)
+
+record(
+    "RevocationSnapshot",
+    "RevocationSnapshot/v1",
+    [
+        _f("registry_id", ATOM),
+        _f("tenant_id", ATOM, "an untenanted revocation list is borrowable across tenants"),
+        _f("revoked_key_refs", SetOf(ATOM)),
+        _f("published_at", Ref("Instant")),
+    ],
+    digest_kind="REVOCATION_SNAPSHOT",
+    persistence="persisted",
+    note=(
+        "[G1] Withdrawn from the AUXILIARY domain table, where its preimage was "
+        "an untenanted SEQ[Digest].  Q-12(f) must RESOLVE the snapshot to ask "
+        "whether a key is in it, and something resolved by digest alone carries "
+        "neither a tenant nor a publisher signature -- so it becomes a type."
+    ),
+)
+
+record(
+    "RevocationSnapshotBody",
+    "RevocationSnapshotBody/v1",
+    [_f("snapshot", Ref("RevocationSnapshot")), _f("signer_key_ref", ATOM)],
+    digest_kind="REVOCATION_SNAPSHOT_BODY",
+)
+
+record(
+    "SignedRevocationSnapshot",
+    "SignedRevocationSnapshot/v1",
+    [_f("body", Ref("RevocationSnapshotBody")), _f("signature", Ref("Signature"))],
+    persistence="persisted",
+    signing=SigningSpec("signature", "body", "body.signer_key_ref", "REVOCATION_SNAPSHOT_BODY"),
+)
+
+
+# ==========================================================================
+# 6c. the fleet catalog  [E]
+# ==========================================================================
+#
+# A catalog answers "which institutional agent exists and where do I send a
+# request".  It answers nothing about permission.  A profile is a routing
+# record; the grant lives in the authority registry, which this family does not
+# reference and cannot influence -- Q-12 takes no catalog argument at all.
+
+record(
+    "AgentProfile",
+    "AgentProfile/v1",
+    [
+        _f("agent_id", ATOM),
+        _f("version", INT),
+        _f("tenant_id", ATOM),
+        _f("principal_id", ATOM, "the institution, NOT a key.  A catalog names no key"),
+        _f("source_class", ATOM, "what it presents as -- a routing fact, not a grant"),
+        _f("acquirable_predicates", SetOf(ATOM, min_count=1)),
+        _f("resource_scope", SetOf(Ref("ResourceScope"), min_count=1)),
+        _f("endpoint_ref", ATOM, "an opaque routing reference; no transport is implied"),
+        _f("lifecycle", AtomIn(AGENT_LIFECYCLES)),
+    ],
+    note=(
+        "[E] Deliberately carries no key, no validity interval and no metadata "
+        "map.  A catalog able to say 'and this key speaks for it' would be a "
+        "second authority registry with weaker rules."
+    ),
+)
+
+record(
+    "AgentCatalogSnapshot",
+    "AgentCatalogSnapshot/v1",
+    [
+        _f("catalog_id", ATOM),
+        _f("tenant_id", ATOM),
+        _f("profiles", SeqOf(Ref("AgentProfile")), "ascending by canonical octets, UNIQUE"),
+        _f("published_at", Ref("Instant")),
+        _f(
+            "authority_registry_snapshot_digest",
+            DIGEST,
+            "[E] PROVENANCE ONLY.  Which authority snapshot this fleet was "
+            "published against.  Nothing reads it to decide authority",
+        ),
+    ],
+    digest_kind="AGENT_CATALOG_SNAPSHOT",
+    persistence="persisted",
+    unique_by=(("profiles", ("agent_id", "version")),),
+)
+
+record(
+    "AgentCatalogSnapshotBody",
+    "AgentCatalogSnapshotBody/v1",
+    [_f("snapshot", Ref("AgentCatalogSnapshot")), _f("signer_key_ref", ATOM)],
+    digest_kind="AGENT_CATALOG_SNAPSHOT_BODY",
+)
+
+record(
+    "SignedAgentCatalogSnapshot",
+    "SignedAgentCatalogSnapshot/v1",
+    [_f("body", Ref("AgentCatalogSnapshotBody")), _f("signature", Ref("Signature"))],
+    persistence="persisted",
+    signing=SigningSpec("signature", "body", "body.signer_key_ref", "AGENT_CATALOG_SNAPSHOT_BODY"),
+    note=(
+        "[E] Publication is a Control Plane act.  An agent cannot publish its own "
+        "profile, so 'I am SITE_B and I can attest attendance' is not a sentence "
+        "the system has a way to hear."
+    ),
 )
 
 
@@ -895,7 +1110,13 @@ record(
     "AuthorizationContext/v1",
     [
         _f("authorization_policy_version", INT),
-        _f("key_registry_snapshot_digest", DIGEST),
+        _f(
+            "authority_registry_snapshot_digest",
+            DIGEST,
+            "[G1] replaces key_registry_snapshot_digest.  The withdrawn pin named "
+            "a snapshot committing to key EXISTENCE; this one names an "
+            "AuthorityRegistrySnapshot, which answers whether a key may speak",
+        ),
         _f("revocation_snapshot_digest", DIGEST),
         _f("context_validity", Ref("HalfOpenInterval")),
     ],

@@ -59,7 +59,14 @@ def _analysis(*, attested: bool, mode: RebuildMode = RebuildMode.OPERATIONAL) ->
         authorization_context_digest=case.authorization_context.digest(),
     )
     revision = rebuild(
-        inputs, case.construction, case.entries, bundle.value, case.authorization_context
+        inputs,
+        case.construction,
+        case.entries,
+        bundle.value,
+        case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(revision, Ok), revision
     analysed = analyse_revision(

@@ -56,7 +56,7 @@ def test_a_member_is_added_once_and_reported_as_created(
 ) -> None:
     digest = entry_digest(case.entries[0])
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, case.entries[0])
+        admitted = admit_entry(scope, case.case_id, case.entries[0], ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         first = scope.transcript.add(case.case_id, digest)
         second = scope.transcript.add(case.case_id, digest)
@@ -78,7 +78,7 @@ def test_membership_comes_back_ascending_whatever_order_it_went_in(
     chosen = case.entries[:6]
     with database.writing(case.tenant_id) as scope:
         for entry in reversed(chosen):
-            admitted = admit_entry(scope, case.case_id, entry)
+            admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
             assert isinstance(admitted, Ok), admitted
             added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
             assert isinstance(added, Ok), added
@@ -104,7 +104,7 @@ def test_a_member_cannot_be_added_to_a_case_that_does_not_exist(
     database: SqlDatabase, tenant_id: str, case: RaviCase
 ) -> None:
     with database.writing(tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, case.entries[0])
+        admitted = admit_entry(scope, case.case_id, case.entries[0], ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add("never-opened", admitted.value.entry_digest)
     assert isinstance(added, Err)
@@ -146,7 +146,9 @@ def test_an_entry_bound_to_another_case_is_refused_before_it_is_stored(
     elsewhere = ravi.ravi(tenant_id, f"{case_id}-other")
     open_ravi(casework, elsewhere)
     with database.writing(tenant_id) as scope:
-        refused = admit_entry(scope, case.case_id, elsewhere.entries[0])
+        refused = admit_entry(
+            scope, case.case_id, elsewhere.entries[0], ravi.admission_authority(elsewhere)
+        )
     assert isinstance(refused, Err)
     assert refused.error.failure is AdmissionFailure.CASE_MISMATCH
 
@@ -161,7 +163,9 @@ def test_an_entry_bound_to_another_tenant_is_refused(
 ) -> None:
     foreign = ravi.ravi(other_tenant_id, case.case_id)
     with database.writing(tenant_id) as scope:
-        refused = admit_entry(scope, case.case_id, foreign.entries[0])
+        refused = admit_entry(
+            scope, case.case_id, foreign.entries[0], ravi.admission_authority(foreign)
+        )
     assert isinstance(refused, Err)
     assert refused.error.failure is AdmissionFailure.TENANT_MISMATCH
 
@@ -171,7 +175,7 @@ def test_admission_stores_the_octets_it_was_given(database: SqlDatabase, case: R
     entry = case.entries[0]
     expected = encode(entry_node(entry))
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
     assert isinstance(admitted, Ok), admitted
 
     with database.reading(case.tenant_id) as scope:

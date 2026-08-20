@@ -40,12 +40,14 @@ class Keyring:
         except KeyError as exc:
             raise SigningError(f"unknown signer key reference {key_ref!r}") from exc
 
-    def snapshot_digest(self) -> bytes:
-        material = b"".join(
-            k.encode("ascii") + b"\x00" + hashlib.sha256(v).digest()
-            for k, v in sorted(self.secrets.items())
-        )
-        return digest_bytes("KEY_REGISTRY_SNAPSHOT", material)
+    #  ``snapshot_digest`` is GONE, with the KEY_REGISTRY_SNAPSHOT domain it
+    #  computed.  Its preimage was ``key_ref || 0x00 || SHA-256(key material)``,
+    #  so the only question it could answer was "does this key exist" -- and the
+    #  question that decides admissibility is "may this key say this, here,
+    #  now".  An AuthorizationContext now pins an AuthorityRegistrySnapshot,
+    #  which is a declared type with its own domain; see ``scenario`` for the
+    #  worked one.  Keeping a second, weaker authority preimage alive beside it
+    #  would be a downgrade path rather than a convenience.
 
 
 # --------------------------------------------------------------------------

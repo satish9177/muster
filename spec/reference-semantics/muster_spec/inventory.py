@@ -98,6 +98,30 @@ PHASE1_TYPE_INVENTORY: frozenset[str] = frozenset(
         'ConstraintDerivation',
         'Constraint',
         'NonEffect',
+        #  [G1 -- section 12.4] Source authority.  Added deliberately, which is
+        #  what this allowlist is for: three types the ratified contract names
+        #  (ResourceScope, AuthorityGrant, AuthorityRegistrySnapshot), the
+        #  generated signing body, its signed wrapper, and the revocation
+        #  family that moved out of the auxiliary domain table for the same
+        #  reason -- Q-12(f) has to resolve a revocation snapshot, and an
+        #  untenanted, unsigned digest list cannot carry a tenant or a
+        #  publisher.
+        'ResourceScope',
+        'AuthorityGrant',
+        'AuthorityRegistrySnapshot',
+        'AuthorityRegistrySnapshotBody',
+        'SignedAuthorityRegistrySnapshot',
+        'RevocationSnapshot',
+        'RevocationSnapshotBody',
+        'SignedRevocationSnapshot',
+        #  [E] The fleet catalog.  Separate from the authority family above and
+        #  not merely filed apart: no authority type references any of these,
+        #  and Q-12 takes no catalog argument, so a profile cannot reach an
+        #  admission decision.
+        'AgentProfile',
+        'AgentCatalogSnapshot',
+        'AgentCatalogSnapshotBody',
+        'SignedAgentCatalogSnapshot',
         'AuthorizationContext',
         'RebuildInputs',
         'CaseRevision',

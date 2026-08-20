@@ -27,7 +27,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from muster.core.evidence.transcript import Signature, read_signature
 from muster.core.results import InvariantViolation
 from muster.core.wire.codec import encode
 from muster.core.wire.digests import Digest, DigestKind, digest_octets
@@ -42,6 +41,7 @@ from muster.core.wire.shape import (
     read_int,
     read_rec,
 )
+from muster.core.wire.signature import Signature, read_signature
 
 TAG_COMMITMENT_ENVELOPE = "CommitmentEnvelope/v1"
 TAG_SIGNED_COMMITMENT_ENVELOPE = "SignedCommitmentEnvelope/v1"

@@ -61,7 +61,9 @@ def _commit_entry(database: SqlDatabase, case: RaviCase, index: int) -> Digest:
     with database.writing(case.tenant_id) as scope:
         held = scope.heads.hold(case.case_id)
         assert isinstance(held, Ok), held
-        admitted = admit_entry(scope, case.case_id, case.entries[index])
+        admitted = admit_entry(
+            scope, case.case_id, case.entries[index], ravi.admission_authority(case)
+        )
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added

@@ -96,7 +96,13 @@ def get_my_view(
 ) -> Result[View, DisclosureRejection]:
     """The view this principal is entitled to, derived rather than requested."""
     with service.commitment.casework.database.reading(tenant_id) as scope:
-        snapshot = read_published(scope, case_id)
+        snapshot = read_published(
+            scope,
+            case_id,
+            service.commitment.casework.publisher_verifier,
+            service.commitment.casework.officer_verifier,
+            service.commitment.casework.source_verifier,
+        )
     if isinstance(snapshot, Err):
         return Err(DisclosureRejection(DisclosureFailure.CASE_NOT_VISIBLE, NOT_VISIBLE))
 

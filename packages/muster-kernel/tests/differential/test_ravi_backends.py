@@ -64,6 +64,9 @@ def _analysis(case_file: str, make: Callable[[], SolverBackend]) -> CaseAnalysis
         case.entries,
         bundle,
         case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Ok), built
     produced = analyse_revision(built.value, bundle, make(), ravi.limits())

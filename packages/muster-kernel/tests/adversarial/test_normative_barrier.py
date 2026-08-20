@@ -13,6 +13,7 @@ import dataclasses
 
 import pytest
 
+from muster.core.authority.check import AuthorityFailure
 from muster.core.case.constraints import (
     AttestedRelationDeriv,
     Constraint,
@@ -30,7 +31,6 @@ from muster.core.case.revision import CaseRevision, canonical_constraints, canon
 from muster.core.evidence.relations import (
     ClosedLowerBound,
     ExactValue,
-    PredicateInfo,
     RelationFailure,
     validate_relation,
 )
@@ -41,15 +41,16 @@ from muster.core.values.scalars import VBool, VInt, VScaled
 from muster.core.values.sorts import BoolDomain, BoolSort, IntRange, IntSort
 from muster.domains.workforce.bundle import (
     SOURCE_PAYROLL,
-    SOURCE_SITE_ACCESS,
     on_site_duration,
     present_on_site,
     shift_payable,
 )
 from muster.hinge.prepare import PrepareFailure, prepare
-from tests.support import ravi
+from tests.support import authority, ravi
 
 SATURDAY_PAYABLE = shift_payable(ravi.RAVI, ravi.SATURDAY)
+PRESENT = present_on_site(ravi.RAVI, ravi.SATURDAY)
+DURATION = on_site_duration(ravi.RAVI, ravi.SATURDAY)
 
 
 def _prepared(revision: CaseRevision) -> object:
@@ -156,14 +157,19 @@ def test_an_attested_normative_fact_is_refused() -> None:
 
 
 def test_a_relation_over_a_normative_predicate_is_refused_at_validation() -> None:
-    """The engine cannot even accept the shape of such an attestation."""
-    info = PredicateInfo(
-        value_sort=BoolSort(),
-        domain=BoolDomain(),
-        layer=EvidenceLayer.NORMATIVE,
-        permitted_source_classes=frozenset({SOURCE_SITE_ACCESS}),
+    """The engine cannot even accept the shape of such an attestation.
+
+    Refused *even under a grant for it*.  The view here authorizes the claim
+    completely -- right key, right class, right site, in force -- so the only
+    thing left to refuse it is the layer barrier itself, which is the point:
+    no source reaches a normative variable, including one the registry
+    mistakenly blessed.
+    """
+    info = authority.info(BoolSort(), BoolDomain(), EvidenceLayer.NORMATIVE)
+    claim = authority.claim(PRESENT)
+    outcome = validate_relation(
+        ExactValue(VBool(True)), BoolSort(), info, claim, authority.granting(info, claim)
     )
-    outcome = validate_relation(ExactValue(VBool(True)), BoolSort(), info, SOURCE_SITE_ACCESS)
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RelationFailure.LAYER_FLOW_VIOLATION
 
@@ -171,19 +177,18 @@ def test_a_relation_over_a_normative_predicate_is_refused_at_validation() -> Non
 def test_a_source_class_the_bundle_does_not_permit_is_refused() -> None:
     """Q-12(a): the pinned schema decides which class may speak for a predicate.
 
-    This is the bundle half of source authorization.  The registry half -- that
-    *this key* holds that class, for this tenant and this resource -- is Q-12(b)
-    to (f) and is not implemented in this milestone.
+    The bundle half of source authorization, and it is checked before the
+    registry half: a class the schema never permitted for this predicate is
+    refused whatever the registry says, so a mistaken grant cannot widen a
+    predicate the policy authority scoped.
     """
-    info = PredicateInfo(
-        value_sort=BoolSort(),
-        domain=BoolDomain(),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE_SITE_ACCESS}),
+    info = authority.info(BoolSort(), BoolDomain(), EvidenceLayer.OBSERVATION)
+    claim = authority.claim(PRESENT, source_class=SOURCE_PAYROLL)
+    outcome = validate_relation(
+        ExactValue(VBool(True)), BoolSort(), info, claim, authority.granting(info, claim)
     )
-    outcome = validate_relation(ExactValue(VBool(True)), BoolSort(), info, SOURCE_PAYROLL)
     assert isinstance(outcome, Err)
-    assert outcome.error.failure is RelationFailure.SOURCE_CLASS_NOT_PERMITTED_FOR_PREDICATE
+    assert outcome.error.failure is AuthorityFailure.SOURCE_CLASS_NOT_PERMITTED_FOR_PREDICATE
 
 
 def test_a_bound_of_the_wrong_sort_is_refused() -> None:
@@ -192,27 +197,25 @@ def test_a_bound_of_the_wrong_sort_is_refused() -> None:
     A scaled bound against an integer predicate passes the declared-sort check
     and would rebuild into an ill-typed comparison.
     """
-    info = PredicateInfo(
-        value_sort=IntSort(),
-        domain=IntRange(0, 1440),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE_SITE_ACCESS}),
-    )
+    info = authority.info(IntSort(), IntRange(0, 1440), EvidenceLayer.OBSERVATION)
+    claim = authority.claim(DURATION)
     outcome = validate_relation(
-        ClosedLowerBound(VScaled("INR", 2, 99)), IntSort(), info, SOURCE_SITE_ACCESS
+        ClosedLowerBound(VScaled("INR", 2, 99)),
+        IntSort(),
+        info,
+        claim,
+        authority.granting(info, claim),
     )
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RelationFailure.RELATION_VALUE_SORT_MISMATCH
 
 
 def test_a_bound_outside_the_declared_domain_is_refused() -> None:
-    info = PredicateInfo(
-        value_sort=IntSort(),
-        domain=IntRange(0, 1440),
-        layer=EvidenceLayer.OBSERVATION,
-        permitted_source_classes=frozenset({SOURCE_SITE_ACCESS}),
+    info = authority.info(IntSort(), IntRange(0, 1440), EvidenceLayer.OBSERVATION)
+    claim = authority.claim(DURATION)
+    outcome = validate_relation(
+        ClosedLowerBound(VInt(9999)), IntSort(), info, claim, authority.granting(info, claim)
     )
-    outcome = validate_relation(ClosedLowerBound(VInt(9999)), IntSort(), info, SOURCE_SITE_ACCESS)
     assert isinstance(outcome, Err)
     assert outcome.error.failure is RelationFailure.VALUE_OUT_OF_DOMAIN
 

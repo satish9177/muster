@@ -228,7 +228,13 @@ def _prepare(
     a commitment back on every disclosure -- affordable at all.
     """
     with commitment.casework.database.reading(tenant_id) as scope:
-        snapshot = read_published(scope, case_id)
+        snapshot = read_published(
+            scope,
+            case_id,
+            commitment.casework.publisher_verifier,
+            commitment.casework.officer_verifier,
+            commitment.casework.source_verifier,
+        )
         if isinstance(snapshot, Err):
             return Err(_from_snapshot(snapshot.error, tenant_id, case_id))
         certificate = read_certificate(scope, snapshot.value.head)
@@ -320,6 +326,9 @@ def _replay(
         snapshot.entries,
         bundle,
         snapshot.authorization_context,
+        snapshot.authority.snapshot,
+        snapshot.authority.revocation,
+        snapshot.solicitations,
     )
     if isinstance(derived, Err):
         return Err(

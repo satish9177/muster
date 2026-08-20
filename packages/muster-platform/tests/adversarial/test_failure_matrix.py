@@ -105,7 +105,7 @@ def test_a_failure_between_the_octets_and_the_membership_rolls_back_both(
     before = count_content(migrated_dsn, case.tenant_id, "TRANSCRIPT_ENTRY")
 
     with pytest.raises(_Injected), database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         raise _Injected("crash before the membership row")
 
@@ -135,7 +135,7 @@ def test_an_entry_committed_and_never_published_is_published_by_the_next_advance
     """The crash that actually happens, and the recovery that is just a retry."""
     entry = case.entries[SETTLED_PREFIX]
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added
@@ -168,7 +168,7 @@ def test_the_status_of_a_case_with_an_unpublished_entry_is_the_head_not_the_tran
 
     entry = case.entries[SETTLED_PREFIX]
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added
@@ -205,6 +205,9 @@ def test_a_pin_the_registry_does_not_hold_fails_closed_and_writes_nothing(
         backend=empty.backend,
         limits=empty.limits,
         policy=empty.policy,
+        source_verifier=empty.source_verifier,
+        publisher_verifier=empty.publisher_verifier,
+        officer_verifier=empty.officer_verifier,
     )
     before = count_content(migrated_dsn, case.tenant_id, "TRANSCRIPT_PREFIX")
 
@@ -223,7 +226,7 @@ def test_a_solver_that_dies_mid_analysis_leaves_the_head_where_it_was(
     """No transaction is open while the solver runs, so there is nothing to undo."""
     entry = case.entries[SETTLED_PREFIX]
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added
@@ -269,7 +272,7 @@ def test_a_lost_swap_caches_no_revision_and_no_certificate(
     """
     entry = case.entries[SETTLED_PREFIX]
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added
@@ -353,7 +356,7 @@ def test_orphan_derived_artifacts_are_reused_rather_than_duplicated(
     """
     entry = case.entries[SETTLED_PREFIX]
     with database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, entry)
+        admitted = admit_entry(scope, case.case_id, entry, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added

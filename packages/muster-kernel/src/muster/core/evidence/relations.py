@@ -15,6 +15,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from muster.core.authority.check import (
+    AuthorityError,
+    AuthorityView,
+    SourceClaim,
+    check_authority,
+    required_coordinates,
+)
 from muster.core.expr.ir import Binary, BinaryOp, Leaf, NAry, NAryOp
 from muster.core.expr.terms import Term, literal
 from muster.core.results import Err, InvariantViolation, Ok, Result
@@ -129,13 +136,20 @@ class RelationFailure(Enum):
     VALUE_OUT_OF_DOMAIN = "ValueOutOfDomain"
     LAYER_FLOW_VIOLATION = "LayerFlowViolation"
     RELATION_VALUE_SORT_MISMATCH = "RelationValueSortMismatch"
-    SOURCE_CLASS_NOT_PERMITTED_FOR_PREDICATE = "SourceClassNotPermittedForPredicate"
 
 
 @dataclass(frozen=True, slots=True)
 class RelationError:
     failure: RelationFailure
     detail: str
+
+
+#  Q-12's rejections are *not* restated here.  Source authorization owns its
+#  own failure vocabulary in :mod:`muster.core.authority.check`, and validation
+#  returns whichever of the two refused -- so there is exactly one definition
+#  of "the predicate is not granted to this key", and no chance of a second
+#  copy drifting from it.
+type ValidationError = RelationError | AuthorityError
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +166,13 @@ class PredicateInfo:
     domain: Domain
     layer: EvidenceLayer
     permitted_source_classes: frozenset[str]
+    #  Q-12(d) resolves the resource coordinates a proposition ranges over from
+    #  these two, both of which come from inside the signed bundle: the kinds
+    #  authority over this predicate is scoped by, and the argument kinds that
+    #  may supply their values.  A coordinate derived from anything the source
+    #  supplied would let the source choose which grant it needed.
+    arg_kinds: tuple[str, ...]
+    resource_scope_kinds: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,18 +203,51 @@ def validate_relation(
     relation: AcquisitionRelation,
     declared_value_sort: Sort,
     info: PredicateInfo,
-    source_class: str,
-) -> Result[AcquisitionRelation, RelationError]:
-    """Q-4 to Q-11, plus Q-12(a).
+    claim: SourceClaim,
+    authority: AuthorityView,
+) -> Result[AcquisitionRelation, ValidationError]:
+    """Q-12(a) to (f), then Q-4 to Q-8, then Q-11 -- in that ratified order.
 
-    Milestone A implements the bundle half of source authorization: the pinned
-    predicate schema must permit this source class for this predicate.  The
-    registry half -- that *this key* holds that class, for this tenant, this
-    resource scope and this validity window -- is check Q-12(b) to (f), which
-    needs the ratified ``AuthorityRegistrySnapshot`` and lands before milestone
-    E.  Until then ``source_class`` selects which grant would have to exist; it
-    does not prove one does.
+    The order is the specification, not an implementation detail: the first
+    failure is the reported one, so two conforming implementations return the
+    same rejection rather than merely *a* rejection.
+
+    **Authority precedes content.**  An unauthorized source's payload should
+    never have its content evaluated at all -- not because evaluating it would
+    be unsafe, but because a rejection that named a unit mismatch would tell a
+    key with no grant that its units were the problem, and a system that
+    negotiates with an unauthorized source is one that has already started
+    trusting it.  The consequence is deliberate and worth stating: an
+    attestation that is *both* unauthorized and aimed at a normative variable
+    is refused on authority, not on the layer barrier.  The barrier is not
+    weakened -- an authorized source aimed at a normative variable still fails
+    Q-8 below, and nothing reaches a normative variable by either path -- but
+    the reason recorded is the first one that applied.
+
+    ``claim`` and ``authority`` are separate arguments on purpose.  The claim
+    is per receipt and every field in it is signer-supplied; the view is per
+    rebuild and no field in it is.  Folding one into the other would rebuild
+    the pinned authority state once per receipt and would blur the line the
+    whole check exists to draw.
     """
+    #  Q-12(a) to (f).  The pinned bundle must permit this class for this
+    #  predicate, and the pinned snapshot must grant *this key* that class, for
+    #  this tenant, over this resource, for this predicate, in force at the
+    #  revision's ``as_of``, unrevoked, under the pinned policy version.
+    authorized = check_authority(
+        claim,
+        info.permitted_source_classes,
+        required_coordinates(
+            claim.proposition,
+            info.arg_kinds,
+            info.resource_scope_kinds,
+            authority.case_scope_coordinates,
+        ),
+        authority,
+    )
+    if isinstance(authorized, Err):
+        return Err(authorized.error)
+
     #  Q-4: the payload's declared sort must be the schema's declared sort.
     if declared_value_sort != info.value_sort:
         return Err(
@@ -203,18 +257,10 @@ def validate_relation(
         )
 
     #  Q-8: no relation may reach a normative variable, at any layer, from any
-    #  source.  This is the barrier, checked before anything else about content.
+    #  source -- including one holding a grant for it, which is why this is
+    #  checked after authority rather than instead of it.
     if info.layer is EvidenceLayer.NORMATIVE:
         return Err(RelationError(RelationFailure.LAYER_FLOW_VIOLATION, str(info.layer.value)))
-
-    #  Q-12(a): the bundle must permit this class for this predicate.
-    if source_class not in info.permitted_source_classes:
-        return Err(
-            RelationError(
-                RelationFailure.SOURCE_CLASS_NOT_PERMITTED_FOR_PREDICATE,
-                f"{source_class} not in {sorted(info.permitted_source_classes)}",
-            )
-        )
 
     match relation:
         case ExactValue(value):
@@ -239,7 +285,7 @@ def validate_relation(
 
 def _check_value(
     value: Value, info: PredicateInfo, relation: AcquisitionRelation
-) -> Result[AcquisitionRelation, RelationError]:
+) -> Result[AcquisitionRelation, ValidationError]:
     #  Q-11: the relation *value's own* sort, not merely the declared one.  A
     #  lower bound carrying a scaled amount against an integer predicate passes
     #  Q-4 and rebuilds into an ill-typed comparison without this check.

@@ -21,13 +21,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from muster.core.actions import ActionSchema
-from muster.core.evidence.transcript import Signature
 from muster.core.expr.terms import term_digest
 from muster.core.results import Err, Ok, Result
 from muster.core.values.times import HalfOpenInterval, Instant
 from muster.core.wire.digests import Digest, DigestKind, digest_node
 from muster.core.wire.nodes import NAtom, NInt, NRec
 from muster.core.wire.shape import atom_or_none, option_node
+from muster.core.wire.signature import Signature
 from muster.policy.artifacts import AdmissibilityDescriptors, DisclosurePolicy, RatificationSet
 from muster.policy.entailment import DefinitionRule, EntailmentRules
 from muster.policy.predicates import PredicateSchema

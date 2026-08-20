@@ -2,9 +2,9 @@
 
 NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`.
 
-- types: **131**  (116 records, 14 unions, 1 aliases)
-- digest kinds: **49**, all distinct
-- signed artifacts: **10**
+- types: **143**  (128 records, 14 unions, 1 aliases)
+- digest kinds: **55**, all distinct
+- signed artifacts: **13**
 - commitment paths: **29** inventory entries
 
 ## Record tags and arities
@@ -43,7 +43,7 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `FieldSpec` | `FieldSpec/v1` | 6 | -- | embedded |
 | `ActionKindSpec` | `ActionKindSpec/v1` | 2 | -- | embedded |
 | `ActionSchema` | `ActionSchema/v1` | 3 | `ACTION_SCHEMA` | persisted |
-| `PredicateSpec` | `PredicateSpec/v1` | 8 | -- | embedded |
+| `PredicateSpec` | `PredicateSpec/v1` | 9 | -- | embedded |
 | `PredicateSchema` | `PredicateSchema/v1` | 2 | `PREDICATE_SCHEMA` | persisted |
 | `FieldTerm` | `FieldTerm/v1` | 2 | -- | embedded |
 | `ActionTerm` | `ActionTerm/v1` | 2 | -- | embedded |
@@ -69,10 +69,22 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `StatementRecord` | `StatementRecord/v1` | 12 | `STATEMENT` | persisted |
 | `InterestAssessment` | `InterestAssessment/v1` | 11 | `INTEREST_ASSESSMENT` | persisted |
 | `PartyRecord` | `PartyRecord/v1` | 4 | -- | embedded |
-| `CaseConstructionRecord` | `CaseConstructionRecord/v1` | 9 | `CASE_CONSTRUCTION` | persisted |
+| `CaseConstructionRecord` | `CaseConstructionRecord/v1` | 10 | `CASE_CONSTRUCTION` | persisted |
 | `Retraction` | `Retraction/v1` | 6 | -- | embedded |
 | `Declaration` | `Declaration/v1` | 6 | -- | embedded |
 | `TranscriptPrefix` | `TranscriptPrefix/v1` | 3 | `TRANSCRIPT_PREFIX` | derived |
+| `ResourceScope` | `ResourceScope/v1` | 2 | -- | embedded |
+| `AuthorityGrant` | `AuthorityGrant/v1` | 8 | -- | embedded |
+| `AuthorityRegistrySnapshot` | `AuthorityRegistrySnapshot/v1` | 5 | `AUTHORITY_REGISTRY_SNAPSHOT` | persisted |
+| `AuthorityRegistrySnapshotBody` | `AuthorityRegistrySnapshotBody/v1` | 2 | `AUTHORITY_REGISTRY_SNAPSHOT_BODY` | embedded |
+| `SignedAuthorityRegistrySnapshot` | `SignedAuthorityRegistrySnapshot/v1` | 2 | -- | persisted |
+| `RevocationSnapshot` | `RevocationSnapshot/v1` | 4 | `REVOCATION_SNAPSHOT` | persisted |
+| `RevocationSnapshotBody` | `RevocationSnapshotBody/v1` | 2 | `REVOCATION_SNAPSHOT_BODY` | embedded |
+| `SignedRevocationSnapshot` | `SignedRevocationSnapshot/v1` | 2 | -- | persisted |
+| `AgentProfile` | `AgentProfile/v1` | 9 | -- | embedded |
+| `AgentCatalogSnapshot` | `AgentCatalogSnapshot/v1` | 5 | `AGENT_CATALOG_SNAPSHOT` | persisted |
+| `AgentCatalogSnapshotBody` | `AgentCatalogSnapshotBody/v1` | 2 | `AGENT_CATALOG_SNAPSHOT_BODY` | embedded |
+| `SignedAgentCatalogSnapshot` | `SignedAgentCatalogSnapshot/v1` | 2 | -- | persisted |
 | `AttestedBy` | `AttestedBy/v1` | 1 | -- | embedded |
 | `EntailedBy` | `EntailedBy/v1` | 5 | -- | embedded |
 | `EstablishedFact` | `EstablishedFact/v1` | 3 | `ESTABLISHED_FACT` | embedded |
@@ -123,7 +135,7 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `RatificationRecordBody` | `RatificationRecordBody/v1` | 6 | `RATIFICATION_RECORD_BODY` | derived |
 | `StatementRecordBody` | `StatementRecordBody/v1` | 11 | `STATEMENT_BODY` | derived |
 | `InterestAssessmentBody` | `InterestAssessmentBody/v1` | 10 | `INTEREST_ASSESSMENT_BODY` | derived |
-| `CaseConstructionRecordBody` | `CaseConstructionRecordBody/v1` | 8 | `CASE_CONSTRUCTION_BODY` | derived |
+| `CaseConstructionRecordBody` | `CaseConstructionRecordBody/v1` | 9 | `CASE_CONSTRUCTION_BODY` | derived |
 | `RetractionBody` | `RetractionBody/v1` | 5 | `RETRACTION_BODY` | derived |
 | `DeclarationBody` | `DeclarationBody/v1` | 5 | `DECLARATION_BODY` | derived |
 | `RevisionLineageBody` | `RevisionLineageBody/v1` | 7 | `REVISION_LINEAGE_BODY` | derived |
@@ -155,9 +167,13 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `ACTION_SCHEMA` | `ActionSchema` |
 | `ADMISSIBILITY_DESCRIPTOR` | `AdmissibilityDescriptor` |
 | `ADMISSIBILITY_DESCRIPTORS` | `AdmissibilityDescriptors` |
+| `AGENT_CATALOG_SNAPSHOT` | `AgentCatalogSnapshot` |
+| `AGENT_CATALOG_SNAPSHOT_BODY` | `AgentCatalogSnapshotBody` |
 | `ANALYSIS_CERTIFICATE` | `AnalysisCertificate` |
 | `ATTESTATION_PAYLOAD` | `AcquisitionPayload` |
 | `AUDITOR_VIEW` | `AuditorView` |
+| `AUTHORITY_REGISTRY_SNAPSHOT` | `AuthorityRegistrySnapshot` |
+| `AUTHORITY_REGISTRY_SNAPSHOT_BODY` | `AuthorityRegistrySnapshotBody` |
 | `AUTHORIZATION_CONTEXT` | `AuthorizationContext` |
 | `CASE_CONSTRUCTION` | `CaseConstructionRecord` |
 | `CASE_CONSTRUCTION_BODY` | `CaseConstructionRecordBody` |
@@ -191,6 +207,8 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `RETRACTION_BODY` | `RetractionBody` |
 | `REVISION_LINEAGE` | `RevisionLineage` |
 | `REVISION_LINEAGE_BODY` | `RevisionLineageBody` |
+| `REVOCATION_SNAPSHOT` | `RevocationSnapshot` |
+| `REVOCATION_SNAPSHOT_BODY` | `RevocationSnapshotBody` |
 | `SOLVER_QUERY` | `SolverQuery` |
 | `STATEMENT` | `StatementRecord` |
 | `STATEMENT_BODY` | `StatementRecordBody` |
@@ -216,6 +234,8 @@ NON-PRODUCTION SPECIFICATION MATERIAL.  Generated from `muster_spec/registry.py`
 | `DisclosurePolicy` | `entries` | `outcome_class`, `action_kind`, `audience_class`, `disclosure_context` |
 | `RatificationSet` | `records` | `ratification_id` |
 | `CaseConstructionRecord` | `parties` | `principal_id` |
+| `AuthorityRegistrySnapshot` | `grants` | `key_ref`, `source_class` |
+| `AgentCatalogSnapshot` | `profiles` | `agent_id`, `version` |
 | `CaseRevision` | `established` | `ref` |
 | `CaseRevision` | `constraints` | `label` |
 | `CaseRevision` | `non_effects` | `rule_id`, `subject` |
@@ -324,7 +344,7 @@ ConsequentialAction          = REC("ConsequentialAction/v1", 3, [DIGEST action_s
 FieldSpec                    = REC("FieldSpec/v1", 6, [ATOM name, Sort sort, Domain bounds, ATOM<CONSEQUENTIAL|DIAGNOSTIC> consequentiality, BOOL required, Option[Value] default])
 ActionKindSpec               = REC("ActionKindSpec/v1", 2, [ATOM kind, SEQ[FieldSpec] fields])
 ActionSchema                 = REC("ActionSchema/v1", 3, [ATOM schema_id, INT schema_version, SEQ[ActionKindSpec]^>=1 kinds])
-PredicateSpec                = REC("PredicateSpec/v1", 8, [ATOM predicate_id, SEQ[ATOM] arg_kinds, Sort value_sort, Domain domain, ATOM<OBSERVATION|RECORD|NORMATIVE> layer, ATOM<ATTESTABLE|DERIVED> acquisition, SET[ATOM] permitted_source_classes, Option[ATOM] measurement_class])
+PredicateSpec                = REC("PredicateSpec/v1", 9, [ATOM predicate_id, SEQ[ATOM] arg_kinds, Sort value_sort, Domain domain, ATOM<OBSERVATION|RECORD|NORMATIVE> layer, ATOM<ATTESTABLE|DERIVED> acquisition, SET[ATOM] permitted_source_classes, SET[ATOM] resource_scope_kinds, Option[ATOM] measurement_class])
 PredicateSchema              = REC("PredicateSchema/v1", 2, [INT schema_version, SEQ[PredicateSpec] predicates])
 FieldTerm                    = REC("FieldTerm/v1", 2, [ATOM name, Term term])
 ActionTerm                   = REC("ActionTerm/v1", 2, [ATOM kind, SEQ[FieldTerm] fields])
@@ -356,7 +376,7 @@ VerificationReceipt          = REC("VerificationReceipt/v1", 2, [AcquisitionPayl
 StatementRecord              = REC("StatementRecord/v1", 12, [ATOM tenant_id, ATOM case_id, ATOM claimant, ATOM role_in_case, SymbolRef proposition, Value asserted_value, Sort value_sort, Option[ATOM] measurement_procedure_id, Instant statement_time, Option[DIGEST] supersedes, ATOM signer_key_ref, Signature signature])
 InterestAssessment           = REC("InterestAssessment/v1", 11, [ATOM tenant_id, ATOM case_id, SymbolRef proposition, ATOM principal_id, ATOM scope, ATOM direction, HalfOpenInterval validity, ATOM issuer, Option[DIGEST] supersedes, ATOM signer_key_ref, Signature signature])
 PartyRecord                  = REC("PartyRecord/v1", 4, [ATOM tenant_id, ATOM principal_id, ATOM role_in_case, SET[ATOM] competences])
-CaseConstructionRecord       = REC("CaseConstructionRecord/v1", 9, [ATOM tenant_id, ATOM case_id, Instant created_at, SEQ[ATOM] subject_refs, Option[ATOM] contract_ref, SEQ[PartyRecord] parties, SEQ[SymbolRef] declared_instances, ATOM signer_key_ref, Signature signature])
+CaseConstructionRecord       = REC("CaseConstructionRecord/v1", 10, [ATOM tenant_id, ATOM case_id, Instant created_at, SEQ[ATOM] subject_refs, Option[ATOM] contract_ref, SEQ[PartyRecord] parties, SEQ[SymbolRef] declared_instances, SET[ResourceScope] case_scope_coordinates, ATOM signer_key_ref, Signature signature])
 Retraction                   = REC("Retraction/v1", 6, [ATOM tenant_id, ATOM case_id, DIGEST target, Instant at, ATOM signer_key_ref, Signature signature])
 Declaration                  = REC("Declaration/v1", 6, [ATOM tenant_id, ATOM case_id, SEQ[SymbolRef]^>=1 instances, Instant at, ATOM signer_key_ref, Signature signature])
 TranscriptPrefix             = REC("TranscriptPrefix/v1", 3, [ATOM tenant_id, ATOM case_id, SEQ[DIGEST] entry_digests])
@@ -364,6 +384,18 @@ TranscriptEntry              = TAGGED("Attestation", VerificationReceipt)
                              | TAGGED("Statement", StatementRecord)
                              | TAGGED("Retraction", Retraction)
                              | TAGGED("Declaration", Declaration)
+ResourceScope                = REC("ResourceScope/v1", 2, [ATOM scope_kind, ATOM scope_value])
+AuthorityGrant               = REC("AuthorityGrant/v1", 8, [ATOM key_ref, ATOM principal_id, ATOM tenant_scope, ATOM source_class, SET[ATOM]^>=1 permitted_predicates, SET[ResourceScope]^>=1 resource_scope, HalfOpenInterval validity, INT authorization_policy_version])
+AuthorityRegistrySnapshot    = REC("AuthorityRegistrySnapshot/v1", 5, [ATOM registry_id, ATOM tenant_id, INT authorization_policy_version, SEQ[AuthorityGrant] grants, Instant published_at])
+AuthorityRegistrySnapshotBody = REC("AuthorityRegistrySnapshotBody/v1", 2, [AuthorityRegistrySnapshot snapshot, ATOM signer_key_ref])
+SignedAuthorityRegistrySnapshot = REC("SignedAuthorityRegistrySnapshot/v1", 2, [AuthorityRegistrySnapshotBody body, Signature signature])
+RevocationSnapshot           = REC("RevocationSnapshot/v1", 4, [ATOM registry_id, ATOM tenant_id, SET[ATOM] revoked_key_refs, Instant published_at])
+RevocationSnapshotBody       = REC("RevocationSnapshotBody/v1", 2, [RevocationSnapshot snapshot, ATOM signer_key_ref])
+SignedRevocationSnapshot     = REC("SignedRevocationSnapshot/v1", 2, [RevocationSnapshotBody body, Signature signature])
+AgentProfile                 = REC("AgentProfile/v1", 9, [ATOM agent_id, INT version, ATOM tenant_id, ATOM principal_id, ATOM source_class, SET[ATOM]^>=1 acquirable_predicates, SET[ResourceScope]^>=1 resource_scope, ATOM endpoint_ref, ATOM<ACTIVE|RETIRED> lifecycle])
+AgentCatalogSnapshot         = REC("AgentCatalogSnapshot/v1", 5, [ATOM catalog_id, ATOM tenant_id, SEQ[AgentProfile] profiles, Instant published_at, DIGEST authority_registry_snapshot_digest])
+AgentCatalogSnapshotBody     = REC("AgentCatalogSnapshotBody/v1", 2, [AgentCatalogSnapshot snapshot, ATOM signer_key_ref])
+SignedAgentCatalogSnapshot   = REC("SignedAgentCatalogSnapshot/v1", 2, [AgentCatalogSnapshotBody body, Signature signature])
 AttestedBy                   = REC("AttestedBy/v1", 1, [DIGEST receipt_digest])
 EntailedBy                   = REC("EntailedBy/v1", 5, [DIGEST manifest_digest, ATOM<IMPLICATION|DEFINITION> modality, ATOM<RULE_FIRED|FULL_EVALUATION|WITNESS_DISJUNCT> derivation_mode, SEQ[ATOM]^>=1 rule_ids, SEQ[DIGEST] premise_digests])
 Justification                = TAGGED("AttestedBy", AttestedBy)
@@ -383,7 +415,7 @@ ConstraintDerivation         = TAGGED("Structural", StructuralDeriv)
                              | TAGGED("PolicyEntailment", PolicyEntailmentDeriv)
 Constraint                   = REC("Constraint/v1", 3, [ATOM[<=100] label, Term formula, ConstraintDerivation derivation])
 NonEffect                    = REC("NonEffect/v1", 4, [ATOM rule_id, INT rule_version, ATOM subject, ATOM reason])
-AuthorizationContext         = REC("AuthorizationContext/v1", 4, [INT authorization_policy_version, DIGEST key_registry_snapshot_digest, DIGEST revocation_snapshot_digest, HalfOpenInterval context_validity])
+AuthorizationContext         = REC("AuthorizationContext/v1", 4, [INT authorization_policy_version, DIGEST authority_registry_snapshot_digest, DIGEST revocation_snapshot_digest, HalfOpenInterval context_validity])
 RebuildInputs                = REC("RebuildInputs/v1", 8, [ATOM tenant_id, ATOM case_id, DIGEST construction_digest, DIGEST transcript_prefix_digest, DIGEST bundle_manifest_digest, Instant as_of, ATOM<OPERATIONAL|COUNTERFACTUAL> mode, DIGEST authorization_context_digest])
 CaseRevision                 = REC("CaseRevision/v1", 13, [ATOM tenant_id, ATOM case_id, DIGEST construction_digest, DIGEST transcript_prefix_digest, DIGEST bundle_pin, Instant as_of, ATOM<OPERATIONAL|COUNTERFACTUAL> mode, DIGEST authorization_context_digest, ATOM<AUTHORIZABLE|NEVER_AUTHORIZABLE> authorizability, SEQ[SymbolRef] declared, SEQ[EstablishedFact] established, SEQ[Constraint] constraints, SEQ[NonEffect] non_effects])
 RevisionLineage              = REC("RevisionLineage/v1", 8, [ATOM tenant_id, ATOM case_id, DIGEST revision_semantic_digest, INT revision_number, Option[DIGEST] parent_digest, Instant published_at, ATOM signer_key_ref, Signature signature])
@@ -435,7 +467,7 @@ AuditorView                  = REC("AuditorView/v1", 5, [SignedCommitmentEnvelop
 RatificationRecordBody       = REC("RatificationRecordBody/v1", 6, [ATOM ratification_id, Option[ATOM] tenant_scope, ATOM subject_kind, DIGEST subject_ref, Instant ratified_at, ATOM signer_key_ref])
 StatementRecordBody          = REC("StatementRecordBody/v1", 11, [ATOM tenant_id, ATOM case_id, ATOM claimant, ATOM role_in_case, SymbolRef proposition, Value asserted_value, Sort value_sort, Option[ATOM] measurement_procedure_id, Instant statement_time, Option[DIGEST] supersedes, ATOM signer_key_ref])
 InterestAssessmentBody       = REC("InterestAssessmentBody/v1", 10, [ATOM tenant_id, ATOM case_id, SymbolRef proposition, ATOM principal_id, ATOM scope, ATOM direction, HalfOpenInterval validity, ATOM issuer, Option[DIGEST] supersedes, ATOM signer_key_ref])
-CaseConstructionRecordBody   = REC("CaseConstructionRecordBody/v1", 8, [ATOM tenant_id, ATOM case_id, Instant created_at, SEQ[ATOM] subject_refs, Option[ATOM] contract_ref, SEQ[PartyRecord] parties, SEQ[SymbolRef] declared_instances, ATOM signer_key_ref])
+CaseConstructionRecordBody   = REC("CaseConstructionRecordBody/v1", 9, [ATOM tenant_id, ATOM case_id, Instant created_at, SEQ[ATOM] subject_refs, Option[ATOM] contract_ref, SEQ[PartyRecord] parties, SEQ[SymbolRef] declared_instances, SET[ResourceScope] case_scope_coordinates, ATOM signer_key_ref])
 RetractionBody               = REC("RetractionBody/v1", 5, [ATOM tenant_id, ATOM case_id, DIGEST target, Instant at, ATOM signer_key_ref])
 DeclarationBody              = REC("DeclarationBody/v1", 5, [ATOM tenant_id, ATOM case_id, SEQ[SymbolRef]^>=1 instances, Instant at, ATOM signer_key_ref])
 RevisionLineageBody          = REC("RevisionLineageBody/v1", 7, [ATOM tenant_id, ATOM case_id, DIGEST revision_semantic_digest, INT revision_number, Option[DIGEST] parent_digest, Instant published_at, ATOM signer_key_ref])

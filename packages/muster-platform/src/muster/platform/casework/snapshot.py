@@ -29,6 +29,14 @@ Every artifact is re-bound on the way in.  The store is keyed by tenant, so a
 cross-tenant read is already unrepresentable, but a case naming another case's
 construction record inside one tenant is not -- and an artifact that says which
 case it belongs to should be believed about it or refused, never ignored.
+
+**The authority state comes with the snapshot, and only by pin.**  A case's
+authorization context names one authority registry snapshot and one revocation
+snapshot by digest, and both are resolved here, signature-verified, and handed
+to ``rebuild`` alongside the entries.  There is no code path in this module
+that reaches "the current registry": a read resolves the digest the head
+carries or it fails, so a historical replay is judged by the authority that
+applied when it was published and a newer publication is invisible to it.
 """
 
 from __future__ import annotations
@@ -38,12 +46,15 @@ from dataclasses import dataclass
 from enum import Enum
 
 from muster.core.analysis.certificate import AnalysisCertificate, read_analysis_certificate
+from muster.core.authority.signing import OfficerVerifier, PublisherVerifier, SourceVerifier
 from muster.core.case.revision import (
     AuthorizationContext,
     TranscriptPrefix,
     read_authorization_context,
     read_transcript_prefix,
 )
+from muster.core.evidence.requests import EvidenceRequest, read_evidence_request
+from muster.core.evidence.signing import attestation_preimage, case_construction_preimage
 from muster.core.evidence.transcript import (
     Attestation,
     CaseConstructionRecord,
@@ -57,7 +68,13 @@ from muster.core.wire.codec import decode
 from muster.core.wire.digests import Digest, DigestKind
 from muster.core.wire.nodes import Node
 from muster.core.wire.shape import decoded
-from muster.platform.casework.ports import CaseHead, StoreError, StoreFailure, TenantScope
+from muster.platform.authority.resolve import ResolvedAuthority, resolve_authority
+from muster.platform.casework.ports import (
+    CaseHead,
+    DecidingScope,
+    StoreError,
+    StoreFailure,
+)
 
 
 class SnapshotFailure(Enum):
@@ -71,6 +88,11 @@ class SnapshotFailure(Enum):
     #  reached for it.
     BINDING_MISMATCH = "BINDING_MISMATCH"
     NOT_ANALYSED = "NOT_ANALYSED"
+    #  The authority or revocation snapshot this case pinned could not be
+    #  resolved, could not be verified, or does not carry the digest it is
+    #  stored under.  Fails closed: a case whose authority state cannot be
+    #  established has not established that anything is authorized.
+    AUTHORITY_UNRESOLVED = "AUTHORITY_UNRESOLVED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,16 +102,54 @@ class SnapshotError:
 
 
 @dataclass(frozen=True, slots=True)
+class CaseInputs:
+    """The case's authored state, without its transcript.
+
+    Read on its own because admission needs it *before* an entry is stored: the
+    authority a receipt is judged against is a property of the case, not of the
+    receipt, and resolving it after the membership row exists would be resolving
+    it too late to refuse.
+    """
+
+    head: CaseHead
+    construction: CaseConstructionRecord
+    authorization_context: AuthorizationContext
+    authority: ResolvedAuthority
+
+
+@dataclass(frozen=True, slots=True)
 class CaseSnapshot:
     """Everything ``rebuild`` needs, read at one instant."""
 
     head: CaseHead
     construction: CaseConstructionRecord
     authorization_context: AuthorizationContext
+    authority: ResolvedAuthority
     entries: tuple[TranscriptEntry, ...]
+    #: Every evidence request cited by a receipt in ``entries``, resolved from
+    #: the content store by the digest the receipt cites.  Carries the second
+    #: half of Q-12(a) into ``rebuild``; see
+    #: ``muster.core.evidence.solicitation`` for what it can establish.
+    solicitations: tuple[EvidenceRequest, ...]
 
 
-def read_working(scope: TenantScope, case_id: str) -> Result[CaseSnapshot, SnapshotError]:
+def read_case_inputs(
+    scope: DecidingScope, case_id: str, verifier: PublisherVerifier, officer: OfficerVerifier
+) -> Result[CaseInputs, SnapshotError]:
+    """The head, its construction record, and the authority state it pinned."""
+    head = scope.heads.read(case_id)
+    if isinstance(head, Err):
+        return Err(SnapshotError(SnapshotFailure.UNKNOWN_CASE, head.error.detail))
+    return _inputs(scope, head.value, verifier, officer)
+
+
+def read_working(
+    scope: DecidingScope,
+    case_id: str,
+    verifier: PublisherVerifier,
+    officer: OfficerVerifier,
+    source: SourceVerifier,
+) -> Result[CaseSnapshot, SnapshotError]:
     """The head, and every transcript member that has arrived so far."""
     head = scope.heads.read(case_id)
     if isinstance(head, Err):
@@ -97,10 +157,16 @@ def read_working(scope: TenantScope, case_id: str) -> Result[CaseSnapshot, Snaps
     members = scope.transcript.members(case_id)
     if isinstance(members, Err):
         return Err(SnapshotError(SnapshotFailure.UNKNOWN_CASE, members.error.detail))
-    return _assemble(scope, head.value, members.value)
+    return _assemble(scope, head.value, members.value, verifier, officer, source)
 
 
-def read_published(scope: TenantScope, case_id: str) -> Result[CaseSnapshot, SnapshotError]:
+def read_published(
+    scope: DecidingScope,
+    case_id: str,
+    verifier: PublisherVerifier,
+    officer: OfficerVerifier,
+    source: SourceVerifier,
+) -> Result[CaseSnapshot, SnapshotError]:
     """The head, and exactly the members its own transcript prefix names."""
     head = scope.heads.read(case_id)
     if isinstance(head, Err):
@@ -110,11 +176,11 @@ def read_published(scope: TenantScope, case_id: str) -> Result[CaseSnapshot, Sna
     prefix = _read_prefix(scope, head.value)
     if isinstance(prefix, Err):
         return prefix
-    return _assemble(scope, head.value, prefix.value.entry_digests)
+    return _assemble(scope, head.value, prefix.value.entry_digests, verifier, officer, source)
 
 
 def read_certificate(
-    scope: TenantScope, head: CaseHead
+    scope: DecidingScope, head: CaseHead
 ) -> Result[AnalysisCertificate, SnapshotError]:
     """The certificate the head names, as the value that was assembled.
 
@@ -167,7 +233,7 @@ def read_certificate(
     return certificate
 
 
-def _read_prefix(scope: TenantScope, head: CaseHead) -> Result[TranscriptPrefix, SnapshotError]:
+def _read_prefix(scope: DecidingScope, head: CaseHead) -> Result[TranscriptPrefix, SnapshotError]:
     octets = scope.content.get(DigestKind.TRANSCRIPT_PREFIX, head.inputs.transcript_prefix_digest)
     if isinstance(octets, Err):
         return Err(_store_error(octets.error))
@@ -185,15 +251,37 @@ def _read_prefix(scope: TenantScope, head: CaseHead) -> Result[TranscriptPrefix,
     return prefix
 
 
-def _assemble(
-    scope: TenantScope, head: CaseHead, members: tuple[Digest, ...]
-) -> Result[CaseSnapshot, SnapshotError]:
-    construction = _read_construction(scope, head)
+def _inputs(
+    scope: DecidingScope, head: CaseHead, verifier: PublisherVerifier, officer: OfficerVerifier
+) -> Result[CaseInputs, SnapshotError]:
+    construction = _read_construction(scope, head, officer)
     if isinstance(construction, Err):
         return construction
     context = _read_context(scope, head)
     if isinstance(context, Err):
         return context
+    authority = resolve_authority(scope, context.value, verifier)
+    if isinstance(authority, Err):
+        return Err(
+            SnapshotError(
+                SnapshotFailure.AUTHORITY_UNRESOLVED,
+                f"{authority.error.failure.value}: {authority.error.detail}",
+            )
+        )
+    return Ok(CaseInputs(head, construction.value, context.value, authority.value))
+
+
+def _assemble(
+    scope: DecidingScope,
+    head: CaseHead,
+    members: tuple[Digest, ...],
+    verifier: PublisherVerifier,
+    officer: OfficerVerifier,
+    source: SourceVerifier,
+) -> Result[CaseSnapshot, SnapshotError]:
+    inputs = _inputs(scope, head, verifier, officer)
+    if isinstance(inputs, Err):
+        return inputs
 
     entries: list[TranscriptEntry] = []
     for member in members:
@@ -203,16 +291,128 @@ def _assemble(
         entry = _read(octets.value, read_entry, "TranscriptEntry")
         if isinstance(entry, Err):
             return entry
+        authentic = _authentic(entry.value, source)
+        if isinstance(authentic, Err):
+            return authentic
         bound = _bound(_binding_of(entry.value), scope.tenant_id, head.case_id, "TranscriptEntry")
         if isinstance(bound, Err):
             return bound
         entries.append(entry.value)
 
-    return Ok(CaseSnapshot(head, construction.value, context.value, tuple(entries)))
+    solicitations = _read_solicitations(scope, tuple(entries))
+    if isinstance(solicitations, Err):
+        return solicitations
+
+    return Ok(
+        CaseSnapshot(
+            head,
+            inputs.value.construction,
+            inputs.value.authorization_context,
+            inputs.value.authority,
+            tuple(entries),
+            solicitations.value,
+        )
+    )
+
+
+def _read_solicitations(
+    scope: DecidingScope, entries: tuple[TranscriptEntry, ...]
+) -> Result[tuple[EvidenceRequest, ...], SnapshotError]:
+    """Resolve the request each attested receipt cites, content-addressed.
+
+    Driven by the citations in the transcript rather than by what the case has
+    *outstanding*, and the difference is the whole reason this is a rebuild
+    input at all.  Outstanding-ness is present-tense state: it changes as the
+    head moves, so a replay that consulted it would decide a settled case by
+    what is being asked today, and two replays a week apart would disagree.  A
+    citation, by contrast, is inside a signed payload inside a transcript entry
+    inside the prefix the revision pins -- it cannot move, and SHA-256 binds it
+    to exactly one request.
+
+    **A citation that resolves to nothing is not an error here.**  It is
+    volunteered evidence, which is legitimate and which admission has already
+    judged under the unevadable, outstanding-driven form of the same clause.
+    Failing the whole read would instead make a case unrebuildable the moment it
+    held one volunteered receipt.
+
+    Deduplicated by citation, because a case's receipts usually answer one
+    request and reading it once per receipt would be N reads of one row.
+    """
+    cited: dict[Digest, None] = {}
+    for entry in entries:
+        if isinstance(entry, Attestation):
+            cited.setdefault(entry.receipt.payload.request_id, None)
+
+    found: list[EvidenceRequest] = []
+    for request_id in cited:
+        octets = scope.content.get(DigestKind.EVIDENCE_REQUEST, request_id)
+        if isinstance(octets, Err):
+            if octets.error.failure is StoreFailure.CONTENT_ABSENT:
+                #  Nothing was stored under that digest, so this case never
+                #  issued it: volunteered.  Distinguished from a store that
+                #  could not answer, which is the branch below and is a refusal.
+                continue
+            return Err(_store_error(octets.error))
+        request = _read(octets.value, read_evidence_request, "EvidenceRequest")
+        if isinstance(request, Err):
+            #  Stored by this package under its own digest, so octets that will
+            #  not read back are corruption rather than absence -- and a request
+            #  that cannot be read cannot be shown to permit anything.
+            return request
+        found.append(request.value)
+    #  Ordered by citation digest so two reads of one case produce one tuple.
+    #  ``SolicitationView`` keys by digest and the order decides nothing, which
+    #  is exactly why it is fixed: an input whose order is arbitrary is one an
+    #  auditor has to prove does not matter.
+    return Ok(tuple(sorted(found, key=lambda request: request.digest().octets)))
+
+
+def _authentic(entry: TranscriptEntry, source: SourceVerifier) -> Result[None, SnapshotError]:
+    """Re-verify an attestation's source signature on the way out of the store.
+
+    **The same rule the construction record already follows, applied to the
+    artifact it is read beside.**  ``_read_construction`` re-verifies the
+    officer signature here rather than trusting that admission did, and gives
+    the reason: admission is one of two doors into the store, and the other is
+    an operator with SQL.  Every word of that applies to an attestation, and it
+    was not being done -- so a row inserted past admission, naming a genuinely
+    authorized key and carrying a signature that verifies against nothing,
+    passed Q-12(b) through (f) on the strength of a ``signer_key_ref`` nobody
+    had checked, established a fact, and authorized a payment.
+
+    That is the precise failure the milestone's own headline forbids: durable
+    transcript membership must not be sufficient to make an attestation
+    consequential.  Authority answers *may this key say this*; it presupposes
+    an answer to *did this key say it*, and presupposing is not checking.
+
+    **Why here and not in ``rebuild``.**  ``rebuild`` takes no collaborators --
+    no store, no clock, no keyring -- and giving it a verifier would make the
+    kernel's purest function depend on a trust root.  The platform read path is
+    the seam where octets stop being octets, it is where the officer signature
+    is already checked, and it is the boundary every rebuild of a durable case
+    passes through.  A statement is deliberately not checked: a claim has no
+    signature to verify and is provably inert.
+    """
+    if not isinstance(entry, Attestation):
+        return Ok(None)
+    payload = entry.receipt.payload
+    if not source.verify(
+        key_ref=payload.signer_key_ref,
+        preimage=attestation_preimage(payload),
+        signature=entry.receipt.signature,
+    ):
+        return Err(
+            SnapshotError(
+                SnapshotFailure.CONTENT_UNREADABLE,
+                f"the stored attestation over {payload.proposition.predicate_id} "
+                f"is not signed by {payload.signer_key_ref}",
+            )
+        )
+    return Ok(None)
 
 
 def _read_construction(
-    scope: TenantScope, head: CaseHead
+    scope: DecidingScope, head: CaseHead, officer: OfficerVerifier
 ) -> Result[CaseConstructionRecord, SnapshotError]:
     octets = scope.content.get(DigestKind.CASE_CONSTRUCTION, head.inputs.construction_digest)
     if isinstance(octets, Err):
@@ -220,6 +420,22 @@ def _read_construction(
     record = _read(octets.value, read_case_construction, "CaseConstructionRecord")
     if isinstance(record, Err):
         return record
+    #  Re-verified on the way out as well as on the way in, for the reason the
+    #  party binding below is: admission is one of two doors into the store and
+    #  the other is an operator with SQL.  A construction record is where
+    #  Q-12(d) reads the case's site from, so a row written past admission must
+    #  not be a row a rebuild will authorize against.
+    if not officer.verify(
+        key_ref=record.value.signer_key_ref,
+        preimage=case_construction_preimage(record.value.body()),
+        signature=record.value.signature,
+    ):
+        return Err(
+            SnapshotError(
+                SnapshotFailure.CONTENT_UNREADABLE,
+                f"CaseConstructionRecord for {head.case_id!r} is not signed by a trusted officer",
+            )
+        )
     bound = _bound(
         (record.value.tenant_id, record.value.case_id),
         scope.tenant_id,
@@ -242,7 +458,7 @@ def _read_construction(
 
 
 def _read_context(
-    scope: TenantScope, head: CaseHead
+    scope: DecidingScope, head: CaseHead
 ) -> Result[AuthorizationContext, SnapshotError]:
     octets = scope.content.get(
         DigestKind.AUTHORIZATION_CONTEXT, head.inputs.authorization_context_digest

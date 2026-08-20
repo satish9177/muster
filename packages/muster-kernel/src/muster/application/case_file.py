@@ -5,9 +5,26 @@ construction record, its declared instances and its transcript.  Parsing is
 fail-closed -- an unknown key, a missing field or a value of the wrong shape is
 a typed rejection naming the path, never a default.
 
-**Nothing here is verified.**  Milestone A holds no keyring, so every entry is
-loaded with an explicitly unsigned signature and the CLI says so on every run.
-A case file is a local fixture, not evidence.
+**Nothing here is *authenticated*.**  This path holds no keyring, so every
+entry is loaded with an explicitly unsigned signature and the CLI says so on
+every run.  A case file is a local fixture, not evidence.
+
+**Authority, by contrast, *is* checked here** -- and the pair is the clearest
+statement of the milestone-E principle anywhere in the tree.  A case file
+carries an authority registry snapshot and a revocation snapshot, and Q-12 runs
+over them exactly as it does on the durable path, so a local run refuses a
+worker key attesting a goods receipt while cheerfully admitting that no
+signature was ever verified.  Authenticity and authority are separable; this
+file separates them in the most visible way available, by doing one and not the
+other.
+
+The two digests in the authorization context are **computed from the snapshots
+in the same document** rather than transcribed beside them.  A pin an author
+cannot compute by hand is a pin that goes stale the first time a fixture is
+edited, and a stale local fixture is a rebuild failure rather than a security
+control.  On the durable path the context is supplied by the caller and both
+pins are checked against what was actually published -- which is where
+transcription *is* a control worth having, and where it is enforced.
 """
 
 from __future__ import annotations
@@ -18,6 +35,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from muster.core.authority.grants import (
+    AuthorityGrant,
+    AuthorityRegistrySnapshot,
+    canonical_grants,
+)
+from muster.core.authority.revocation import RevocationSnapshot
+from muster.core.authority.scope import ResourceScope
 from muster.core.case.revision import AuthorizationContext, RebuildInputs, RebuildMode
 from muster.core.evidence.relations import (
     AcquisitionRelation,
@@ -26,23 +50,25 @@ from muster.core.evidence.relations import (
     EnumSubset,
     ExactValue,
 )
+from muster.core.evidence.requests import EvidenceRequest, EvidenceTarget
 from muster.core.evidence.transcript import (
     AcquisitionPayload,
     Attestation,
     CaseConstructionRecord,
     PartyRecord,
-    Signature,
     Statement,
     StatementRecord,
     TranscriptEntry,
     VerificationReceipt,
 )
 from muster.core.results import Err, InvariantViolation, Ok, Result
+from muster.core.values.classification import AcquisitionClass
 from muster.core.values.scalars import Value, VBool, VEnum, VInt, VScaled
 from muster.core.values.sorts import BoolSort, EnumSort, IntSort, ScaledSort, Sort
 from muster.core.values.symbols import SymbolRef
 from muster.core.values.times import HalfOpenInterval, Instant
 from muster.core.wire.digests import Digest
+from muster.core.wire.signature import Signature
 from muster.hinge.prepare import EngineLimits
 
 UNVERIFIED = Signature("UNSIGNED-LOCAL-DEVELOPMENT", b"")
@@ -87,8 +113,17 @@ class CaseFile:
     construction: CaseConstructionRecord
     entries: tuple[TranscriptEntry, ...]
     authorization_context: AuthorizationContext
+    authority_snapshot: AuthorityRegistrySnapshot
+    revocation_snapshot: RevocationSnapshot
     as_of: Instant
     mode: RebuildMode
+    #: The evidence requests this case issued, which carry the second half of
+    #: check Q-12(a) into ``rebuild``.  A case file that omits them describes a
+    #: case in which every receipt was volunteered -- which is what the three
+    #: worked fixtures are -- and a case file that has them must carry them, or
+    #: replaying it from disk would apply a weaker clause than the control
+    #: plane applied when the case was live.
+    solicitations: tuple[EvidenceRequest, ...] = ()
 
     def rebuild_inputs(self, bundle_digest: Digest, transcript_digest: Digest) -> RebuildInputs:
         return RebuildInputs(
@@ -180,9 +215,12 @@ def _read_case(document: Any) -> CaseFile:
             "as_of",
             "mode",
             "authorization_context",
+            "authority_registry",
+            "revocation",
             "case_construction",
             "declared_instances",
             "transcript",
+            "solicitations",
         },
     )
     tenant_id = _text(root, "tenant_id", "$")
@@ -197,8 +235,16 @@ def _read_case(document: Any) -> CaseFile:
         case_id,
         _read_instances(_array(_field(root, "declared_instances", "$"), "$.declared_instances")),
     )
+    authority = _read_authority_registry(
+        _object(_field(root, "authority_registry", "$"), "$.authority_registry"), tenant_id
+    )
+    revocation = _read_revocation(
+        _object(_field(root, "revocation", "$"), "$.revocation"), tenant_id
+    )
     context = _read_authorization_context(
-        _object(_field(root, "authorization_context", "$"), "$.authorization_context")
+        _object(_field(root, "authorization_context", "$"), "$.authorization_context"),
+        authority,
+        revocation,
     )
     entries = tuple(
         _read_entry(
@@ -206,7 +252,73 @@ def _read_case(document: Any) -> CaseFile:
         )
         for index, entry in enumerate(_array(_field(root, "transcript", "$"), "$.transcript"))
     )
-    return CaseFile(policy_id, construction, entries, context, as_of, mode)
+    #  Optional, because the three worked fixtures predate evidence requests and
+    #  describe cases in which nothing was solicited.  Optional here means
+    #  "absent is a value with a meaning", not "absent skips a check": absent
+    #  produces the empty tuple, which ``rebuild`` requires to be passed and
+    #  which means every receipt in this case is volunteered.
+    solicitations = tuple(
+        _read_evidence_request(
+            _object(request, f"$.solicitations[{index}]"),
+            f"$.solicitations[{index}]",
+            tenant_id,
+            case_id,
+        )
+        for index, request in enumerate(_array(root.get("solicitations", []), "$.solicitations"))
+    )
+    return CaseFile(
+        policy_id,
+        construction,
+        entries,
+        context,
+        authority,
+        revocation,
+        as_of,
+        mode,
+        solicitations,
+    )
+
+
+def _read_evidence_request(
+    node: dict[str, Any], path: str, tenant_id: str, case_id: str
+) -> EvidenceRequest:
+    """One evidence request, bound to this case rather than to what it claims.
+
+    ``tenant_id`` and ``case_id`` come from the case file's own header and not
+    from the request's object, for the reason every other reader here does the
+    same: a request naming another case would be a request this case may not
+    cite, and the reader declines to build the confusion rather than building it
+    and refusing it later.
+    """
+    _exact_keys(node, path, {"revision_semantic_digest", "targets"})
+    targets = tuple(
+        _read_evidence_target(
+            _object(target, f"{path}.targets[{index}]"), f"{path}.targets[{index}]"
+        )
+        for index, target in enumerate(_array(_field(node, "targets", path), f"{path}.targets"))
+    )
+    return EvidenceRequest(
+        tenant_id=tenant_id,
+        case_id=case_id,
+        revision_semantic_digest=_digest(node, "revision_semantic_digest", path),
+        targets=targets,
+    )
+
+
+def _read_evidence_target(node: dict[str, Any], path: str) -> EvidenceTarget:
+    _exact_keys(node, path, {"proposition", "acquisition_class", "permitted_source_classes"})
+    return EvidenceTarget(
+        proposition=_read_symbol(_object(_field(node, "proposition", path), f"{path}.proposition")),
+        acquisition_class=AcquisitionClass(
+            _member(
+                node,
+                "acquisition_class",
+                path,
+                {member.value for member in AcquisitionClass},
+            )
+        ),
+        permitted_source_classes=tuple(_text_list(node, "permitted_source_classes", path)),
+    )
 
 
 def _read_construction(
@@ -216,7 +328,14 @@ def _read_construction(
     _exact_keys(
         node,
         path,
-        {"created_at", "subject_refs", "contract_ref", "parties", "signer_key_ref"},
+        {
+            "created_at",
+            "subject_refs",
+            "contract_ref",
+            "parties",
+            "case_scope_coordinates",
+            "signer_key_ref",
+        },
     )
     parties = tuple(
         PartyRecord(
@@ -237,28 +356,112 @@ def _read_construction(
         contract_ref=_optional_text(node, "contract_ref", path),
         parties=parties,
         declared_instances=instances,
+        case_scope_coordinates=_read_scopes(
+            _array(_field(node, "case_scope_coordinates", path), f"{path}.case_scope_coordinates"),
+            f"{path}.case_scope_coordinates",
+        ),
         signer_key_ref=_text(node, "signer_key_ref", path),
         signature=UNVERIFIED,
     )
 
 
-def _read_authorization_context(node: dict[str, Any]) -> AuthorizationContext:
+def _read_authorization_context(
+    node: dict[str, Any],
+    authority: AuthorityRegistrySnapshot,
+    revocation: RevocationSnapshot,
+) -> AuthorizationContext:
     path = "$.authorization_context"
+    _exact_keys(node, path, {"authorization_policy_version", "validity"})
+    version = _integer(node, "authorization_policy_version", path)
+    if version != authority.authorization_policy_version:
+        #  Q-12(f) requires the context, the snapshot and every grant to agree
+        #  about the authorization-policy version.  A fixture that disagreed
+        #  with itself would produce a case in which nothing is ever
+        #  admissible, which is a confusing way to spell a typo.
+        raise _reject(
+            CaseFileFailure.OUT_OF_RANGE,
+            f"{path}.authorization_policy_version",
+            f"{version} but the registry publishes {authority.authorization_policy_version}",
+        )
+    return AuthorizationContext(
+        authorization_policy_version=version,
+        #  Derived from the snapshots in this document rather than transcribed
+        #  beside them; see the module docstring.
+        authority_registry_snapshot_digest=authority.digest(),
+        revocation_snapshot_digest=revocation.digest(),
+        context_validity=_interval(_object(_field(node, "validity", path), f"{path}.validity")),
+    )
+
+
+def _read_authority_registry(node: dict[str, Any], tenant_id: str) -> AuthorityRegistrySnapshot:
+    path = "$.authority_registry"
+    _exact_keys(
+        node, path, {"registry_id", "authorization_policy_version", "published_at", "grants"}
+    )
+    version = _integer(node, "authorization_policy_version", path)
+    grants = canonical_grants(
+        _read_grant(_object(grant, f"{path}.grants[{index}]"), f"{path}.grants[{index}]", tenant_id)
+        for index, grant in enumerate(_array(_field(node, "grants", path), f"{path}.grants"))
+    )
+    return AuthorityRegistrySnapshot(
+        registry_id=_text(node, "registry_id", path),
+        #  The tenant is the case's rather than a field of its own.  A local
+        #  registry naming another tenant would describe authority this case
+        #  could never use, and the reader declines to build the confusion.
+        tenant_id=tenant_id,
+        authorization_policy_version=version,
+        grants=grants,
+        published_at=_integer(node, "published_at", path),
+    )
+
+
+def _read_grant(node: dict[str, Any], path: str, tenant_id: str) -> AuthorityGrant:
     _exact_keys(
         node,
         path,
         {
-            "authorization_policy_version",
-            "key_registry_snapshot_digest",
-            "revocation_snapshot_digest",
+            "key_ref",
+            "principal_id",
+            "source_class",
+            "permitted_predicates",
+            "resource_scope",
             "validity",
+            "authorization_policy_version",
         },
     )
-    return AuthorizationContext(
+    return AuthorityGrant(
+        key_ref=_text(node, "key_ref", path),
+        principal_id=_text(node, "principal_id", path),
+        tenant_scope=tenant_id,
+        source_class=_text(node, "source_class", path),
+        permitted_predicates=tuple(sorted(set(_text_list(node, "permitted_predicates", path)))),
+        resource_scope=_read_scopes(
+            _array(_field(node, "resource_scope", path), f"{path}.resource_scope"),
+            f"{path}.resource_scope",
+        ),
+        validity=_interval(_object(_field(node, "validity", path), f"{path}.validity")),
         authorization_policy_version=_integer(node, "authorization_policy_version", path),
-        key_registry_snapshot_digest=_digest(node, "key_registry_snapshot_digest", path),
-        revocation_snapshot_digest=_digest(node, "revocation_snapshot_digest", path),
-        context_validity=_interval(_object(_field(node, "validity", path), f"{path}.validity")),
+    )
+
+
+def _read_revocation(node: dict[str, Any], tenant_id: str) -> RevocationSnapshot:
+    path = "$.revocation"
+    _exact_keys(node, path, {"registry_id", "published_at", "revoked_key_refs"})
+    return RevocationSnapshot(
+        registry_id=_text(node, "registry_id", path),
+        tenant_id=tenant_id,
+        revoked_key_refs=tuple(sorted(set(_text_list(node, "revoked_key_refs", path)))),
+        published_at=_integer(node, "published_at", path),
+    )
+
+
+def _read_scopes(nodes: list[Any], path: str) -> tuple[ResourceScope, ...]:
+    return tuple(
+        ResourceScope(
+            _text(_object(scope, f"{path}[{index}]"), "kind", f"{path}[{index}]"),
+            _text(_object(scope, f"{path}[{index}]"), "value", f"{path}[{index}]"),
+        )
+        for index, scope in enumerate(nodes)
     )
 
 

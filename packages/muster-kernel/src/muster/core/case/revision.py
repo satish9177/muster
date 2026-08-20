@@ -64,13 +64,23 @@ class Authorizability(Enum):
 class AuthorizationContext:
     """External authority state, pinned once per rebuild.
 
-    Revocation and the key registry are current-state, so they are pinned rather
-    than consulted: a revision that was analysed under one revocation snapshot
-    cannot silently be re-read under another.
+    Revocation and the authority registry are current-state, so they are pinned
+    rather than consulted: a revision analysed under one authority snapshot
+    cannot silently be re-read under another.  Because the context sits inside
+    ``RebuildInputs`` and therefore inside the revision digest, **changing what
+    a key is authorized to say changes the revision digest** -- there is no
+    swappable authority field anywhere for a substitution to reach.
+
+    ``authority_registry_snapshot_digest`` replaces what was
+    ``key_registry_snapshot_digest``.  That is not a rename for taste.  The old
+    pin named a snapshot whose preimage committed to key *existence*, so the
+    only question it could answer was "does this key exist" -- and the question
+    that decides admissibility is "may this key say this, here, now".  The new
+    pin names an ``AuthorityRegistrySnapshot``, which answers it.
     """
 
     authorization_policy_version: int
-    key_registry_snapshot_digest: Digest
+    authority_registry_snapshot_digest: Digest
     revocation_snapshot_digest: Digest
     context_validity: HalfOpenInterval
 
@@ -79,7 +89,7 @@ class AuthorizationContext:
             TAG_AUTHORIZATION_CONTEXT,
             (
                 NInt(self.authorization_policy_version),
-                self.key_registry_snapshot_digest.to_node(),
+                self.authority_registry_snapshot_digest.to_node(),
                 self.revocation_snapshot_digest.to_node(),
                 self.context_validity.to_node(),
             ),
@@ -95,10 +105,10 @@ def read_authorization_context(node: Node) -> AuthorizationContext:
     A durable store holds the pinned context as canonical octets, and a
     rebuild after a restart has nothing else to read it from.
     """
-    version, key_registry, revocation, validity = read_rec(node, TAG_AUTHORIZATION_CONTEXT, 4)
+    version, registry, revocation, validity = read_rec(node, TAG_AUTHORIZATION_CONTEXT, 4)
     return AuthorizationContext(
         authorization_policy_version=read_int(version),
-        key_registry_snapshot_digest=read_digest(key_registry),
+        authority_registry_snapshot_digest=read_digest(registry),
         revocation_snapshot_digest=read_digest(revocation),
         context_validity=read_half_open(validity),
     )

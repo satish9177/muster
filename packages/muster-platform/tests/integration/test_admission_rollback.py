@@ -52,6 +52,7 @@ from muster.platform.casework.advance import Casework
 from muster.platform.casework.commands import AppendFailure, append_transcript_entry
 from muster.platform.casework.ports import CaseHead, CaseworkDatabase, StoreFailure
 from support import ravi
+from support.authority import sign_receipt
 from support.fixtures import append_all, count_content, open_ravi
 from support.ravi import RaviCase
 
@@ -81,7 +82,13 @@ def _twin(entry: TranscriptEntry, nonce: bytes) -> TranscriptEntry:
     thing that knows that.
     """
     assert isinstance(entry, Attestation)
-    return Attestation(replace(entry.receipt, payload=replace(entry.receipt.payload, nonce=nonce)))
+    #  Re-signed, not merely re-nonced.  The nonce is inside the payload the
+    #  signature covers, so carrying the old signature over would produce a
+    #  receipt that fails admission on authenticity -- and the property under
+    #  test here is about *rebuildability*, which is two checks further on.
+    return Attestation(
+        sign_receipt(replace(entry.receipt, payload=replace(entry.receipt.payload, nonce=nonce)))
+    )
 
 
 def _members(database: CaseworkDatabase, case: RaviCase) -> set[object]:
@@ -124,7 +131,7 @@ def test_the_duplicate_is_a_valid_entry_that_only_the_rebuild_can_refuse(
 
     open_ravi(casework, case)
     with casework.database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, twin)
+        admitted = admit_entry(scope, case.case_id, twin, ravi.admission_authority(case))
     assert isinstance(admitted, Ok), admitted
     assert admitted.value.entry_digest == entry_digest(twin)
 
@@ -460,7 +467,7 @@ def test_admitting_the_duplicate_without_the_guard_freezes_the_case_forever(
     twin = _twin(case.entries[ESTABLISHING_ENTRY], b"\x5a" * 16)
 
     with casework.database.writing(case.tenant_id) as scope:
-        admitted = admit_entry(scope, case.case_id, twin)
+        admitted = admit_entry(scope, case.case_id, twin, ravi.admission_authority(case))
         assert isinstance(admitted, Ok), admitted
         added = scope.transcript.add(case.case_id, admitted.value.entry_digest)
         assert isinstance(added, Ok), added

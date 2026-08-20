@@ -31,6 +31,15 @@ KEYRING = Keyring(
         "key-case-1": b"spec-secret-case-builder",
         "key-muster-1": b"spec-secret-muster-envelope",
         "key-hr-1": b"spec-secret-hr",
+        #  [G1/E] The two publisher keys, held apart from every source key
+        #  above.  A publisher able to sign as a source could write itself a
+        #  grant and then exercise it; a source able to sign as a publisher
+        #  could write the grant directly.  Three roles, three key populations,
+        #  and here that separation is a comment because the stand-in is one
+        #  dictionary -- in the control plane it is three components with three
+        #  key materials, which is where it has to be real.
+        "key-authority-publisher-1": b"spec-secret-authority-publisher",
+        "key-catalog-publisher-1": b"spec-secret-catalog-publisher",
     }
 )
 
@@ -200,6 +209,11 @@ PREDICATE_SCHEMA = Rec(
                         Atom("OBSERVATION"),
                         Atom("ATTESTABLE"),
                         SetV([Atom("GOODS_RECEIPT_SYSTEM")]),
+                        #  [G1] Q-12(d): authority over accepted_quantity is
+                        #  scoped by purchase order, which this predicate's own
+                        #  argument supplies -- so a grant must enumerate PO-4471
+                        #  and reaches no other order.
+                        SetV([Atom("purchase_order")]),
                         some(Atom("COUNT")),
                     ],
                 )

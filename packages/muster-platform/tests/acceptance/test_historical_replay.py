@@ -30,15 +30,17 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from muster.core.analysis.certificate import AnalysisCertificate
-from muster.core.evidence.transcript import Signature
 from muster.core.results import Err, Ok, Result
 from muster.core.wire.codec import decode, encode
 from muster.core.wire.digests import Digest, DigestKind
+from muster.core.wire.signature import Signature
 from muster.platform.adapters.memory import MemoryDatabase
 from muster.platform.casework.commands import case_status
 from muster.platform.casework.ports import (
+    AuthorityRepository,
     CaseHead,
     CaseHeadRepository,
+    CatalogRepository,
     CommitmentRepository,
     ContentStore,
     EvidenceRequestRepository,
@@ -477,6 +479,14 @@ class _ContentOnlyScope:
 
     @property
     def requests(self) -> EvidenceRequestRepository:
+        raise NotImplementedError
+
+    @property
+    def authority(self) -> AuthorityRepository:
+        raise NotImplementedError
+
+    @property
+    def catalog(self) -> CatalogRepository:
         raise NotImplementedError
 
     @property

@@ -36,8 +36,13 @@ pytestmark = pytest.mark.golden
 PROCUREMENT_ACTION_SCHEMA_DIGEST = (
     "8faab2f735df5380ecc9395112b54849cab2b37d10d795f712a9d925b751ee6c"
 )
+#  Moved by milestone E: the reference corpus's procurement predicate declares
+#  ``resource_scope_kinds = {purchase_order}``, so authority over
+#  ``accepted_quantity`` is scoped to the order the proposition names.  The
+#  payload below pins the schema, so V-06 and V-07 move with it.
+#  Previous: 6021ad9aa694a868155f97e273be30fa14ce00142a881e7bd937b835e4c2a388
 PROCUREMENT_PREDICATE_SCHEMA_DIGEST = (
-    "6021ad9aa694a868155f97e273be30fa14ce00142a881e7bd937b835e4c2a388"
+    "9221d01d86ce928c84f4cf62fdc98f67fcd78e5a1bdb76eab8a5096faa64218c"
 )
 PROCUREMENT_REQUEST_ID = "81e78827db80d5e2240e82254c59a2917796b4567af8bec5d5e0506ba061aabb"
 

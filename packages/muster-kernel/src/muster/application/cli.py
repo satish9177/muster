@@ -111,7 +111,16 @@ def analyse_case_file(
     prefix = transcript_prefix(case.construction.tenant_id, case.construction.case_id, case.entries)
     inputs = case.rebuild_inputs(bundle.digest(), prefix.digest())
 
-    revision = rebuild(inputs, case.construction, case.entries, bundle, case.authorization_context)
+    revision = rebuild(
+        inputs,
+        case.construction,
+        case.entries,
+        bundle,
+        case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
+    )
     if isinstance(revision, Err):
         return revision
 

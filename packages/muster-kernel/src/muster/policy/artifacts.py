@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from muster.core.evidence.transcript import Signature
 from muster.core.results import InvariantViolation
 from muster.core.values.times import Instant
 from muster.core.wire.codec import canonical_set
@@ -35,6 +34,7 @@ from muster.core.wire.shape import (
     read_rec,
     read_seq,
 )
+from muster.core.wire.signature import Signature
 
 TAG_ADMISSIBILITY_DESCRIPTOR = "AdmissibilityDescriptor/v1"
 TAG_ADMISSIBILITY_DESCRIPTORS = "AdmissibilityDescriptors/v1"

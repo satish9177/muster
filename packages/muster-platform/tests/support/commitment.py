@@ -29,12 +29,12 @@ from functools import cache
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from muster.core.evidence.transcript import Signature
 from muster.core.results import Ok
 from muster.core.values.times import Instant
 from muster.core.wire.codec import decode
 from muster.core.wire.digests import Digest
 from muster.core.wire.nodes import Node
+from muster.core.wire.signature import Signature
 from muster.domains.workforce.bundle import workforce_bundle
 from muster.platform.adapters.crypto import (
     LocalEcdsaSigner,
@@ -58,7 +58,7 @@ from muster.platform.disclose.verify import ReaderContext
 from muster.platform.disclose.views import View
 from muster.policy.artifacts import DisclosurePolicy
 from support.paths import REPOSITORY_ROOT
-from support.ravi import RaviCase
+from support.ravi import RaviCase, publish_authority
 from support.ravi import ravi as ravi_case
 
 #: The control plane's salt root.  A fixed test constant, and the reason a
@@ -329,6 +329,12 @@ def committed_case(
     database = MemoryDatabase()
     case = ravi_case(tenant_id, case_id, attested=attested)
     work = commitment(database, key_ref=key_ref)
+    #  The authority the case pins, made resolvable before it is opened.  An
+    #  admission resolves the pin before it stores anything, so a fixture that
+    #  skipped this would produce a case in which every receipt is refused --
+    #  and a disclosure suite failing on authority would be a confusing way to
+    #  learn that a snapshot was never published.
+    publish_authority(database, case)
     opened = open_case(
         work.casework,
         tenant_id=case.tenant_id,

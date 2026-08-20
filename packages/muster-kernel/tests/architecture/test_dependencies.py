@@ -38,6 +38,17 @@ CORE_SEAMS: tuple[str, ...] = (
     "core.wire",
     "core.values",
     "core.expr",
+    #  Source authority sits below evidence because relation validation calls
+    #  it: Q-12 runs before the content checks, so the check has to be beneath
+    #  the module that runs them.  It is above ``core.values`` because a grant
+    #  is a value with an interval and a symbol reference in it, and below
+    #  everything that knows what a case is -- authority has never heard of one.
+    "core.authority",
+    #  And the fleet catalog above authority, never beside it.  The order is
+    #  the separation: a catalog may know what a coordinate is, and no module
+    #  under ``core.authority`` may import one, so "discovery cannot grant
+    #  authority" is enforced by the same expansion that orders everything else.
+    "core.catalog",
     "core.actions",
     "core.case",
     "core.evidence",
@@ -46,9 +57,37 @@ CORE_SEAMS: tuple[str, ...] = (
 
 #  What a wire-only consumer would be allowed to see. Naming it here is what
 #  keeps the extraction mechanical rather than archaeological later.
-WIRE_SEAM = frozenset({"core.results", "core.wire", "core.values", "core.evidence", "core.expr"})
+WIRE_SEAM = frozenset(
+    {
+        "core.results",
+        "core.wire",
+        "core.values",
+        "core.evidence",
+        "core.expr",
+        #  Authority and the catalog are wire types plus one pure function
+        #  each.  A wire-only consumer that could read a receipt and not the
+        #  snapshot deciding its admissibility would be a consumer that could
+        #  see a signature and not an authorization, which is the confusion the
+        #  whole milestone exists to prevent.
+        "core.authority",
+        "core.catalog",
+    }
+)
 
 _ALL_CORE = frozenset(CORE_SEAMS)
+
+#  What a package *above* core may see.  The catalog is removed, and removing it
+#  here rather than row by row is the fix for a real hole: inserting
+#  ``core.catalog`` into the ordered seam list silently widened ``_ALL_CORE``,
+#  so every row built from it -- including the package literally named
+#  ``admissibility`` -- gained permission to import a routing record.  The two
+#  hand-trimmed rows below caught it for ``core.case`` and ``core.evidence`` and
+#  for nothing else.
+#
+#  ``application`` is the exception and keeps the full set: it is the
+#  composition root, and routing is one of the things a composition root
+#  composes.
+_ALL_CORE_DECIDING = _ALL_CORE - {"core.catalog"}
 
 
 def _core_below(seam: str) -> frozenset[str]:
@@ -66,9 +105,21 @@ ALLOWED: dict[str, frozenset[str]] = {
     #  ``core.actions`` and ``core.case`` are siblings: neither may import the
     #  other, so the linear expansion above is trimmed for the two that would
     #  otherwise be permitted an edge they do not have.
-    "core.case": _core_below("core.case") - {"core.actions"},
-    "core.evidence": _core_below("core.evidence") - {"core.actions", "core.case"},
-    "policy": _ALL_CORE - {"core.analysis"},
+    #  The two rows *inside* core that sit after ``core.catalog`` in the seam
+    #  order and would otherwise inherit it.  ``_ALL_CORE_DECIDING`` only trims
+    #  the rows above core; these are built by ``_core_below``, so each has to
+    #  say so itself -- and the guard below is written over the whole table
+    #  rather than over a list, because a list that has to be maintained is
+    #  what let these two keep the edge after the first fix.
+    "core.actions": _core_below("core.actions") - {"core.catalog"},
+    "core.case": _core_below("core.case") - {"core.actions", "core.catalog"},
+    #  Evidence reaches authority and **not** the catalog.  The linear
+    #  expansion would permit both; trimming the catalog is what makes
+    #  "no admission decision can see a routing record" a fact about the module
+    #  graph rather than a claim in a docstring.
+    "core.evidence": _core_below("core.evidence") - {"core.actions", "core.case", "core.catalog"},
+    "core.analysis": _core_below("core.analysis") - {"core.catalog"},
+    "policy": _ALL_CORE_DECIDING - {"core.analysis"},
     #  The solver port is the narrowest boundary in the system. It sees the
     #  expression IR and the values in it, and nothing above.
     "solve": frozenset({"core.results", "core.wire", "core.values", "core.expr"}),
@@ -80,10 +131,10 @@ ALLOWED: dict[str, frozenset[str]] = {
     #  Narrower than the bounded oracle's row, which additionally needs
     #  ``core.wire`` for its canonical enumeration order.
     "solve.z3": frozenset({"core.results", "core.values", "core.expr", "solve"}),
-    "admissibility": _ALL_CORE | {"policy"},
-    "hinge": _ALL_CORE | {"policy", "solve"},
-    "evidence": _ALL_CORE | {"hinge"},
-    "domains.workforce": _ALL_CORE | {"policy"},
+    "admissibility": _ALL_CORE_DECIDING | {"policy"},
+    "hinge": _ALL_CORE_DECIDING | {"policy", "solve"},
+    "evidence": _ALL_CORE_DECIDING | {"hinge"},
+    "domains.workforce": _ALL_CORE_DECIDING | {"policy"},
     #  The frozen matrix gives the composition root "all of the above,
     #  **including solve.z3 and solve.reference**". Omitting an adapter here
     #  would forbid the only layer allowed to construct one from constructing
@@ -552,3 +603,38 @@ def test_no_type_ignore_is_used_to_reach_a_green_typecheck() -> None:
     pattern = re.compile(r"#\s*type:\s*ignore")
     for path in _production_files():
         assert not pattern.search(path.read_text(encoding="utf-8")), path
+
+
+def test_no_deciding_package_may_import_the_fleet_catalog() -> None:
+    """The rule an ordered seam list widened by accident -- twice.
+
+    ``core.catalog`` was inserted into ``CORE_SEAMS`` so the linear expansion
+    would order it after authority, and the same insertion added it to every
+    row built from that expansion.  The first fix trimmed the five rows above
+    core and the two intra-core rows that were already hand-trimmed for other
+    reasons -- and left ``core.actions`` and ``core.analysis``, which sit after
+    the catalog in the seam order and inherit it from ``_core_below``.  Both
+    are squarely on the decision path: one holds candidate actions, the other
+    holds the analysis certificate and the planner.
+
+    So the guard is written over the **whole table**, with two named
+    exceptions, rather than over a list of rows somebody has to remember to
+    extend.  A list that must be maintained is the mechanism that produced this
+    defect both times.
+    """
+    exempt = {
+        #  The composition root, which composes routing along with everything
+        #  else.
+        "application",
+        #  The catalog itself.
+        "core.catalog",
+    }
+    for row, allowed in sorted(ALLOWED.items()):
+        if row in exempt:
+            continue
+        assert "core.catalog" not in allowed, row
+
+    #  And the exemption is real rather than a hole: the composition root does
+    #  keep it, so this is a rule about who *decides* rather than a blanket ban
+    #  nothing could compose against.
+    assert "core.catalog" in ALLOWED["application"]

@@ -43,40 +43,74 @@ from tests.support import ravi
 #  Frozen for this milestone. If a change is deliberate, these move with it and
 #  the move is visible in the diff -- which is the point.
 #
-#  Moved once, deliberately, by milestone D: the workforce bundle's disclosure
-#  policy gained the ratified employer, site and auditor entries.  A disclosure
-#  entry is bundle data, the manifest commits to the policy's digest, a revision
-#  pins the manifest, and an entailed constraint cites the manifest it was
-#  derived under -- so the manifest, the revision, the logical case and the
-#  certificate all move together.  **No decision moved**: Ravi is still
-#  divergent, the plan still names both Saturday observations, and the attested
-#  revision still closes as invariant.
-#  Previous values, in order: 51438b71..., 14729c8d..., 53f6f155..., a6f51be4...
-#  ``test_ravi_digest_transition`` reconstructs the bundle those four came
-#  from and proves the move structurally -- one manifest field, and every
-#  other octet of the record and the certificate identical once the pins it
-#  moved are substituted.  It also freezes a bundle-pin-blind anchor over the
-#  decision core, so the next transition of this shape cannot carry drift.
+#  **Moved by milestone E, and the move is larger than milestone D's.**  Source
+#  authorization needs three inputs that did not exist, and each is inside an
+#  artifact a digest already covered:
+#
+#    * the predicate schema gained ``resource_scope_kinds`` -- the kinds of
+#      resource an authority grant over a predicate must enumerate, which is
+#      what Q-12(d) resolves against.  One manifest field moves, and exactly
+#      one: the other five decision-semantic subartifacts below are
+#      byte-identical to what milestone D froze;
+#    * the case construction record gained ``case_scope_coordinates`` -- where
+#      the case *is*, signed by the officer who opened it, so the resource
+#      Q-12(d) checks comes from an artifact no source could author;
+#    * ``AuthorizationContext.key_registry_snapshot_digest`` became
+#      ``authority_registry_snapshot_digest``, pinning a snapshot that answers
+#      "may this key say this" rather than one that answered "does this key
+#      exist".
+#
+#  Every receipt pins the predicate schema, so every receipt digest moved; the
+#  revision pins the construction record and the context, so it moved; and the
+#  logical case and certificate cite the revision.  Four anchors, one cause
+#  each, and none of them a decision.
+#
+#  **No decision moved, and that is proven rather than asserted.**
+#  ``test_ravi_authority_transition`` computes a *semantic core* -- the
+#  established facts by reference and value, the constraints by label and
+#  formula, the recorded non-effects, the unresolved set and the outcome, with
+#  every pin, provenance digest and solver handle masked -- and shows it is
+#  byte-identical to the value the committed milestone-D tree produces for both
+#  fixtures.  Ravi is still divergent, the plan still names both Saturday
+#  observations, and the attested revision still closes as invariant on the
+#  same action for the same amount.
+#
+#  Previous values, in order: 2361f323..., 9036cf41..., 473a0772..., 4ec52a0b...
+#  Before milestone D they were 51438b71..., 14729c8d..., 53f6f155..., a6f51be4...
 #  The certificate had moved once before that, in milestone B, when the encoder
 #  started binding every enum a query mentions rather than only the ones a
 #  declared variable carried: d819536b9f3345368231f65c125494b84726fdcb80612dbd34a2f539a7f6b359.
-RAVI_REVISION_DIGEST = "2361f3237bb622302f1057b720cd19e312c0466b1819143bc420965849eaffa0"
-RAVI_LOGICAL_CASE_DIGEST = "9036cf41b6aec3ea5a38836df6a72063b980dbb9357d5e5b6efe06b3f1b733eb"
-RAVI_CERTIFICATE_DIGEST = "473a0772f20524f6d7daf685e4b345086366b5983f5d183fbf5daa516b92191d"
-WORKFORCE_MANIFEST_DIGEST = "4ec52a0bdb95707347f9788343eb3d50dd4daef7903024eb059acc482ef26692"
+RAVI_REVISION_DIGEST = "2d816f8cfbe383c04825468f989ff1f7c442fc880fedeaf1cbba38f159d623df"
+RAVI_LOGICAL_CASE_DIGEST = "5580388ae7041a6ef27976025a1341dc33f443bb7c57fc15c9146451f5dd53e2"
+RAVI_CERTIFICATE_DIGEST = "7ab7e4329e9ceec3f520b4308ac13dea1bd12bffeaca8579715775727c23583e"
+WORKFORCE_MANIFEST_DIGEST = "7c9925f56115795434d1dfc8348ada133b0bddba6eed7dffb224c3a2f4cde6b8"
 
 HASH_SEEDS = ("0", "1", "99991")
 
 #  The decision core: the Ravi record and certificate with every
-#  bundle-derived identity masked out.  Frozen, and **not** moved by
-#  milestone D -- the same three numbers hold under the bundle as it stood
-#  before the disclosure audiences were added, which is what
-#  ``test_ravi_digest_transition`` establishes.
+#  bundle-derived identity masked out.
+#
+#  **Two of the three did not move at milestone E**, and the third moved for a
+#  reason the anchor was never built to absorb.  ``blind`` masks *bundle*
+#  identities, because milestone D's transition was a bundle change; milestone
+#  E also changed two artifacts the case owns -- the construction record and
+#  every receipt -- and those are inside the revision's encoding, unmasked and
+#  correctly so.  An anchor that masked the construction digest would stop
+#  seeing a case rebound to another site, which is the last thing this
+#  milestone should make invisible.
+#
+#  So the certificate cores stand where milestone D left them, which is a
+#  strong statement on its own: the certificate's decision content is
+#  byte-identical across a transition that moved its digest.  And
+#  ``RAVI_DECISION_CORE`` moves once, with
+#  ``test_ravi_authority_transition``'s semantic core standing behind it --
+#  that anchor *is* blind to provenance, and it did not move.
 #
 #  A future change that moves the four anchors above and leaves these three
-#  alone is a pin transition.  One that moves these is a change to what Ravi
-#  decides, whatever else it claims to be.
-RAVI_DECISION_CORE = "5d930b2bce38392162094470b6d0c0b9cc7b343fddf317d9431348249872136a"
+#  alone is a pin transition.  One that moves the semantic core is a change to
+#  what Ravi decides, whatever else it claims to be.
+#  Previous: 5d930b2bce38392162094470b6d0c0b9cc7b343fddf317d9431348249872136a
+RAVI_DECISION_CORE = "f678d20f040c34748484eead272e829aebde5a33268cd1f1bbc246892bdbb7ff"
 RAVI_CERTIFICATE_CORE = "c6d5536ce263499222b19c3051ab4a09bbaccbf9df557f07e095e3c233b7c031"
 RAVI_ATTESTED_CERTIFICATE_CORE = "a6a75a08538176fe6ab6139788ff2c2da0cc4fb6ef05949fd3cc0a21d4fdd025"
 
@@ -91,7 +125,11 @@ WORKFORCE_DECISION_ARTIFACTS = {
     "admissibility_descriptors_digest": (
         "a47331836f626ef1314bee0d5233b1f5ce7daea885c04564abde1ea29974d27a"
     ),
-    "predicate_schema_digest": "6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9",
+    #  The one that moved at milestone E, and the only one.  It gained
+    #  ``resource_scope_kinds`` per predicate -- the Q-12(d) input -- and
+    #  nothing else in the bundle changed by an octet.
+    #  Previous: 6aba0967f35ed1264a56be7c7d4e018180e088db4e3172f2055a6192300376f9
+    "predicate_schema_digest": "defae5552e3a1f8642b44f2c60a335bc8a4664c505987a13cd8358aaeb05f7ae",
     "action_schema_digest": "5908a6ea94f2d6a9acf7cc49c89f9beabe5db9e15dfa21d421e1845094240c45",
     "ratification_records_digest": (
         "1e70cec229c4cb142a555f7373800186d485e010c214fd0559bda29c8cb8079c"
@@ -194,6 +232,9 @@ def test_the_attested_ravi_decision_core_has_its_frozen_blind_anchor() -> None:
         case.entries,
         ravi.bundle(),
         case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Ok), built
     produced = analyse_revision(built.value, ravi.bundle(), ravi.backend(), ravi.limits())

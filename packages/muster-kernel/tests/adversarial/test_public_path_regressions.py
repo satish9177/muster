@@ -56,6 +56,9 @@ def forged_analysis() -> CaseAnalysis:
         case.entries,
         bundle,
         case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
     )
     assert isinstance(built, Ok), built
     produced = analyse_revision(built.value, bundle, ravi.backend(), ravi.limits())
@@ -72,7 +75,23 @@ def test_an_attested_normative_value_never_becomes_a_fact() -> None:
 
 
 def test_the_refused_attestation_is_recorded_rather_than_dropped() -> None:
-    """Evidence that fails validation must have no effect *and* leave a trace."""
+    """Evidence that fails validation must have no effect *and* leave a trace.
+
+    **The reason moved at milestone E, and the barrier did not.**  Section
+    12.4.3 fixes the order as Q-9, Q-10, Q-12(a)…(f), Q-4…Q-8, Q-11, first
+    failure reported -- so authority is now asked before the layer barrier, and
+    a forged normative attestation is refused on Q-12(a) rather than Q-8.  It
+    is refused on Q-12(a) because a normative conclusion is DERIVED, so the
+    pinned schema permits *no* source class for it and the set the claimed
+    class is tested against is empty.
+
+    Nothing about the barrier weakened, and the test above this one is what
+    says so: the value never becomes a fact.  What changed is which of two
+    refusals is the *first* one, and the ordering is the specification -- two
+    conforming implementations have to report the same rejection, not merely a
+    rejection.  ``test_normative_barrier`` covers the other half directly: an
+    attestation that clears authority completely is still refused on Q-8.
+    """
     non_effects = forged_analysis().revision.non_effects
     refusals = [
         effect
@@ -80,7 +99,7 @@ def test_the_refused_attestation_is_recorded_rather_than_dropped() -> None:
         if effect.subject == str(shift_payable(ravi.RAVI, ravi.SATURDAY))
     ]
     assert len(refusals) == 1
-    assert refusals[0].reason == "LayerFlowViolation"
+    assert refusals[0].reason == "SourceClassNotPermittedForPredicate"
 
 
 def test_the_forged_attestation_changes_no_outcome() -> None:

@@ -24,8 +24,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from muster.core.authority.scope import ResourceScope, read_scope_set, scope_set
 from muster.core.evidence.relations import AcquisitionRelation, read_relation, relation_node
-from muster.core.results import Result
+from muster.core.results import InvariantViolation, Result
 from muster.core.values.scalars import Value, read_value
 from muster.core.values.sorts import Sort, read_sort
 from muster.core.values.symbols import SymbolRef, read_symbol_ref, symbol_seq
@@ -51,24 +52,16 @@ from muster.core.wire.shape import (
     read_set,
     read_tagged,
 )
+from muster.core.wire.signature import Signature, read_signature
 
-TAG_SIGNATURE = "Signature/v1"
 TAG_ACQUISITION_PAYLOAD = "AcquisitionPayload/v1"
 TAG_VERIFICATION_RECEIPT = "VerificationReceipt/v1"
 TAG_STATEMENT_RECORD = "StatementRecord/v1"
 TAG_PARTY_RECORD = "PartyRecord/v1"
 TAG_CASE_CONSTRUCTION = "CaseConstructionRecord/v1"
+TAG_CASE_CONSTRUCTION_BODY = "CaseConstructionRecordBody/v1"
 
 NONCE_OCTETS = 16
-
-
-@dataclass(frozen=True, slots=True)
-class Signature:
-    algorithm: str
-    octets: bytes
-
-    def to_node(self) -> NRec:
-        return NRec(TAG_SIGNATURE, (NAtom(self.algorithm), NBytes(self.octets)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,10 +193,24 @@ class PartyRecord:
 
 @dataclass(frozen=True, slots=True)
 class CaseConstructionRecord:
-    """Who the parties are and which proposition instances exist.
+    """Who the parties are, which proposition instances exist, and where the case is.
 
     Roles come from here -- signed at case construction by an officer -- and
     never from a party's own assertion about itself.
+
+    ``case_scope_coordinates`` is the same rule applied to *place*.  Q-12(d)
+    asks whether the key that signed an observation was authorized over the
+    resource the case is about, and the answer is worthless if the resource is
+    read from anything the source supplied: a site agent that could name its
+    own site would authorize itself by writing a different atom.  So the case's
+    site, cost centre or purchase order is declared once, by the officer who
+    opened the case, inside the octets an officer signature covers -- and every
+    later authority decision reads it from there.
+
+    A case may legitimately declare none, and then no attestation whose
+    proposition contributes no coordinate of its own can be authorized for it:
+    Q-12(d) refuses an empty coordinate set rather than treating it as
+    unrestricted.
     """
 
     tenant_id: str
@@ -213,8 +220,21 @@ class CaseConstructionRecord:
     contract_ref: str | None
     parties: tuple[PartyRecord, ...]
     declared_instances: tuple[SymbolRef, ...]
+    case_scope_coordinates: tuple[ResourceScope, ...]
     signer_key_ref: str
     signature: Signature
+
+    def __post_init__(self) -> None:
+        #  The same invariant the body carries, on the record too.  Without it
+        #  the empty officer is constructible and decodable here and fatal one
+        #  call later in ``body()`` -- and ``body()`` is reached on the read
+        #  path *after* the decoder's guard has returned, so a row an operator
+        #  wrote with an empty atom would raise out of functions that promise a
+        #  typed refusal, permanently, since the head pins that digest and
+        #  nothing replaces it.  Refusing at construction makes the record and
+        #  its body agree instead.
+        if not self.signer_key_ref:
+            raise InvariantViolation("a case construction record names its officer")
 
     def to_node(self) -> NRec:
         return NRec(
@@ -227,6 +247,7 @@ class CaseConstructionRecord:
                 option_node(atom_or_none(self.contract_ref)),
                 NSeq(tuple(party.to_node() for party in self.parties)),
                 symbol_seq(self.declared_instances),
+                scope_set(self.case_scope_coordinates),
                 NAtom(self.signer_key_ref),
                 self.signature.to_node(),
             ),
@@ -234,6 +255,72 @@ class CaseConstructionRecord:
 
     def digest(self) -> Digest:
         return digest_node(DigestKind.CASE_CONSTRUCTION, self.to_node())
+
+    def body(self) -> CaseConstructionRecordBody:
+        """The value the officer signature covers: this record, less it."""
+        return CaseConstructionRecordBody(
+            tenant_id=self.tenant_id,
+            case_id=self.case_id,
+            created_at=self.created_at,
+            subject_refs=self.subject_refs,
+            contract_ref=self.contract_ref,
+            parties=self.parties,
+            declared_instances=self.declared_instances,
+            case_scope_coordinates=self.case_scope_coordinates,
+            signer_key_ref=self.signer_key_ref,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CaseConstructionRecordBody:
+    """The exact value an *officer* signature covers.
+
+    Every field of the record except the signature, in the record's own order,
+    so nothing security-bearing sits beside the signature where an edit would
+    not be noticed.  ``case_scope_coordinates`` is why this type exists at all:
+    Q-12(d) reads the case's site, cost centre or purchase order from the
+    construction record and refuses a source that was not authorized over it --
+    a check that is worth exactly nothing if the coordinates are not covered by
+    a signature from somebody who is not the source.
+
+    ``signer_key_ref`` is inside the covered octets, exactly as it is for a
+    publication: a record and the identity that opened it cannot disagree, and
+    a valid record cannot be re-attributed to another officer by rewriting a
+    field the signature did not reach.
+    """
+
+    tenant_id: str
+    case_id: str
+    created_at: Instant
+    subject_refs: tuple[str, ...]
+    contract_ref: str | None
+    parties: tuple[PartyRecord, ...]
+    declared_instances: tuple[SymbolRef, ...]
+    case_scope_coordinates: tuple[ResourceScope, ...]
+    signer_key_ref: str
+
+    def __post_init__(self) -> None:
+        if not self.signer_key_ref:
+            raise InvariantViolation("a case construction record names its officer")
+
+    def to_node(self) -> NRec:
+        return NRec(
+            TAG_CASE_CONSTRUCTION_BODY,
+            (
+                NAtom(self.tenant_id),
+                NAtom(self.case_id),
+                NInt(self.created_at),
+                atoms(self.subject_refs),
+                option_node(atom_or_none(self.contract_ref)),
+                NSeq(tuple(party.to_node() for party in self.parties)),
+                symbol_seq(self.declared_instances),
+                scope_set(self.case_scope_coordinates),
+                NAtom(self.signer_key_ref),
+            ),
+        )
+
+    def digest(self) -> Digest:
+        return digest_node(DigestKind.CASE_CONSTRUCTION_BODY, self.to_node())
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,11 +360,6 @@ def entry_digest(entry: TranscriptEntry) -> Digest:
 #  a set comes back in canonical order rather than the order it was authored
 #  in -- and the canonical octets, not the authoring order, are what a digest,
 #  a signature and a commitment ever covered.
-
-
-def read_signature(node: Node) -> Signature:
-    algorithm, octets = read_rec(node, TAG_SIGNATURE, 2)
-    return Signature(read_atom(algorithm), read_bytes(octets))
 
 
 def read_acquisition_payload(node: Node) -> AcquisitionPayload:
@@ -335,7 +417,7 @@ def read_party_record(node: Node) -> PartyRecord:
 
 
 def read_case_construction(node: Node) -> CaseConstructionRecord:
-    fields = read_rec(node, TAG_CASE_CONSTRUCTION, 9)
+    fields = read_rec(node, TAG_CASE_CONSTRUCTION, 10)
     return CaseConstructionRecord(
         tenant_id=read_atom(fields[0]),
         case_id=read_atom(fields[1]),
@@ -344,8 +426,24 @@ def read_case_construction(node: Node) -> CaseConstructionRecord:
         contract_ref=read_option(fields[4], read_atom),
         parties=read_seq(fields[5], read_party_record),
         declared_instances=read_seq(fields[6], read_symbol_ref),
-        signer_key_ref=read_atom(fields[7]),
-        signature=read_signature(fields[8]),
+        case_scope_coordinates=read_scope_set(fields[7]),
+        signer_key_ref=read_atom(fields[8]),
+        signature=read_signature(fields[9]),
+    )
+
+
+def read_case_construction_body(node: Node) -> CaseConstructionRecordBody:
+    fields = read_rec(node, TAG_CASE_CONSTRUCTION_BODY, 9)
+    return CaseConstructionRecordBody(
+        tenant_id=read_atom(fields[0]),
+        case_id=read_atom(fields[1]),
+        created_at=read_int(fields[2]),
+        subject_refs=read_seq(fields[3], read_atom),
+        contract_ref=read_option(fields[4], read_atom),
+        parties=read_seq(fields[5], read_party_record),
+        declared_instances=read_seq(fields[6], read_symbol_ref),
+        case_scope_coordinates=read_scope_set(fields[7]),
+        signer_key_ref=read_atom(fields[8]),
     )
 
 

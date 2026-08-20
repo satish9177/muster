@@ -405,6 +405,35 @@ def test_every_check_is_falsifiable(monkeypatch):
             name=r.name, kind="record", tag=r.tag, fields=fields,
             digest_kind=r.digest_kind, signing=r.signing))
 
+    #  Not an injection -- a second, sharper falsification of the same check,
+    #  run inline because ``inject`` allows one per name.  The milestone-E draft
+    #  searched the whole record for a tenant name instead of the signed
+    #  preimage, so a tenant reachable only through an *unsigned sibling* of the
+    #  body would have satisfied it.  That is a tenant an attacker can swap
+    #  without resigning, and counting it turns the check into a spelling test.
+    def _tenant_outside_the_signed_body(mp):
+        from muster_spec.schema import SigningSpec
+
+        e = REG["SignedCommitmentEnvelope"]
+        stripped = REG["CommitmentEnvelope"]
+        mp.setitem(REG.types, "CommitmentEnvelope", TypeDecl(
+            name=stripped.name, kind="record", tag=stripped.tag,
+            fields=tuple(f for f in stripped.fields if f.name != "tenant_id"),
+            digest_kind=stripped.digest_kind))
+        #  ... and put the tenant back *outside* the body, beside the signature.
+        mp.setitem(REG.types, "SignedCommitmentEnvelope", TypeDecl(
+            name=e.name, kind="record", tag=e.tag,
+            fields=(*e.fields, FieldDecl("tenant_id", SRef("Instant"))),
+            signing=SigningSpec(
+                "signature", "envelope", "envelope.signer_key_ref", "COMMITMENT_ENVELOPE"
+            )))
+
+    with pytest.MonkeyPatch.context() as mp:
+        _tenant_outside_the_signed_body(mp)
+        assert checks.CHECKS["CHK_AUTHORITY_BEARING_TYPE_BINDS_TENANT"](), (
+            "a tenant outside the signed body must not satisfy the tenant binding"
+        )
+
     @inject("CHK_CASE_BOUND_ARTIFACT_BINDS_CASE")
     def _(mp):
         r = REG["Retraction"]
@@ -560,6 +589,58 @@ def test_every_check_is_falsifiable(monkeypatch):
     def _(mp):
         pass  # no src/muster exists yet; see the explicit assertion below
 
+    #  ---- source authority [G1] and the fleet catalog [E] -----------------
+
+    @inject("CHK_AUTHORITY_GRANT_HAS_NO_WILDCARD_SCOPE")
+    def _(mp):
+        #  The exact defect the check exists for: an enumerated authority field
+        #  that admits the empty set.  Nothing else about the grant changes, so
+        #  a check that only looked at field *names* would pass.
+        from muster_spec.schema import SetOf
+
+        g = REG["AuthorityGrant"]
+        fields = tuple(
+            FieldDecl(f.name, SetOf(SRef("ResourceScope"), min_count=0), f.note)
+            if f.name == "resource_scope"
+            else f
+            for f in g.fields
+        )
+        mp.setitem(REG.types, "AuthorityGrant", TypeDecl(
+            name=g.name, kind="record", tag=g.tag, fields=fields,
+            digest_kind=g.digest_kind, persistence=g.persistence))
+
+    @inject("CHK_AUTHORITY_SNAPSHOT_GRANTS_ARE_UNIQUE_BY_KEY_AND_CLASS")
+    def _(mp):
+        #  Uniqueness dropped to ``key_ref`` alone.  Plausible-looking, and it
+        #  is precisely the version under which one key holding two classes
+        #  becomes unrepresentable while two grants on one class do not.
+        d = REG["AuthorityRegistrySnapshot"]
+        mp.setitem(REG.types, "AuthorityRegistrySnapshot", TypeDecl(
+            name=d.name, kind="record", tag=d.tag, fields=d.fields,
+            digest_kind=d.digest_kind, persistence=d.persistence,
+            unique_by=(("grants", ("key_ref",)),)))
+
+    @inject("CHK_PERMITTED_SOURCE_CLASSES_IS_CONSUMED")
+    def _(mp):
+        #  The regression this check is named after, reproduced exactly: an
+        #  authority field is declared and the validator that would read it is
+        #  looked for somewhere it is not.  Nothing about the *schema* is wrong,
+        #  which is why the defect survived two milestones the first time.
+        mp.setattr(checks, "_AUTHORITY_CONSUMERS", {
+            "permitted_source_classes": ("packages/muster-kernel/src/muster/core/results.py",),
+        })
+
+    @inject("CHK_AUTHORITY_DOES_NOT_DEPEND_ON_THE_CATALOG")
+    def _(mp):
+        #  A grant phrased in terms of a routing record.  This is the shape the
+        #  whole separation exists to forbid: it reads as a convenience and it
+        #  makes every authority answer a function of what a catalog says.
+        g = REG["AuthorityGrant"]
+        fields = (*g.fields, FieldDecl("profile", SRef("AgentProfile")))
+        mp.setitem(REG.types, "AuthorityGrant", TypeDecl(
+            name=g.name, kind="record", tag=g.tag, fields=fields,
+            digest_kind=g.digest_kind, persistence=g.persistence))
+
     missing = set(checks.CHECKS) - set(injections)
     assert not missing, f"no falsification injection for {sorted(missing)}"
 
@@ -579,3 +660,32 @@ def test_production_import_check_scans_the_real_tree():
     source = inspect.getsource(checks._no_production_import)
     assert 'src' in source and 'muster_spec' in source
     assert checks._no_production_import() == []
+
+
+def test_the_consumed_check_is_not_satisfied_by_a_mention():
+    """[G1] The guard against the milestone's defining defect, falsified properly.
+
+    The injection above points the check at a module that does not contain the
+    field at all, which a substring search also refuses -- so it never exercised
+    the distinction that matters.  This one does: a module whose docstring,
+    comment, string literal, parameter name and keyword argument all name the
+    field, and which never *reads* it.
+
+    That is not a hypothetical shape.  It is what every module in this codebase
+    looks like around a field it explains, and it is why "declared and read by
+    nothing" survived two milestones the first time.
+    """
+    mention_only = '''"""All about permitted_source_classes and why it matters."""
+#  permitted_source_classes is the load-bearing field here.
+LABEL = "permitted_source_classes"
+
+
+def build(permitted_source_classes):
+    return Spec(permitted_source_classes=permitted_source_classes and None)
+'''
+    genuinely_read = '''def check(claim, spec):
+    return claim.source_class in spec.permitted_source_classes
+'''
+    assert not checks._is_loaded(mention_only.replace(
+        "permitted_source_classes and None", '"x"'), "permitted_source_classes")
+    assert checks._is_loaded(genuinely_read, "permitted_source_classes")

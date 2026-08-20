@@ -35,6 +35,7 @@ from muster.platform.casework.commands import (
 )
 from muster.platform.orchestration.status import CaseStatus
 from support import ravi
+from support.authority import sign_receipt
 from support.ravi import RaviCase
 
 TENANT = "tenant-in-memory"
@@ -52,6 +53,10 @@ def case() -> RaviCase:
 
 
 def _open(casework: Casework, case: RaviCase) -> object:
+    #  The case's authority state first: admission resolves the pin before it
+    #  stores anything, so opening without publishing produces a case nothing
+    #  can be appended to.
+    ravi.publish_authority(casework.database, case)
     return open_case(
         casework,
         tenant_id=case.tenant_id,
@@ -201,9 +206,16 @@ def test_an_entry_that_would_make_the_case_unrebuildable_is_refused_here_too(
 
     establishing = case.entries[18]
     assert isinstance(establishing, Attestation)
+    #  Signed for real under the key the payload names.  The nonce is inside
+    #  what the signature covers, so a twin that kept the original signature
+    #  would be refused on authenticity -- and this test is about the check two
+    #  steps after that, which only runs on a receipt that got past both.
     twin = Attestation(
-        replace(
-            establishing.receipt, payload=replace(establishing.receipt.payload, nonce=b"\x5a" * 16)
+        sign_receipt(
+            replace(
+                establishing.receipt,
+                payload=replace(establishing.receipt.payload, nonce=b"\x5a" * 16),
+            )
         )
     )
     before = dict(database.records.members)

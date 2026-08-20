@@ -64,6 +64,7 @@ from enum import Enum
 
 from muster.application.pipeline import CaseAnalysis, analyse_revision
 from muster.application.rebuild import rebuild, transcript_prefix
+from muster.core.authority.signing import OfficerVerifier, PublisherVerifier, SourceVerifier
 from muster.core.case.revision import TranscriptPrefix
 from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.values.times import Duration, Instant
@@ -73,9 +74,9 @@ from muster.hinge.prepare import EngineLimits
 from muster.platform.casework.ports import (
     CaseHead,
     CaseworkDatabase,
+    DecidingScope,
     HeadFailure,
     RecordedRequest,
-    TenantScope,
     is_durable_instant,
 )
 from muster.platform.casework.snapshot import CaseSnapshot, read_working
@@ -126,6 +127,19 @@ class Casework:
     backend: Callable[[], SolverBackend]
     limits: EngineLimits
     policy: CaseworkPolicy
+    #  Three verifiers, never one.  ``source_verifier`` holds the public
+    #  material of the agents that attest; ``publisher_verifier`` holds the
+    #  public material of the control plane that publishes who may attest;
+    #  ``officer_verifier`` holds the public material of the officers who open
+    #  cases and thereby fix what each case is *about*.  A single keyring for
+    #  any two would collapse a boundary: a source key that could authenticate
+    #  an authority publication is the shortest path from "a source" to "a
+    #  source that granted itself authority", and a source key that could
+    #  authenticate a construction record is the shortest path to a source that
+    #  declared the site it already held a grant over.
+    source_verifier: SourceVerifier
+    publisher_verifier: PublisherVerifier
+    officer_verifier: OfficerVerifier
 
 
 class AdvanceFailure(Enum):
@@ -218,7 +232,13 @@ def _compute(
 ) -> Result[_Work, AdvanceRejection]:
     """Read a snapshot, then leave the database alone until there is an answer."""
     with casework.database.reading(tenant_id) as scope:
-        read = read_working(scope, case_id)
+        read = read_working(
+            scope,
+            case_id,
+            casework.publisher_verifier,
+            casework.officer_verifier,
+            casework.source_verifier,
+        )
     if isinstance(read, Err):
         return Err(
             AdvanceRejection(
@@ -249,6 +269,9 @@ def _compute(
         snapshot.entries,
         bundle,
         snapshot.authorization_context,
+        snapshot.authority.snapshot,
+        snapshot.authority.revocation,
+        snapshot.solicitations,
     )
     if isinstance(revision, Err):
         return Err(
@@ -304,7 +327,7 @@ def _publish(
         return Err(abort.rejection)
 
 
-def _swap(scope: TenantScope, work: _Work) -> CaseHead | None:
+def _swap(scope: DecidingScope, work: _Work) -> CaseHead | None:
     #  Hold the case before anything else. Two reasons, and the first one is a
     #  correctness bug the compare-and-swap does not catch.
     #
@@ -401,7 +424,7 @@ def _swap(scope: TenantScope, work: _Work) -> CaseHead | None:
     return advanced.value
 
 
-def _put(scope: TenantScope, kind: DigestKind, octets: bytes) -> None:
+def _put(scope: DecidingScope, kind: DigestKind, octets: bytes) -> None:
     stored = scope.content.put(kind, octets)
     if isinstance(stored, Err):
         raise _Abort(

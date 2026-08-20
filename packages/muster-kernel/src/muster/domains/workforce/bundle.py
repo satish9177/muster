@@ -31,7 +31,6 @@ from muster.core.actions import (
     Consequentiality,
     FieldSpec,
 )
-from muster.core.evidence.transcript import Signature
 from muster.core.expr.ir import Binary, BinaryOp, Ite, Leaf, LitInt, NAry, NAryOp, freevars
 from muster.core.expr.terms import Term, literal, term_digest
 from muster.core.results import Err, InvariantViolation
@@ -50,6 +49,7 @@ from muster.core.values.sorts import (
 from muster.core.values.symbols import SymbolRef, SymbolRefTemplate
 from muster.core.values.times import HalfOpenInterval
 from muster.core.wire.codec import canonical_order
+from muster.core.wire.signature import Signature
 from muster.policy.artifacts import (
     AdmissibilityDescriptor,
     AdmissibilityDescriptors,
@@ -91,6 +91,15 @@ PREDICATE_PAYABLE = "shift_payable_under_policy"
 
 SOURCE_PAYROLL = "HR_PAYROLL_SYSTEM"
 SOURCE_SITE_ACCESS = "SITE_ACCESS_CONTROL"
+
+#  The resource kinds authority over this domain's predicates is scoped by.
+#  Two, and they are different for a reason worth stating: a payroll system is
+#  authorized *for an employer* and a badge reader is authorized *for a site*,
+#  so the same case has two source classes answering to two different resource
+#  coordinates.  A single bundle-wide scope kind would have forced one of them
+#  to be wrong, which is why the declaration is per predicate.
+SCOPE_SITE = "SITE"
+SCOPE_EMPLOYER = "EMPLOYER"
 
 ACTION_SCHEMA_ID = "workforce-actions"
 ACTION_PAY = "PAY"
@@ -168,6 +177,7 @@ def predicate_schema() -> PredicateSchema:
                 layer=EvidenceLayer.RECORD,
                 acquisition=AcquisitionClass.ATTESTABLE,
                 permitted_source_classes=(SOURCE_PAYROLL,),
+                resource_scope_kinds=(SCOPE_EMPLOYER,),
                 measurement_class="PAYROLL_RECORD",
             ),
             PredicateSpec(
@@ -178,6 +188,7 @@ def predicate_schema() -> PredicateSchema:
                 layer=EvidenceLayer.RECORD,
                 acquisition=AcquisitionClass.ATTESTABLE,
                 permitted_source_classes=(SOURCE_PAYROLL,),
+                resource_scope_kinds=(SCOPE_EMPLOYER,),
                 measurement_class="ROSTER_RECORD",
             ),
             PredicateSpec(
@@ -188,6 +199,7 @@ def predicate_schema() -> PredicateSchema:
                 layer=EvidenceLayer.OBSERVATION,
                 acquisition=AcquisitionClass.ATTESTABLE,
                 permitted_source_classes=(SOURCE_SITE_ACCESS,),
+                resource_scope_kinds=(SCOPE_SITE,),
                 measurement_class="SITE_ACCESS_EVENT",
             ),
             PredicateSpec(
@@ -198,6 +210,7 @@ def predicate_schema() -> PredicateSchema:
                 layer=EvidenceLayer.OBSERVATION,
                 acquisition=AcquisitionClass.ATTESTABLE,
                 permitted_source_classes=(SOURCE_SITE_ACCESS,),
+                resource_scope_kinds=(SCOPE_SITE,),
                 measurement_class="SITE_ACCESS_DURATION_MINUTES",
             ),
             PredicateSpec(
@@ -210,6 +223,10 @@ def predicate_schema() -> PredicateSchema:
                 #  target can name it and no receipt can carry it.
                 acquisition=AcquisitionClass.DERIVED,
                 permitted_source_classes=(),
+                #  Empty for the same reason ``permitted_source_classes`` is:
+                #  a derived conclusion has no source, so an authority-shaped
+                #  field on it would be one nothing reads.
+                resource_scope_kinds=(),
                 measurement_class=None,
             ),
         ),

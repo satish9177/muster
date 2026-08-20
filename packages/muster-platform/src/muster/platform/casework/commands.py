@@ -25,6 +25,8 @@ from enum import Enum
 
 from muster.application.pipeline import CaseAnalysis, analyse_revision
 from muster.application.rebuild import rebuild, transcript_prefix
+from muster.core.authority.check import AuthorityView
+from muster.core.authority.signing import OfficerVerifier
 from muster.core.case.revision import (
     AuthorizationContext,
     RebuildInputs,
@@ -36,10 +38,26 @@ from muster.core.results import Err, Ok, Result
 from muster.core.values.times import Instant
 from muster.core.wire.codec import encode
 from muster.core.wire.digests import Digest, DigestKind
+from muster.platform.authority.resolve import published_revocations
 from muster.platform.casework.advance import Advanced, AdvanceRejection, Casework, advance_case
-from muster.platform.casework.ports import CaseHead, RecordedRequest, StoreFailure, TenantScope
-from muster.platform.casework.snapshot import CaseSnapshot, read_published, read_working
-from muster.platform.ingest.admission import admit_case_construction, admit_entry
+from muster.platform.casework.ports import (
+    CaseHead,
+    DecidingScope,
+    PublicationFailure,
+    RecordedRequest,
+    StoreFailure,
+)
+from muster.platform.casework.snapshot import (
+    CaseSnapshot,
+    read_case_inputs,
+    read_published,
+    read_working,
+)
+from muster.platform.ingest.admission import (
+    AdmissionAuthority,
+    admit_case_construction,
+    admit_entry,
+)
 from muster.platform.orchestration.status import CaseStatus, status
 
 #  ---- OpenCase -----------------------------------------------------------
@@ -50,6 +68,13 @@ class OpenFailure(Enum):
     ADMISSION_REFUSED = "ADMISSION_REFUSED"
     STORE_REFUSED = "STORE_REFUSED"
     HEAD_REFUSED = "HEAD_REFUSED"
+    #  The authorization context offers an authority registry snapshot that is
+    #  not the one this tenant currently has in force -- a superseded one, one
+    #  belonging to another tenant, or one that was never published.  Also the
+    #  refusal when the tenant has no authority in force at all: G7's
+    #  fail-closed absence, which is not the same event as a stale pin and does
+    #  not share its detail.
+    AUTHORITY_NOT_IN_FORCE = "AUTHORITY_NOT_IN_FORCE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +110,14 @@ def open_case(
     Nothing is analysed.  A case that has been opened and never analysed is a
     real state, and running a solver inside the command that creates a case
     would put the slowest operation in the system in the fastest one.
+
+    **The authorization context is checked, not merely stored.**  It arrives
+    from the caller and names the authority registry snapshot this case will be
+    decided under for the rest of its life; ``_open`` refuses it unless it is
+    the snapshot this tenant currently has in force.  See the comment there --
+    it is the one place in this package where a present-tense authority fact is
+    consulted, and the reasoning for why that is the right place and the only
+    one belongs beside the check.
     """
     resolved = casework.registry.resolve(policy_id, as_of)
     if isinstance(resolved, Err):
@@ -101,6 +134,7 @@ def open_case(
             return Ok(
                 _open(
                     scope,
+                    officer_verifier=casework.officer_verifier,
                     tenant_id=tenant_id,
                     case_id=case_id,
                     construction=construction,
@@ -115,8 +149,9 @@ def open_case(
 
 
 def _open(
-    scope: TenantScope,
+    scope: DecidingScope,
     *,
+    officer_verifier: OfficerVerifier,
     tenant_id: str,
     case_id: str,
     construction: CaseConstructionRecord,
@@ -124,7 +159,85 @@ def _open(
     as_of: Instant,
     pin: Digest,
 ) -> CaseHead:
-    admitted = admit_case_construction(scope, case_id, construction)
+    #  ---- G7: a new case opens under the authority that is in force ---------
+    #
+    #  **First, before the construction record is even stored.**  A case that
+    #  may not be opened should leave nothing behind, and this is the cheapest
+    #  refusal available.
+    #
+    #  A case pins the authority it is decided under and replays against that
+    #  pin forever, which is right and is not in question here.  What was open
+    #  is *which* pin a case may choose at the moment it is created: nothing
+    #  compared the offered snapshot against anything, so a caller could open a
+    #  brand-new case naming a registry snapshot the publisher had already
+    #  replaced -- and a grant withdrawn by publishing a successor would go on
+    #  authorizing evidence in every case opened afterwards that simply named
+    #  the older snapshot.  The key never had to be revoked for this to work,
+    #  which is what made it a hole rather than a slow revocation.
+    #
+    #  The rule is equality with the snapshot the publisher currently names,
+    #  which is the strongest staleness bound and the only one that needs no
+    #  clock.  A bound expressed as a duration would have to be measured
+    #  against *some* instant, and the only instant available here is ``as_of``
+    #  -- which the caller supplies, and a freshness rule a caller can satisfy
+    #  by choosing a number is not a freshness rule.
+    #
+    #  A **historical** case is untouched by any of this.  It is not reopened,
+    #  it does not re-pin, and its rebuild resolves the snapshot its own
+    #  authorization context names.  Publishing a successor is still invisible
+    #  to it, exactly as ``AuthorityRepository`` promises.
+    #
+    #  The read holds the publication-state row in share mode for the rest of
+    #  this transaction, so a successor published between this check and the
+    #  head insert cannot slip through the gap: the publisher takes the row
+    #  exclusively and waits.
+    in_force = scope.authority.in_force_authority()
+    if isinstance(in_force, Err):
+        raise _Rejected(
+            OpenRejection(
+                OpenFailure.AUTHORITY_NOT_IN_FORCE,
+                f"{in_force.error.failure.value}: {in_force.error.detail}",
+            )
+        )
+    #  **Both pins, not only the registry.**  G7 names revocation snapshots
+    #  alongside authority snapshots, and the asymmetry was real: a caller could
+    #  pin the current registry beside a revocation list published before a key
+    #  was withdrawn.  Admission refuses that key anyway -- it unions every
+    #  published revocation list rather than reading the pin -- so the gap
+    #  admitted no evidence.  What it did leave was a case whose *pinned* state
+    #  disagrees with the publisher's, which every later reader of that pin
+    #  inherits, including a chain that re-runs Q-12(f) from the pin alone.
+    #  Refused here, once, rather than compensated for everywhere afterwards.
+    for offered, current, what in (
+        (
+            authorization_context.authority_registry_snapshot_digest,
+            in_force.value.in_force_authority_digest,
+            "authority",
+        ),
+        (
+            authorization_context.revocation_snapshot_digest,
+            in_force.value.in_force_revocation_digest,
+            "revocation state",
+        ),
+    ):
+        if current is None:
+            raise _Rejected(
+                OpenRejection(
+                    OpenFailure.AUTHORITY_NOT_IN_FORCE,
+                    f"{PublicationFailure.PUBLICATION_STATE_ABSENT.value}: "
+                    f"{scope.tenant_id} has published no {what}",
+                )
+            )
+        if offered != current:
+            raise _Rejected(
+                OpenRejection(
+                    OpenFailure.AUTHORITY_NOT_IN_FORCE,
+                    f"{PublicationFailure.PUBLICATION_SUPERSEDED.value}: this case would open "
+                    f"under {what} {offered.hex}, which is not the {what} in force",
+                )
+            )
+
+    admitted = admit_case_construction(scope, case_id, construction, officer_verifier)
     if isinstance(admitted, Err):
         raise _Rejected(
             OpenRejection(
@@ -164,7 +277,7 @@ def _open(
     return opened.value
 
 
-def _store(scope: TenantScope, kind: DigestKind, octets: bytes) -> Digest:
+def _store(scope: DecidingScope, kind: DigestKind, octets: bytes) -> Digest:
     stored = scope.content.put(kind, octets)
     if isinstance(stored, Err):
         raise _Rejected(OpenRejection(OpenFailure.STORE_REFUSED, str(stored.error)))
@@ -247,9 +360,20 @@ def append_transcript_entry(
     unbounded, and they run with no transaction open, which is the property
     that matters. A rebuild is admissibility and entailment over the entries
     already in hand, measured at roughly twenty milliseconds for this case's
-    transcript, and bounded by the per-case entry cap.  That bound is what
-    makes the hold affordable: the longest anything can wait behind an
-    admission is one rebuild, not one analysis.
+    transcript, and bounded by the per-case entry cap.
+
+    **The honest bound, which is not one rebuild.**  The transaction also
+    resolves the case's pinned authority, re-verifies every stored attestation
+    signature, and unions this tenant's revocation snapshots -- and that last
+    one verifies a publisher signature *per published snapshot*, so the work
+    grows with how many times the tenant has ever revoked anything.  Nothing
+    data-dependent and unbounded *per call* runs here -- no solver, no Hinge
+    projection, no planning, which is the property that made the hold
+    affordable in the first place -- but a tenant with a long revocation
+    history pays for it on every admission, and a publisher waits behind it.
+    The fix is a publisher-maintained index of withdrawn keys, so the union
+    becomes one indexed lookup; it is recorded rather than done here because it
+    is a schema change and this milestone is a security closure.
     """
     try:
         with casework.database.writing(tenant_id) as scope:
@@ -269,13 +393,49 @@ def append_transcript_entry(
 
 def _admit(
     casework: Casework,
-    scope: TenantScope,
+    scope: DecidingScope,
     tenant_id: str,
     case_id: str,
     entry: TranscriptEntry,
 ) -> tuple[Digest, bool]:
-    #  The hold comes first, before any write, and the order is deliberate
-    #  twice over.
+    #  Two locks, taken in one order everywhere: the tenant's publication
+    #  state, then this case.  The second is the older of the two and its
+    #  reasoning is below; the first is milestone E's, and it is here.
+    #
+    #  **For linearization.**  This holds the tenant's publication-state row in
+    #  share mode for the rest of this transaction, which is what gives
+    #  revocation and admission a defined order.  Without it the schedule
+    #      T1 reads revocation state -> T2 publishes revocation, commits ->
+    #      T1 commits the receipt
+    #  is permitted by read-committed, and it makes a receipt durable under a
+    #  key that was already durably revoked.  With it, T2 waits for T1 or T1
+    #  waits for T2, and either way the admission is judged against the
+    #  revocation state that was current when it committed.  Share mode is what
+    #  keeps this from being a global bottleneck: two admissions never wait for
+    #  each other, and only a publisher -- rare, and taking the row exclusively
+    #  -- makes anybody wait.
+    #
+    #  **For deadlock freedom.**  Every path that takes both this row and a
+    #  case head takes them in this order: publication state, then the case.
+    #  ``open_case`` does the same.  A publisher takes only this row and never a
+    #  case.  There is therefore no cycle to close, and no path anywhere holds
+    #  a case head while waiting for the publication state.
+    #
+    #  What is deliberately *not* done here is reading the in-force authority
+    #  digest.  This transaction takes the lock and reads the epoch; the
+    #  snapshot a receipt is judged against is the one the case pinned, resolved
+    #  by digest below, and no admission may consult what is current.
+    ordered = scope.authority.hold_publication_state()
+    if isinstance(ordered, Err):
+        raise _Rejected(
+            AppendRejection(
+                AppendFailure.SNAPSHOT_REFUSED,
+                f"{ordered.error.failure.value}: {ordered.error.detail}",
+            )
+        )
+
+    #  The case hold comes before any write, and that order is deliberate twice
+    #  over.
     #
     #  It has to come before the *membership*, because otherwise two appenders
     #  insert two differently-keyed rows, neither blocks, neither sees the
@@ -288,6 +448,15 @@ def _admit(
     #  its locks in one order: the case, then the content, then the membership.
     #  Admitting first would mean an appender holding content and waiting for
     #  the case while another held the case and waited for that content.
+    #
+    #  ``open_case`` is the one path that inserts content *before* a head, and
+    #  it has to: the head does not exist yet and its row references the
+    #  content by foreign key.  That is safe rather than an exception to the
+    #  rule, because every artifact it writes is case-bound -- a construction
+    #  record, an authorization context and an empty prefix all carry the case
+    #  inside the octets that name them -- so no two cases ever contend for one
+    #  content row.  Stated here because the ordering claim above is what a
+    #  reader checks it against.
     held = scope.heads.hold(case_id)
     if isinstance(held, Err):
         raise _Rejected(
@@ -297,7 +466,57 @@ def _admit(
             )
         )
 
-    admitted = admit_entry(scope, case_id, entry)
+    #  The case's own pinned state, read before anything is written.  The
+    #  authority a receipt is judged against belongs to the case, not to the
+    #  receipt, and resolving it after the membership row existed would be
+    #  resolving it too late to refuse.
+    inputs = read_case_inputs(
+        scope, case_id, casework.publisher_verifier, casework.officer_verifier
+    )
+    if isinstance(inputs, Err):
+        raise _Rejected(
+            AppendRejection(
+                AppendFailure.SNAPSHOT_REFUSED,
+                f"{inputs.error.failure.value}: {inputs.error.detail}",
+            )
+        )
+    loaded = casework.registry.load_by_digest(inputs.value.head.inputs.bundle_manifest_digest)
+    if isinstance(loaded, Err):
+        raise _Rejected(
+            AppendRejection(
+                AppendFailure.POLICY_UNAVAILABLE,
+                f"{loaded.error.failure.value}: {loaded.error.detail}",
+            )
+        )
+    withdrawn = published_revocations(scope, casework.publisher_verifier)
+    if isinstance(withdrawn, Err):
+        raise _Rejected(
+            AppendRejection(
+                AppendFailure.SNAPSHOT_REFUSED,
+                f"{withdrawn.error.failure.value}: {withdrawn.error.detail}",
+            )
+        )
+    admitted = admit_entry(
+        scope,
+        case_id,
+        entry,
+        AdmissionAuthority(
+            source_verifier=casework.source_verifier,
+            schema=loaded.value.predicate_schema,
+            pinned_schema_digest=loaded.value.predicate_schema.digest(),
+            view=AuthorityView(
+                snapshot=inputs.value.authority.snapshot,
+                revocation=inputs.value.authority.revocation,
+                tenant_id=tenant_id,
+                authorization_policy_version=(
+                    inputs.value.authorization_context.authorization_policy_version
+                ),
+                case_scope_coordinates=inputs.value.construction.case_scope_coordinates,
+                as_of=inputs.value.head.inputs.as_of,
+            ),
+            withdrawn_keys=withdrawn.value,
+        ),
+    )
     if isinstance(admitted, Err):
         raise _Rejected(
             AppendRejection(
@@ -319,7 +538,7 @@ def _admit(
 
 
 def _require_rebuildable(
-    casework: Casework, scope: TenantScope, tenant_id: str, case_id: str
+    casework: Casework, scope: DecidingScope, tenant_id: str, case_id: str
 ) -> None:
     """Refuse a membership that the case could not be rebuilt from.
 
@@ -329,7 +548,13 @@ def _require_rebuildable(
     the revision itself is discarded, because publishing is the next
     transaction's job and this one must not hold a solver.
     """
-    snapshot = read_working(scope, case_id)
+    snapshot = read_working(
+        scope,
+        case_id,
+        casework.publisher_verifier,
+        casework.officer_verifier,
+        casework.source_verifier,
+    )
     if isinstance(snapshot, Err):
         raise _Rejected(
             AppendRejection(
@@ -353,6 +578,9 @@ def _require_rebuildable(
         working.entries,
         bundle.value,
         working.authorization_context,
+        working.authority.snapshot,
+        working.authority.revocation,
+        working.solicitations,
     )
     if isinstance(derived, Err):
         raise _Rejected(
@@ -431,7 +659,13 @@ def case_status(
         if head.revision_digest is None:
             return Ok(CaseReport(head, CaseStatus.INTAKE, None, (), (), True))
 
-        snapshot = read_published(scope, case_id)
+        snapshot = read_published(
+            scope,
+            case_id,
+            casework.publisher_verifier,
+            casework.officer_verifier,
+            casework.source_verifier,
+        )
         if isinstance(snapshot, Err):
             return Err(
                 StatusRejection(
@@ -501,6 +735,9 @@ def _replay(
         snapshot.entries,
         bundle,
         snapshot.authorization_context,
+        snapshot.authority.snapshot,
+        snapshot.authority.revocation,
+        snapshot.solicitations,
     )
     if isinstance(revision, Err):
         return Err(

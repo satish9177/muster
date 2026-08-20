@@ -13,9 +13,9 @@ from dataclasses import replace
 
 import pytest
 
-from muster.core.evidence.transcript import Signature
 from muster.core.results import InvariantViolation
 from muster.core.wire.digests import Digest
+from muster.core.wire.signature import Signature
 from muster.platform.adapters.crypto import (
     ECDSA_P256_SHA256,
     LocalEcdsaSigner,

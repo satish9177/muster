@@ -27,6 +27,30 @@ TAG_PREDICATE_SCHEMA = "PredicateSchema/v1"
 
 @dataclass(frozen=True, slots=True)
 class PredicateSpec:
+    """One predicate, as the signed bundle declares it.
+
+    ``resource_scope_kinds`` is the milestone-E addition and it is the input to
+    Q-12(d): the kinds of resource an authority grant over this predicate must
+    enumerate.  It is declared here, per predicate, because that is what the
+    ratified check reads -- coordinates come "from the bundle's declared
+    ``arg_kinds`` **for the predicate**, and from the signed
+    ``CaseConstructionRecord`` for case-level coordinates".
+
+    Resolution is mechanical.  For each declared kind, if the predicate's own
+    argument list carries it, the value is the argument -- so
+    ``accepted_quantity(PO-4471)`` scoped by ``PURCHASE_ORDER`` needs a grant
+    over that exact purchase order.  If it does not, the value comes from the
+    case's own coordinates -- so ``present_on_site(RAVI, SAT)`` scoped by
+    ``SITE`` needs a grant over the site the officer wrote into the
+    construction record.  If neither supplies it, **the coordinate is
+    undeterminable and authority is refused**; there is no reading in which a
+    missing coordinate means "any".
+
+    Declaring it per predicate rather than per bundle is what keeps the layer
+    generic.  A payroll system is scoped by employer and a badge reader by
+    site, in one bundle, without either scoping rule appearing in code.
+    """
+
     predicate_id: str
     arg_kinds: tuple[str, ...]
     value_sort: Sort
@@ -34,6 +58,7 @@ class PredicateSpec:
     layer: EvidenceLayer
     acquisition: AcquisitionClass
     permitted_source_classes: tuple[str, ...]
+    resource_scope_kinds: tuple[str, ...] = ()
     measurement_class: str | None = None
 
     def to_node(self) -> NRec:
@@ -47,6 +72,7 @@ class PredicateSpec:
                 NAtom(self.layer.value),
                 NAtom(self.acquisition.value),
                 canonical_set(NAtom(source) for source in self.permitted_source_classes),
+                canonical_set(NAtom(kind) for kind in self.resource_scope_kinds),
                 option_node(atom_or_none(self.measurement_class)),
             ),
         )
@@ -58,6 +84,15 @@ class SchemaFailure(Enum):
     NORMATIVE_IS_ATTESTABLE = "NORMATIVE_IS_ATTESTABLE"
     ATTESTABLE_WITHOUT_SOURCE = "ATTESTABLE_WITHOUT_SOURCE"
     DERIVED_WITH_SOURCE = "DERIVED_WITH_SOURCE"
+    #  An attestable predicate that declares no resource scope kind could never
+    #  be authorized -- Q-12(d) refuses an empty coordinate set -- so a bundle
+    #  declaring one is declaring a predicate no source can ever attest.  Caught
+    #  when the bundle loads rather than as a silent per-receipt refusal.
+    ATTESTABLE_WITHOUT_RESOURCE_SCOPE = "ATTESTABLE_WITHOUT_RESOURCE_SCOPE"
+    #  The mirror of ``DERIVED_WITH_SOURCE``: a derived predicate carrying an
+    #  authority-shaped field that nothing will ever read.
+    DERIVED_WITH_RESOURCE_SCOPE = "DERIVED_WITH_RESOURCE_SCOPE"
+    DUPLICATE_RESOURCE_SCOPE_KIND = "DUPLICATE_RESOURCE_SCOPE_KIND"
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,5 +158,16 @@ def validate_predicate_schema(schema: PredicateSchema) -> Result[PredicateSchema
             #  A derived predicate with permitted sources is a contradiction
             #  that would eventually be read as permission by something.
             return Err(SchemaError(SchemaFailure.DERIVED_WITH_SOURCE, spec.predicate_id))
+
+        if spec.acquisition is AcquisitionClass.ATTESTABLE and not spec.resource_scope_kinds:
+            return Err(
+                SchemaError(SchemaFailure.ATTESTABLE_WITHOUT_RESOURCE_SCOPE, spec.predicate_id)
+            )
+
+        if spec.acquisition is AcquisitionClass.DERIVED and spec.resource_scope_kinds:
+            return Err(SchemaError(SchemaFailure.DERIVED_WITH_RESOURCE_SCOPE, spec.predicate_id))
+
+        if len(set(spec.resource_scope_kinds)) != len(spec.resource_scope_kinds):
+            return Err(SchemaError(SchemaFailure.DUPLICATE_RESOURCE_SCOPE_KIND, spec.predicate_id))
 
     return Ok(schema)

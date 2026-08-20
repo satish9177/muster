@@ -11,6 +11,7 @@ things prose review reliably catches.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import Callable, Iterable
@@ -560,21 +561,77 @@ def _no_unsigned_security_field() -> list[str]:
     return out
 
 
+def _names_reachable_from(fields, depth: int = 3) -> set[str]:
+    """Every field name reachable from these fields, following ``Ref`` fields.
+
+    Bounded rather than unbounded: the question is "is this name inside the
+    signed preimage", not "what is the transitive closure of the schema", and a
+    depth bound is also what stops a cyclic declaration turning a check into a
+    hang.
+    """
+    names = {f.name for f in fields}
+    if depth <= 0:
+        return names
+    for f in fields:
+        inner = f.type
+        if isinstance(inner, Ref) and inner.name in REG:
+            names |= _names_reachable_from(REG[inner.name].fields, depth - 1)
+    return names
+
+
+def _signed_preimage_names(d: TypeDecl) -> set[str]:
+    """The field names inside what this artifact's signature actually covers.
+
+    Two shapes, and the distinction is the whole check.  A ``SELF_BODY``
+    artifact signs itself minus its signature field, so the preimage is every
+    other field.  A named-body artifact signs one field, so the preimage is
+    that field's type and nothing beside it.
+
+    **The signature field and every sibling of the body are excluded**, which
+    is the point rather than a detail: a tenant reachable only through an
+    unsigned sibling is a tenant that can be swapped without resigning, and a
+    check that counted it would report a binding the artifact does not have.
+    An earlier milestone-E draft searched from the whole record -- which
+    happened to give the right answer for every type in the registry, and gave
+    it for the wrong reason.
+    """
+    spec = d.signing
+    assert spec is not None
+    if spec.body == SELF_BODY:
+        return _names_reachable_from(
+            tuple(f for f in d.fields if f.name != spec.signature_field)
+        )
+    body = next((f for f in d.fields if f.name == spec.body), None)
+    if body is None:
+        #  ``CHK_SIGNING_BODY_IS_DECLARED`` reports this; here it means the
+        #  preimage cannot be determined, so nothing is claimed to be inside it.
+        return set()
+    if isinstance(body.type, Ref) and body.type.name in REG:
+        return _names_reachable_from(REG[body.type.name].fields)
+    return {body.name}
+
+
 @check("CHK_AUTHORITY_BEARING_TYPE_BINDS_TENANT")
 def _tenant_binding() -> list[str]:
+    """Every signed artifact names a tenant *inside the octets it signs*.
+
+    The search follows nested ``Ref`` fields rather than stopping one level in,
+    because milestone E's publications are signed as
+    ``Signed... -> ...Body -> ...Snapshot`` and the tenant lives on the
+    snapshot -- genuinely inside the signed preimage, two hops down.  A check
+    that stopped at one level would report "binds no tenant" for an artifact
+    that binds one, which teaches a reader to add a redundant field rather than
+    to fix a real gap.
+
+    What it does **not** do is search the whole record.  A name outside the
+    signed body is a name an attacker can change without resigning, so counting
+    one would turn this check into a spelling test.
+    """
     out = []
     for d in REG:
         if d.signing is None:
             continue
-        names = {f.name for f in d.fields}
-        if d.signing.body != SELF_BODY:
-            inner = REG[d.signing.body] if d.signing.body in REG else None
-            body_type = next(
-                (f.type for f in d.fields if f.name == d.signing.body), None
-            )
-            if isinstance(body_type, Ref):
-                names |= {f.name for f in REG[body_type.name].fields}
-        if not ({"tenant_id", "tenant_scope"} & names):
+        if not ({"tenant_id", "tenant_scope"} & _signed_preimage_names(d)):
             out.append(f"{d.name}: signed artifact binds no tenant")
     return out
 
@@ -589,6 +646,256 @@ def _case_binding() -> list[str]:
         if "case_id" not in names:
             out.append(f"{name}: case-scoped signed artifact carries no case_id")
     return out
+
+
+# --------------------------------------------------------------------------
+# source authority  [G1 -- section 12.4]
+# --------------------------------------------------------------------------
+
+#: Spellings that would mean "everything" if any of them were a value.  None is,
+#: which is the property this list exists to keep true: an authority field whose
+#: type admits a wildcard token is a field somebody will eventually put one in.
+WILDCARD_TOKENS = ("ANY", "ALL", "*", "WILDCARD", "EVERY")
+
+
+@check("CHK_AUTHORITY_GRANT_HAS_NO_WILDCARD_SCOPE")
+def _no_wildcard_scope() -> list[str]:
+    """[G1] A grant covers exactly what it enumerates, and cannot say "all".
+
+    Three separate things have to hold, and the check asserts each rather than
+    trusting the shape:
+
+    * ``ResourceScope`` is a pair of plain ATOMs with no variant, so there is
+      no ``ANY`` constructor to reach for.  If it ever grew a union, a wildcard
+      arm could be added without touching anything else;
+    * both enumerated fields on ``AuthorityGrant`` carry ``min_count >= 1``, so
+      an empty set -- the other way to spell "unrestricted" -- is
+      unrepresentable rather than merely discouraged;
+    * no field of either type is declared with an ``AtomIn`` whose permitted
+      values include a wildcard token.
+
+    Absence is what this defends.  A grant that enumerates nothing must not be
+    readable as a grant that covers everything, and the only durable way to
+    guarantee that is for the empty case not to exist.
+    """
+    out: list[str] = []
+
+    scope = REG["ResourceScope"]
+    if scope.kind != "record":
+        out.append("ResourceScope is not a record: a union could carry a wildcard arm")
+    for f in scope.fields:
+        if not isinstance(f.type, Prim) or f.type.name != "ATOM":
+            out.append(f"ResourceScope.{f.name}: expected a plain ATOM, found {render_type(f.type)}")
+
+    grant = REG["AuthorityGrant"]
+    for name in ("permitted_predicates", "resource_scope"):
+        decl = next((f for f in grant.fields if f.name == name), None)
+        if decl is None:
+            out.append(f"AuthorityGrant has no {name}")
+            continue
+        if not isinstance(decl.type, SetOf) or decl.type.min_count < 1:
+            out.append(
+                f"AuthorityGrant.{name}: an empty enumeration would be readable as "
+                f"'unrestricted'; declare SetOf(..., min_count=1)"
+            )
+
+    for d in (scope, grant, REG["AgentProfile"]):
+        for f in d.fields:
+            if isinstance(f.type, AtomIn):
+                bad = [v for v in f.type.vocabulary if v.upper() in WILDCARD_TOKENS]
+                if bad:
+                    out.append(f"{d.name}.{f.name}: wildcard value(s) {bad}")
+    return out
+
+
+@check("CHK_AUTHORITY_SNAPSHOT_GRANTS_ARE_UNIQUE_BY_KEY_AND_CLASS")
+def _grants_unique() -> list[str]:
+    """[G1] Q-12(b) resolves *exactly one* grant, so two must be impossible.
+
+    Ambiguity fails closed and is not resolved by precedence: picking the more
+    permissive of two matching grants is how authority systems are defeated,
+    and picking the narrower one hides a publisher defect.  Neither is a
+    behaviour worth having, so the snapshot declares the pair unique and a
+    publisher that emits two is emitting a malformed artifact.
+    """
+    snapshot = REG["AuthorityRegistrySnapshot"]
+    expected = ("grants", ("key_ref", "source_class"))
+    if expected not in snapshot.unique_by:
+        return [
+            "AuthorityRegistrySnapshot: grants must be declared unique by "
+            "(key_ref, source_class); without it Q-12(b)'s 'exactly one' is a "
+            "statement about iteration order"
+        ]
+    return []
+
+
+#: Which production module must be seen reading each declared authority field.
+#:
+#: A module-level table rather than a literal inside the check, so a suite can
+#: point it somewhere else and watch the check fail -- a check nobody has
+#: falsified is a check nobody knows works.
+#:
+#: Naming a field in a constructor does not count.  Each module listed is one
+#: that *compares* the field against something: ``authority.check`` is Q-12,
+#: ``ingest.admission`` is the gate before storage, ``admissibility.derive``
+#: assembles the predicate view Q-12(d) resolves from, and ``application.
+#: rebuild`` is where the case's own coordinates enter.
+_AUTHORITY_CONSUMERS: dict[str, tuple[str, ...]] = {
+    "permitted_source_classes": (
+        "packages/muster-kernel/src/muster/core/authority/check.py",
+        "packages/muster-platform/src/muster/platform/ingest/admission.py",
+    ),
+    "resource_scope_kinds": (
+        "packages/muster-kernel/src/muster/core/authority/check.py",
+        "packages/muster-kernel/src/muster/admissibility/derive.py",
+    ),
+    "case_scope_coordinates": (
+        "packages/muster-kernel/src/muster/application/rebuild.py",
+        "packages/muster-kernel/src/muster/core/authority/check.py",
+    ),
+    "permitted_predicates": ("packages/muster-kernel/src/muster/core/authority/grants.py",),
+    "resource_scope": ("packages/muster-kernel/src/muster/core/authority/grants.py",),
+    "revoked_key_refs": ("packages/muster-kernel/src/muster/core/authority/revocation.py",),
+    #: The identifier a receipt cites as the request it answers.  Declared on
+    #: ``AcquisitionPayload`` since Phase 0.8 and, for a while, compared against
+    #: nothing on any path -- the same shape as the defect above, in the field
+    #: that carries replay resistance.  ``ingest.admission`` now reads it to
+    #: refuse a receipt citing another case's solicitation.
+    "request_id": ("packages/muster-platform/src/muster/platform/ingest/admission.py",),
+    #: The officer a construction record names.  Q-12(d) resolves the case's
+    #: resource coordinates from that record, so the record has to be signed by
+    #: somebody who is not the source -- and the signature has to be *checked*,
+    #: on the way in and on the way out.
+    "signer_key_ref": (
+        "packages/muster-platform/src/muster/platform/ingest/admission.py",
+        "packages/muster-platform/src/muster/platform/casework/snapshot.py",
+    ),
+}
+
+
+@check("CHK_PERMITTED_SOURCE_CLASSES_IS_CONSUMED")
+def _permitted_source_classes_consumed() -> list[str]:
+    """[G1] The direct regression guard: a declared authority field that no
+    validator reads must fail the build.
+
+    This is the check the whole of section 12.4 exists because of.
+    ``permitted_source_classes`` was declared on ``PredicateSpec`` and on
+    ``EvidenceTarget`` for two milestones and was read by nothing, so source
+    authorization was self-declared while looking authenticated.  The defect
+    was invisible precisely because the *schema* was right.
+
+    So the check is over the production tree, not over the schema: every field
+    below must be *read* by a module that decides admissibility.
+
+    **It is an AST walk and not a substring search, and that distinction is the
+    whole check.**  A search for the field name is satisfied by the docstring
+    that explains it, by the comment above it, and by the sentence in the
+    module header that says why it matters -- and this codebase writes all
+    three.  So the guard against "declared and read by nothing" was itself
+    satisfied by prose about the field, which is the same defect one level up.
+    The walk below strips docstrings and requires the name to appear as an
+    attribute or variable *load* inside a function body: the shape a comparison
+    has, and the shape a mention does not.
+    """
+    root = Path(__file__).resolve().parents[3]
+    out: list[str] = []
+    for field, paths in _AUTHORITY_CONSUMERS.items():
+        for relative in paths:
+            source = root / relative
+            if not source.exists():
+                out.append(f"{field}: {relative} does not exist")
+            elif not _is_loaded(source.read_text(encoding="utf-8"), field):
+                out.append(
+                    f"{field} is declared in the wire contract and {relative} does not "
+                    f"read it -- a declared authority field that no validator receives "
+                    f"cannot be a control"
+                )
+    return out
+
+
+def _is_loaded(source: str, field: str) -> bool:
+    """Is ``field`` read as a value somewhere in a function in this module?
+
+    Counts an ``ast.Attribute`` or ``ast.Name`` in a load context -- ``x.field``
+    or a bare ``field`` being used.  Deliberately does **not** count:
+
+    * a docstring or comment mentioning it (they are not in the tree at all,
+      once docstring expressions are skipped);
+    * a string literal naming it;
+    * a keyword-argument *name* at a call site, which is how a value is passed
+      to a constructor rather than compared against anything;
+    * an assignment target or a parameter name, which is how a value arrives
+      rather than how it is used.
+
+    A field that arrives and is never loaded is exactly the shape of the G1
+    defect: present in every signature, compared against nothing.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:  # pragma: no cover - the production tree parses
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            if node.attr == field and isinstance(node.ctx, ast.Load):
+                return True
+        elif isinstance(node, ast.Name):
+            if node.id == field and isinstance(node.ctx, ast.Load):
+                return True
+    return False
+
+
+@check("CHK_AUTHORITY_DOES_NOT_DEPEND_ON_THE_CATALOG")
+def _authority_ignores_catalog() -> list[str]:
+    """[E] A catalog match must never be reachable from an authority decision.
+
+    Two halves.  In the *schema*: no type in the authority family may reference
+    a catalog type, so a grant cannot be phrased in terms of a profile.  In the
+    *production tree*: no module under ``core.authority`` may import
+    ``core.catalog``, so Q-12 has no parameter a profile could arrive through.
+
+    The reverse direction is allowed and is the honest shape -- a catalog reuses
+    the coordinate type and the publisher signing vocabulary -- because a
+    dependency that runs from the thing that grants nothing towards the thing
+    that grants everything cannot leak permission the other way.
+    """
+    authority_types = {
+        "ResourceScope",
+        "AuthorityGrant",
+        "AuthorityRegistrySnapshot",
+        "AuthorityRegistrySnapshotBody",
+        "SignedAuthorityRegistrySnapshot",
+        "RevocationSnapshot",
+        "RevocationSnapshotBody",
+        "SignedRevocationSnapshot",
+    }
+    catalog_types = {
+        "AgentProfile",
+        "AgentCatalogSnapshot",
+        "AgentCatalogSnapshotBody",
+        "SignedAgentCatalogSnapshot",
+    }
+    out: list[str] = []
+    for name in sorted(authority_types):
+        for f in REG[name].fields:
+            for referenced in _refs_within(f.type):
+                if referenced in catalog_types:
+                    out.append(f"{name}.{f.name} references the catalog type {referenced}")
+
+    root = Path(__file__).resolve().parents[3] / "packages/muster-kernel/src/muster/core/authority"
+    for source in sorted(root.glob("*.py")):
+        if "muster.core.catalog" in source.read_text(encoding="utf-8"):
+            out.append(f"{source.name} imports muster.core.catalog")
+    return out
+
+
+def _refs_within(expr: TypeExpr) -> set[str]:
+    if isinstance(expr, Ref):
+        return {expr.name}
+    for attribute in ("element",):
+        inner = getattr(expr, attribute, None)
+        if inner is not None:
+            return _refs_within(inner)
+    return set()
 
 
 # --------------------------------------------------------------------------

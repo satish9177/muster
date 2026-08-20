@@ -64,7 +64,16 @@ def revision() -> CaseRevision:
     case = case_file()
     prefix = transcript_prefix(case.construction.tenant_id, case.construction.case_id, case.entries)
     inputs = case.rebuild_inputs(bundle().digest(), prefix.digest())
-    built = rebuild(inputs, case.construction, case.entries, bundle(), case.authorization_context)
+    built = rebuild(
+        inputs,
+        case.construction,
+        case.entries,
+        bundle(),
+        case.authorization_context,
+        case.authority_snapshot,
+        case.revocation_snapshot,
+        case.solicitations,
+    )
     assert isinstance(built, Ok), built
     return built.value
 

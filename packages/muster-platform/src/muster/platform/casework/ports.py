@@ -401,7 +401,340 @@ class CommitmentRepository(Protocol):
         ...
 
 
+#  ---- authority and catalog publications ---------------------------------
+#
+#  Both are **authored** artifacts in the milestone-C sense: losing one loses
+#  truth, so neither is ever recomputed and neither is ever updated in place.
+#  New authority configuration is a new snapshot with a new digest, never an
+#  edit to an old grant -- which is what makes "the snapshot this case was
+#  decided under" a thing that still exists a year later.
+#
+#  They live in two repositories rather than one, and the split is the
+#  milestone-E security boundary rather than a filing preference: an authority
+#  registry answers *who may attest what* and a fleet catalog answers *which
+#  agent exists and where to send a request*.  One repository holding both
+#  would put an authority read and a routing read on the same handle, and the
+#  first reviewer question about any such handle is which of the two a given
+#  call meant.
+
+
+class PublicationFailure(Enum):
+    """Why a publication could not be stored or resolved."""
+
+    #: Nothing has been published under that digest.  Fails closed everywhere
+    #: it matters: a rebuild that cannot resolve the authority snapshot it
+    #: pinned has not established that a key is authorized, only that it does
+    #: not know -- and "does not know" must never admit evidence.
+    PUBLICATION_ABSENT = "PUBLICATION_ABSENT"
+    #: Stored octets that do not carry the snapshot they are keyed by.  Under
+    #: SHA-256 that is corruption or a forged row, never a race.
+    PUBLICATION_CORRUPT = "PUBLICATION_CORRUPT"
+    #: Two different signed artifacts offered under one snapshot digest.  Not
+    #: a conflict to resolve: the first publication stands, exactly as it does
+    #: for a commitment envelope, because two valid publisher signatures over
+    #: identical content are equally true and a reader who verified one
+    #: yesterday must be able to verify it today.
+    PUBLICATION_CONFLICT = "PUBLICATION_CONFLICT"
+    #: Two catalogs published at one instant.  Refused rather than arbitrated:
+    #: a tie broken by digest is a tie broken by content nobody controls or
+    #: inspects, and the loser -- which may be the operator's correction --
+    #: vanishes with no signal.  This subsystem refuses ambiguity everywhere
+    #: else it appears, and the place where it decides which fleet is in force
+    #: is the last place to start guessing.
+    PUBLICATION_AMBIGUOUS = "PUBLICATION_AMBIGUOUS"
+    #: This tenant has no authority in force.  A tenant that has never had an
+    #: authority registry snapshot published cannot open a case, because there
+    #: is no state against which "the authority this case is opened under is
+    #: the authority currently in force" could be true.  G7's fail-closed
+    #: absence rule, as a value: not knowing what is in force is never the same
+    #: as everything being in force.
+    PUBLICATION_STATE_ABSENT = "PUBLICATION_STATE_ABSENT"
+    #: A new case offered an authority registry snapshot that is not the one in
+    #: force.  Covers the superseded snapshot, the snapshot from another
+    #: tenant's registry, and the snapshot that was never published at all --
+    #: all three are "not what this tenant's publisher currently says", which
+    #: is the only question ``open_case`` asks.
+    PUBLICATION_SUPERSEDED = "PUBLICATION_SUPERSEDED"
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationError:
+    failure: PublicationFailure
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class Publication:
+    """A signed snapshot, keyed by the digest of the snapshot inside it.
+
+    Octets rather than a decoded value, for the reason the content store holds
+    octets: a publisher signature covers a canonical encoding, and a store that
+    decoded and re-encoded would be asserting that its codec agrees with the
+    one that signed.  It either returns what was written or it is broken.
+
+    The key is the digest of the *unsigned* snapshot, because that is what a
+    case's authorization context pins.  Keying by the signed wrapper's digest
+    would leave the pin unresolvable without a second index, and an index
+    between a pin and the thing it names is a place for the two to disagree.
+    """
+
+    snapshot_digest: Digest
+    signed_octets: bytes
+    published_at: Instant
+
+    def __post_init__(self) -> None:
+        if not self.signed_octets:
+            raise InvariantViolation("a publication carries octets")
+        if not is_durable_instant(self.published_at):
+            raise InvariantViolation(f"a publication instant is durable: {self.published_at}")
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationState:
+    """What this tenant's authority publisher currently says, as one row.
+
+    Two fields, and they answer two different questions that happen to move
+    together.
+
+    ``in_force_authority_digest`` is the **freshness** state G7 requires a
+    publisher to own.  It is written only by ``publish_authority_snapshot`` and
+    read only where a case is *opened*, which is the one moment a case chooses
+    which authority it will be judged under forever.  It is emphatically not
+    "the authority to decide by": a revision is decided by the snapshot it
+    pinned, and nothing on the rebuild path may consult this.
+
+    ``epoch`` is the **ordering** state.  Every publication that changes what a
+    key may say -- a new registry snapshot or a new revocation snapshot --
+    advances it by one, so "the authority state this admission was judged
+    against" is a number an observer can compare rather than a moment nobody
+    recorded.  It exists to make the linearization in
+    :meth:`AuthorityRepository.hold_publication_state` *observable*; a lock
+    whose effect cannot be seen is a lock nobody can test.
+
+    There is deliberately no operation that advances the epoch **alone**.  The
+    two setters advance it as part of naming a successor, so the number cannot
+    move without something having actually been published -- and a reader
+    comparing epochs is comparing publications rather than lock acquisitions.
+    """
+
+    #: ``None`` before this tenant's first authority publication.  Absence is a
+    #: representable value because it is a real state -- a tenant is created
+    #: before anything is published for it -- and G7 asks for it to *fail
+    #: closed*, which is a decision taken where a case is opened.  A type that
+    #: could not express absence would only push the impossibility into the
+    #: first publication, and every reader here would still have to decide what
+    #: a missing row meant.
+    in_force_authority_digest: Digest | None
+    #: ``None`` before this tenant's first revocation publication.  Tracked
+    #: separately from the registry because the two are separate publications
+    #: with separate successors: withdrawing a key replaces this and leaves the
+    #: registry alone.
+    in_force_revocation_digest: Digest | None
+    epoch: int
+
+    def __post_init__(self) -> None:
+        if self.epoch < 1:
+            raise InvariantViolation(f"a publication epoch starts at one: {self.epoch}")
+
+
+class AuthorityRepository(Protocol):
+    """Authority and revocation snapshots, immutable and insert-if-absent.
+
+    There is deliberately **no ``latest``**.  Authority is resolved by the pin
+    a revision already carries, and an accessor for "the current snapshot"
+    would be the exact call a tired reviewer misses: it would let a rebuild
+    decide a historical case under today's grants, which is the substitution
+    the pin exists to prevent.  Publishing a successor is therefore invisible
+    to every case that does not repin.
+
+    **``in_force_authority`` is not that accessor, and the difference is the
+    whole of G7.**  It answers "may a case be *opened* under this snapshot",
+    which is a question about the present asked at the one instant a case is
+    allowed to ask it.  ``latest`` would answer "which snapshot decides", which
+    is a question about the past that only a pin may answer.  The first is a
+    publication-boundary check; the second is the substitution.  They are kept
+    apart by name, by call site, and by an architecture test that fails if any
+    module on the deciding path names the first.
+    """
+
+    def publish_authority(self, publication: Publication) -> Result[bool, PublicationError]:
+        """Insert if absent. ``True`` when this call created the row."""
+        ...
+
+    def read_authority(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]:
+        """The publication a case pinned, or a typed absence."""
+        ...
+
+    def publish_revocation(self, publication: Publication) -> Result[bool, PublicationError]: ...
+
+    def read_revocation(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]: ...
+
+    def in_force_authority(self) -> Result[PublicationState, PublicationError]:
+        """The authority a **new** case may be opened under, holding it still.
+
+        Called from exactly one place -- ``open_case`` -- and never from
+        admission, from ``resolve_authority`` or from anything a rebuild
+        reaches.  A case pins the authority it opened under and replays against
+        that pin forever; this decides only whether it may pin *this* one *now*.
+
+        **It holds the row for the rest of the caller's transaction.**  Reading
+        the in-force digest and then inserting the head in two unsynchronised
+        steps would leave exactly the window this exists to close: a successor
+        published between the two would make the case pin a snapshot that was
+        superseded before it ever existed.  The hold is shared, so two cases
+        opening at once do not wait for each other; only a publisher does.
+
+        Absence is a refusal, never a pass: a tenant with no authority in force
+        has not established that any key may speak.
+        """
+        ...
+
+    def hold_publication_state(self) -> Result[PublicationState, PublicationError]:
+        """Serialise this transaction against authority publication, and report.
+
+        The admission-time counterpart, and the narrowest coordination point
+        that makes revocation and admission have an order.  Held in **share**
+        mode: concurrent admissions do not block each other -- they are not in
+        conflict, and serialising every appender behind one row would be a
+        global bottleneck bought for nothing -- while a publisher, which takes
+        the row exclusively, waits for the admissions already in flight and
+        makes every later one wait for it.
+
+        The consequence is the property revocation needs and read-committed
+        alone does not give: **an admission that has read the revocation state
+        commits before the revocation that would have changed it, or reads it
+        after it.**  There is no third schedule in which the admission observes
+        the old state and commits after the new one is durable.
+
+        Returns the epoch it observed so a caller -- or a test -- can say which
+        authority state the decision was made against, rather than asserting
+        that an ordering exists and hoping.
+
+        Absent state fails closed for the reason above: a case can only have
+        been opened while authority was in force, so its absence at admission
+        means the state this admission would be judged against cannot be read.
+        """
+        ...
+
+    def set_in_force_revocation(
+        self, snapshot_digest: Digest
+    ) -> Result[PublicationState, PublicationError]:
+        """Name the revocation list new cases must open under.
+
+        The counterpart to :meth:`set_in_force_authority`, and a separate
+        method over a separate column because they are separate publications.
+        A registry publication must not restate which revocation list is
+        current, and a revocation publication must not restate the registry --
+        each successor replaces only its own kind.
+        """
+        ...
+
+    def set_in_force_authority(
+        self, snapshot_digest: Digest
+    ) -> Result[PublicationState, PublicationError]:
+        """Name the snapshot new cases must open under, exclusively and atomically.
+
+        The publisher's own statement about which authority is current.  It is
+        an *overwrite* of one small row rather than an insert, which is the one
+        place in this package where something is updated -- and it is safe
+        exactly because the row holds no history: every snapshot it has ever
+        named is still there, immutably, in ``registry_snapshot``, and every
+        case that pinned one still resolves it.  What moves is only the answer
+        to "what may a case opened *now* pin", which is a present-tense fact
+        and has no past to preserve.
+        """
+        ...
+
+    def revocations(self) -> Result[tuple[Publication, ...], PublicationError]:
+        """**Every** revocation snapshot this tenant has published.
+
+        Not "the latest", and the difference is the whole reason this method
+        exists.  A case pins the revocation state it was opened under, which is
+        right for *replay* -- a decided case must not change its answer because
+        something was published afterwards.  It is wrong for *admission*: a key
+        revoked after a case opened would go on establishing facts in it,
+        because the pin predates the revocation.
+
+        So admission asks a different question -- has this key been withdrawn by
+        anything at all -- and asks it as a union.  Revocation is monotone in
+        the direction that matters: a key withdrawn once stays withdrawn, and a
+        lookup that took only the newest snapshot would let a later publication
+        silently un-revoke a compromised key, and would need a total order over
+        publications that ties could break.  A union has no ordering, no ties
+        and no ambiguity.
+
+        There is still **no** equivalent for the authority registry, and the
+        asymmetry is deliberate: applying a *withdrawal* forward protects a
+        case, and applying a *grant* forward would let a snapshot published
+        after a case opened authorize evidence into it.
+        """
+        ...
+
+
+class CatalogRepository(Protocol):
+    """Fleet catalog snapshots.
+
+    Unlike the authority repository this one **does** offer ``latest``, and the
+    asymmetry is the point: routing is a present-tense question -- "which agent
+    can I ask *now*" -- while authority is a pinned-past question -- "what was
+    this key permitted to say when this case was decided".  Answering the first
+    from the newest catalog is correct; answering the second from the newest
+    registry would be the bug.
+    """
+
+    def publish(self, publication: Publication) -> Result[bool, PublicationError]: ...
+
+    def read(self, snapshot_digest: Digest) -> Result[Publication, PublicationError]: ...
+
+    def latest(self) -> Result[Publication, PublicationError]:
+        """The most recently published catalog for this tenant, or a refusal.
+
+        Ordered by the **signed** ``published_at``.  Two catalogs sharing that
+        instant are ``PUBLICATION_AMBIGUOUS`` and not a coin toss: an earlier
+        draft ordered by digest as a tiebreak and called it deterministic,
+        which it was -- and determinism was not the property needed.  A tie
+        broken by SHA-256 discards one of two fleets by content nobody chose,
+        and if the discarded one is the operator's correction, a retired agent
+        stays routable with no signal anywhere.
+        """
+        ...
+
+
 #  ---- transaction scopes -------------------------------------------------
+
+
+class DecidingScope(Protocol):
+    """Everything a case decision needs, and **no catalog**.
+
+    The authority and admission paths take one of these rather than a whole
+    ``TenantScope``, and the omission is the point.  Both import checkers
+    constrain *imports*, and ``casework.ports`` is permitted to every module on
+    those paths -- so a line reading ``scope.catalog.latest()`` inside
+    ``resolve_authority`` or inside the admission gate would add no import, keep
+    both checkers green, and quietly make an admission decision a function of a
+    routing record.
+
+    Removing the member removes the sentence.  ``TenantScope`` satisfies this
+    structurally, so no adapter implements anything new; what changes is that a
+    reviewer can answer "could a profile reach this decision" by reading one
+    type instead of tracing a call graph.
+
+    ``commitments`` is absent for the same reason at a lower stake: nothing on
+    these paths publishes one.
+    """
+
+    @property
+    def tenant_id(self) -> str: ...
+    @property
+    def content(self) -> ContentStore: ...
+    @property
+    def transcript(self) -> TranscriptRepository: ...
+    @property
+    def heads(self) -> CaseHeadRepository: ...
+    @property
+    def requests(self) -> EvidenceRequestRepository: ...
+    @property
+    def authority(self) -> AuthorityRepository: ...
 
 
 class TenantScope(Protocol):
@@ -419,6 +752,10 @@ class TenantScope(Protocol):
     def requests(self) -> EvidenceRequestRepository: ...
     @property
     def commitments(self) -> CommitmentRepository: ...
+    @property
+    def authority(self) -> AuthorityRepository: ...
+    @property
+    def catalog(self) -> CatalogRepository: ...
 
 
 class CaseworkDatabase(Protocol):

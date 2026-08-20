@@ -726,11 +726,16 @@ def test_a_case_with_no_commitment_yields_no_view_rather_than_an_empty_one() -> 
     from muster.platform.casework.commands import append_transcript_entry, open_case
     from muster.platform.disclose.queries import DisclosureService
     from support.commitment import commitment, directory_for
+    from support.ravi import publish_authority
     from support.ravi import ravi as ravi_case
 
     database = MemoryDatabase()
     case = ravi_case("tenant-uncommitted", "case-uncommitted")
     work = commitment(database)
+    #  Without this the appends below are refused on an unresolvable authority
+    #  pin, the case is never analysed, and the read fails as NOT_ANALYSED --
+    #  which is a different absence from the one this test is about.
+    publish_authority(database, case)
     open_case(
         work.casework,
         tenant_id=case.tenant_id,

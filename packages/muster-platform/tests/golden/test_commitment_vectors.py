@@ -59,6 +59,15 @@ from support.commitment import (
 pytestmark = pytest.mark.golden
 
 #  The procurement scenario, transcribed from the reference material.
+#
+#  **Moved by milestone E, and the cause is one field in each of two
+#  artifacts.**  The reference scenario's predicate declares
+#  ``resource_scope_kinds = {purchase_order}`` and its construction record
+#  declares a ``cost_centre`` coordinate, so the predicate schema, the manifest,
+#  the construction record and the revision all move -- and the commitments and
+#  the tree over them move with the revision they salt.  The disclosure policy
+#  digest did **not** move, which is the useful half of the observation: this
+#  transition is about what may be attested, not about who may be told.
 TENANT = "ALPHA"
 CASE = "PO-4471"
 SALT = CaseSalt(bytes(range(32)))
@@ -66,22 +75,22 @@ SCHEMA_VERSION = 1
 LEAF_COUNT = 24
 
 CONSTRUCTION_DIGEST = Digest(
-    bytes.fromhex("364e071646ec94c56d22df4f100a4d217829fa18ce7bfaf3c1535d0675f038d9")
+    bytes.fromhex("92beeed93181a9ec2f031c47391f13e49540807687e607d51b1015a5a7d7e25a")
 )
 REVISION_SEMANTIC_DIGEST = Digest(
-    bytes.fromhex("19b4360987bf1f377dfd976b37a13ae879e4f03ad0e34937c3d791ffba91c2ed")
+    bytes.fromhex("aa610c6c315c51e6f992ad46ea65066c797c1da6e1f9780869b80e975af1f69d")
 )
 MANIFEST_DIGEST = Digest(
-    bytes.fromhex("b6dc20317e4460b7bc6396e2a88bd6741da6c6147ae60c187278693f5480014d")
+    bytes.fromhex("77a2c8d7c6319b7d44b8647be609d53bfbf1088341d809a75e7d47b6b32ca369")
 )
 POLICY_DIGEST = Digest(
     bytes.fromhex("9269d14bb9c83fdfa4e233d20d2ab9a4d76171326796b0cbe5b08430f2fac056")
 )
-MERKLE = bytes.fromhex("16128d905bc53362f4abd60ac4e741693b8c93aea7373b7d242ecc90869b76ec")
-ROOT = bytes.fromhex("02743aff28ced52f399f77ccffab4fd204d378f555c102c9ff4f4c25f4cef8d4")
+MERKLE = bytes.fromhex("0eb4618fd28b6607b5c6aa589226cd32f096fb5b223e7c286e037d35eb378ca3")
+ROOT = bytes.fromhex("96c2a1a1649c78cb2bf2ea91f98d5b794950b7a213daba5abdc905cc62f82aae")
 
-CASE_COMMITMENT = "c5e3625611f970831a8faac71962d8d8cf2e049035a866cfd9730b7cb1a54e8b"
-REVISION_COMMITMENT = "3c3d685d2609d830220af529860b2acd9d83060b23d37a711068ba6c4d7a543b"
+CASE_COMMITMENT = "414806a88e2e8a475354728c5d824d65b21f7373d4cc141de2edb4234f0079fd"
+REVISION_COMMITMENT = "3cb40590b8e35aabb8ae70a6fd07150ffc181637e5c5e1601b624fc18621b5b5"
 CASE_ID_SALT = "15235e8bcec9bf252c36fe601c0bd59bea8623286cc55c0df1f233f41e7cdd00"
 
 #  The reference's WAREHOUSE view, which is the reader-side subject below.

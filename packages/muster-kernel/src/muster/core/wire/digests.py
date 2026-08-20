@@ -10,12 +10,11 @@ wire type whose canonical encoding is its preimage.
 The namespace has a second half that is not here.  A few domains have a
 preimage that is *not* one wire type -- the two children of a commitment-tree
 node, the empty tree, a keyed salt label -- and those are declared beside the
-code that owns those preimages, in the control plane's commitment layer, which
-this kernel does not name and cannot import.  The two enumerations are
-disjoint, and a test says so.  Splitting them keeps the
-sentence above true: a member of this enumeration always names a type.  What
-both halves share is :func:`domain_separator`, so the octets a preimage opens
-with are written once.
+code that owns those preimages, which this kernel does not name and cannot
+import.  The two enumerations are disjoint, and a test says so.  Splitting them
+keeps the sentence above true: a member of this enumeration always names a
+type.  What both halves share is :func:`domain_separator`, so the octets a
+preimage opens with are written once.
 """
 
 from __future__ import annotations
@@ -63,6 +62,11 @@ class DigestKind(Enum):
     VERIFICATION_RECEIPT = "VERIFICATION_RECEIPT"
     STATEMENT = "STATEMENT"
     CASE_CONSTRUCTION = "CASE_CONSTRUCTION"
+    #  The record and what an officer's signature over it covers are two
+    #  preimages, for the reason every ``_BODY`` member here exists: the signed
+    #  octets must not be the octets the head pins, or a signature could be
+    #  moved onto a record it never covered.
+    CASE_CONSTRUCTION_BODY = "CASE_CONSTRUCTION_BODY"
     TRANSCRIPT_ENTRY = "TRANSCRIPT_ENTRY"
     TRANSCRIPT_PREFIX = "TRANSCRIPT_PREFIX"
 
@@ -72,6 +76,25 @@ class DigestKind(Enum):
     REBUILD_INPUTS = "REBUILD_INPUTS"
     CASE_REVISION = "CASE_REVISION"
 
+    #  Source authority.  ``AUTHORITY_REGISTRY_SNAPSHOT`` replaces the
+    #  auxiliary ``KEY_REGISTRY_SNAPSHOT`` domain rather than supplementing it:
+    #  that domain's preimage committed to key *existence*, and two live
+    #  authority preimages -- one answering "does this key exist" and one
+    #  answering "may this key say this" -- is a downgrade path.  The ``_BODY``
+    #  members name what a publisher signature covers, so the signed octets and
+    #  the pinned digest are never the same preimage.
+    AUTHORITY_REGISTRY_SNAPSHOT = "AUTHORITY_REGISTRY_SNAPSHOT"
+    AUTHORITY_REGISTRY_SNAPSHOT_BODY = "AUTHORITY_REGISTRY_SNAPSHOT_BODY"
+    REVOCATION_SNAPSHOT = "REVOCATION_SNAPSHOT"
+    REVOCATION_SNAPSHOT_BODY = "REVOCATION_SNAPSHOT_BODY"
+
+    #  The fleet catalog.  A separate domain from the authority registry, and
+    #  the separation is the point: a catalog entry says an institutional agent
+    #  exists and can be routed to, and says nothing whatever about what it is
+    #  permitted to assert.
+    AGENT_CATALOG_SNAPSHOT = "AGENT_CATALOG_SNAPSHOT"
+    AGENT_CATALOG_SNAPSHOT_BODY = "AGENT_CATALOG_SNAPSHOT_BODY"
+
     LOGICAL_CASE = "LOGICAL_CASE"
     SOLVER_QUERY = "SOLVER_QUERY"
     KERNEL_ANALYSIS_RECORD = "KERNEL_ANALYSIS_RECORD"
@@ -80,7 +103,8 @@ class DigestKind(Enum):
 
     #  Commitment and disclosure.  Each preimage here is the canonical encoding
     #  of the type the member is named after, exactly as above; the domains
-    #  whose preimage is not a single type live in the platform's enumeration.
+    #  whose preimage is not a single type are enumerated by whichever component
+    #  owns them, which this kernel neither names nor could reach.
     MERKLE_LEAF = "MERKLE_LEAF"
     MERKLE_ROOT = "MERKLE_ROOT"
     COMMITMENT_ENVELOPE = "COMMITMENT_ENVELOPE"

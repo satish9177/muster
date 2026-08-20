@@ -16,6 +16,9 @@ own tag and digest kind -- not an informal 'record minus signature'.
 | `CaseConstructionRecord` | `CaseConstructionRecordBody` | `CASE_CONSTRUCTION_BODY` | `signer_key_ref` |
 | `Retraction` | `RetractionBody` | `RETRACTION_BODY` | `signer_key_ref` |
 | `Declaration` | `DeclarationBody` | `DECLARATION_BODY` | `signer_key_ref` |
+| `SignedAuthorityRegistrySnapshot` | `SignedAuthorityRegistrySnapshot.body` | `AUTHORITY_REGISTRY_SNAPSHOT_BODY` | `body.signer_key_ref` |
+| `SignedRevocationSnapshot` | `SignedRevocationSnapshot.body` | `REVOCATION_SNAPSHOT_BODY` | `body.signer_key_ref` |
+| `SignedAgentCatalogSnapshot` | `SignedAgentCatalogSnapshot.body` | `AGENT_CATALOG_SNAPSHOT_BODY` | `body.signer_key_ref` |
 | `RevisionLineage` | `RevisionLineageBody` | `REVISION_LINEAGE_BODY` | `signer_key_ref` |
 | `SignedCommitmentEnvelope` | `SignedCommitmentEnvelope.envelope` | `COMMITMENT_ENVELOPE` | `envelope.signer_key_ref` |
 

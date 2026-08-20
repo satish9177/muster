@@ -64,7 +64,11 @@ ALLOWED: dict[str, frozenset[str]] = {
     "orchestration.status": frozenset(),
     #  The custody boundary: protocols and value types, and nothing below it.
     "casework.ports": frozenset(),
-    "casework.snapshot": frozenset({"casework.ports"}),
+    #  Reaches ``authority.resolve`` because a snapshot of a case is not
+    #  complete without the authority state the case pinned: every rebuild is
+    #  judged against it, and resolving it later would mean resolving it after
+    #  something had already been admitted.
+    "casework.snapshot": frozenset({"authority.resolve", "casework.ports"}),
     "casework.advance": frozenset(
         {
             "casework.ports",
@@ -73,8 +77,14 @@ ALLOWED: dict[str, frozenset[str]] = {
             "orchestration.decisions",
         }
     ),
+    #  Reaches ``authority.resolve`` for the same reason ``casework.snapshot``
+    #  does, and for a different question.  The snapshot resolves the authority
+    #  a case *pinned*; the command additionally resolves what the tenant has
+    #  *withdrawn since*, because a case's pin never moves and a key revoked
+    #  after it was opened would otherwise go on establishing facts in it.
     "casework.commands": frozenset(
         {
+            "authority.resolve",
             "casework.ports",
             "casework.snapshot",
             "casework.advance",
@@ -83,6 +93,25 @@ ALLOWED: dict[str, frozenset[str]] = {
         }
     ),
     "ingest.admission": frozenset({"casework.ports"}),
+    #  ---- source authority [G1] ------------------------------------------
+    #
+    #  Two rows and one rule between them: **``authority`` may not reach
+    #  ``catalog``.**  It is stated as an absence in these two sets, checked as
+    #  an absence by the edge test, and it is the structural half of "a catalog
+    #  match never grants authority" -- Q-12 has no parameter a profile could
+    #  arrive through, because there is no import by which one could.
+    "authority": frozenset(),
+    "authority.publish": frozenset({"casework.ports"}),
+    "authority.resolve": frozenset({"casework.ports"}),
+    #  ---- the fleet catalog ------------------------------------------------
+    #
+    #  The reverse direction *is* permitted, and the asymmetry is the design:
+    #  routing may know what authority looks like, because knowing cannot
+    #  confer it.  Nothing here is imported by anything that decides
+    #  admissibility.
+    "catalog": frozenset(),
+    "catalog.publish": frozenset({"casework.ports"}),
+    "catalog.route": frozenset({"casework.ports"}),
     #  The only layer allowed to know what a driver is.
     "adapters.sql.migrations": frozenset(),
     "adapters.sql.schema": frozenset({"adapters.sql.migrations"}),
@@ -98,9 +127,15 @@ ALLOWED: dict[str, frozenset[str]] = {
             "adapters.sql.head",
             "adapters.sql.requests",
             "adapters.sql.commitments",
+            "adapters.sql.authority",
         }
     ),
     "adapters.sql.commitments": frozenset({"casework.ports"}),
+    #  One module, two repositories, and they are separate classes over
+    #  separate tables.  Filed together because they are the same *kind* of
+    #  storage -- immutable signed publications keyed by snapshot digest -- and
+    #  a second file would be a second copy of one insert-if-absent statement.
+    "adapters.sql.authority": frozenset({"casework.ports"}),
     #  The only module allowed to know what a cryptography library is. It
     #  implements the two commitment ports and orchestrates nothing.
     "adapters.crypto": frozenset({"commit.domains", "commit.envelope", "commit.salts"}),
@@ -164,7 +199,11 @@ ALLOWED: dict[str, frozenset[str]] = {
 }
 
 #  Packages the final architecture contains and this milestone does not.
-NOT_YET_BUILT = frozenset({"dispatch", "authority", "gate", "api", "entrypoints"})
+#  ``authority`` and ``catalog`` left this set at milestone E, which is what
+#  the milestone is.  ``dispatch`` is still absent and must stay so: routing
+#  produces an address, and something that *sent* a request to it would be the
+#  agent runtime this milestone deliberately does not build.
+NOT_YET_BUILT = frozenset({"dispatch", "gate", "api", "entrypoints"})
 
 #  Third-party roots forbidden anywhere in this package. The database driver is
 #  exempt under ``adapters`` alone -- listed by subtree, so a second module
@@ -220,6 +259,15 @@ AMBIENT_EXEMPT: frozenset[str] = frozenset()
 #  The commitment and disclosure fragments this list used to carry were removed
 #  when milestone D built them; what is left is the gate, settlement and the
 #  authority registry, none of which this package may prepare for.
+#  ``authorityregistrysnapshot`` and ``sourcedirectory`` left this list at
+#  milestone E: the first is now a ratified kernel wire type this package
+#  publishes and resolves, and the second turned out not to be a separate thing
+#  at all -- the authority snapshot *is* the source directory, because a key's
+#  expected principal is the one its own grants name.  What is still forbidden
+#  is a *second* authority vocabulary in the control plane: the types live in
+#  the kernel, this package moves octets and verifies signatures, and a control
+#  plane declaring its own grant type would be a second answer to "who may
+#  attest" with no wire contract behind it.
 FORBIDDEN_DECLARATIONS = (
     "authorizedaction",
     "gatedecision",
@@ -229,9 +277,13 @@ FORBIDDEN_DECLARATIONS = (
     "disbursement",
     "payout",
     "settlement",
-    "authorityregistrysnapshot",
-    "sourcedirectory",
     "evidencerequestdispatch",
+    #  Agent runtime. Cataloguing an agent is milestone E; running one is not.
+    "agentruntime",
+    "agentsession",
+    "agentdispatcher",
+    "agentclient",
+    "agenttransport",
 )
 
 FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
@@ -810,3 +862,179 @@ def test_no_sqlalchemy_type_can_reach_the_kernel() -> None:
         text = path.read_text(encoding="utf-8")
         assert "psycopg" not in text, f"{relative} names the driver"
         assert "Connection" not in text, f"{relative} names a driver type"
+
+
+def test_the_deciding_paths_cannot_name_the_catalog() -> None:
+    """The separation as a type, not as an import rule.
+
+    Both checkers constrain *imports*, and ``casework.ports`` is permitted to
+    every module on the authority and admission paths -- so a line reading
+    ``scope.catalog.latest()`` inside ``resolve_authority`` or inside the
+    admission gate would add no import, keep both checkers green, and make an
+    admission decision a function of a routing record.
+
+    Two halves, and neither is sufficient alone.  The *protocol* those paths
+    take declares no ``catalog`` member, so the attribute does not typecheck;
+    and no module on those paths contains the attribute access, so the fact is
+    checked over source as well as over types.
+    """
+    from muster.platform.casework.ports import DecidingScope
+
+    members = set(DecidingScope.__annotations__) | {
+        name for name in dir(DecidingScope) if not name.startswith("_")
+    }
+    assert "catalog" not in members
+    assert "authority" in members
+
+    #  Every file on the path from "an entry arrives" to "the head moves",
+    #  not merely the gate itself: naming the catalog one frame above the
+    #  gate makes the decision a function of a routing record just as
+    #  surely, and would otherwise pass unremarked.
+    deciding = (
+        "authority",
+        "ingest",
+        "casework/snapshot.py",
+        "casework/advance.py",
+        "casework/commands.py",
+    )
+    assert "casework/advance.py" in deciding and "casework/commands.py" in deciding
+    for path in _platform_files():
+        relative = path.relative_to(PLATFORM_SOURCE).as_posix()
+        if not any(relative.startswith(part) or relative == part for part in deciding):
+            continue
+        source = path.read_text(encoding="utf-8")
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"'):
+                continue
+            assert ".catalog" not in line, f"{relative}: {stripped}"
+
+
+def test_only_open_case_may_ask_what_authority_is_in_force() -> None:
+    """G7's freshness read is a publication-boundary call, not an authority read.
+
+    ``in_force_authority`` answers "may a case be *opened* under this
+    snapshot", which is a question about the present asked at the one instant a
+    case is allowed to ask it.  It is one identifier away from being the
+    ``latest`` accessor the port refuses to have -- and the difference between
+    them is not in the code, it is in *who calls it*.  So the call site is the
+    thing constrained, and it is constrained here rather than by a comment.
+
+    A rebuild, an admission or an authority resolution that consulted it would
+    be deciding by what is current instead of by what the revision pinned,
+    which is exactly the substitution the pin exists to prevent.
+
+    The sibling ``hold_publication_state`` is deliberately *not* restricted the
+    same way: it takes the ordering lock and reports an epoch, and neither is a
+    statement about which snapshot decides.  Admission is expected to call it.
+    """
+    permitted = "casework/commands.py"
+    seen: list[str] = []
+    for path in _platform_files():
+        relative = path.relative_to(PLATFORM_SOURCE).as_posix()
+        source = path.read_text(encoding="utf-8")
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"'):
+                continue
+            if "in_force_authority()" not in line:
+                continue
+            assert relative == permitted, (
+                f"{relative} asks what authority is currently in force: {stripped}"
+            )
+            seen.append(relative)
+    #  And the call exists at all.  A needle that matches nothing is a test
+    #  that passes when the check it guards has been deleted.
+    assert seen == [permitted], seen
+
+
+def test_only_the_publisher_may_move_what_authority_is_in_force() -> None:
+    """The write side of the same boundary, and the more dangerous half.
+
+    ``set_in_force_authority`` decides what every case opened afterwards is
+    allowed to pin.  It sits on the same repository the admission path holds --
+    it has to, because it is the row admission locks -- so nothing but a call
+    site rule keeps a future edit to ``ingest`` or ``casework`` from moving the
+    tenant's authority forward as a side effect of admitting evidence.
+
+    That would be worse than the staleness this milestone closed: a path that
+    could *write* the in-force pointer could name a snapshot of its own
+    choosing and then open cases under it.  Publication is a publisher's act,
+    and this is where "publisher" stops being a word in a docstring.
+    """
+    permitted = "authority/publish.py"
+    seen: list[str] = []
+    for path in _platform_files():
+        relative = path.relative_to(PLATFORM_SOURCE).as_posix()
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"'):
+                continue
+            if "set_in_force_authority(" not in line or stripped.startswith("def "):
+                continue
+            assert relative == permitted, f"{relative} moves the authority in force: {stripped}"
+            seen.append(relative)
+    assert seen == [permitted], seen
+
+
+def test_the_publication_epoch_cannot_be_moved_on_its_own() -> None:
+    """There is no operation that advances the epoch without publishing.
+
+    The epoch is what makes the revocation/admission ordering observable, so it
+    has to mean "authority state moved" and not "somebody took the lock".  Both
+    setters advance it as part of naming a successor; a bare ``advance_epoch``
+    would let the number move with nothing published behind it, and every
+    reader comparing epochs would be comparing lock acquisitions.
+
+    Checked as an absence on the *port*, which is what every adapter is written
+    against -- an adapter that grew one privately would still be unreachable.
+    """
+    from muster.platform.casework.ports import AuthorityRepository
+
+    members = {name for name in dir(AuthorityRepository) if not name.startswith("_")}
+    assert "advance_epoch" not in members
+    assert {"set_in_force_authority", "set_in_force_revocation"} <= members
+    #  And still no ``latest``: the accessor whose absence is the whole reason
+    #  a historical case cannot be re-decided under today's grants.
+    assert "latest" not in members
+
+
+def test_the_kernel_names_no_other_distribution() -> None:
+    """Kernel prose may name a *role*; it may not name a package.
+
+    "The control plane" is an architectural role the kernel legitimately
+    describes -- a publisher is one, and a source is not.  What it must not do
+    is point at a distribution it cannot import, because a reader who follows
+    the pointer learns that the boundary is a filing convention.  The needle is
+    therefore the possessive and the dotted path, not the role.
+    """
+    for path in _kernel_files():
+        source = path.read_text(encoding="utf-8")
+        lowered = source.lower()
+        for needle in ("muster.platform", "the platform's", "the platform module"):
+            assert needle not in lowered, f"{path.name} names {needle!r}"
+
+
+def test_no_wire_tag_is_declared_outside_the_kernel() -> None:
+    """The replacement for two deleted ``FORBIDDEN_DECLARATIONS`` entries.
+
+    ``authorityregistrysnapshot`` and ``sourcedirectory`` left that list when
+    the first became a real kernel wire type -- correctly -- but the rule that
+    replaced them lived only in a comment: *a second authority vocabulary in
+    the control plane*.  Stated positively instead, over the tags themselves,
+    so a platform module declaring its own ``AuthorityGrant`` fails here.
+    """
+    tags = (
+        "AuthorityGrant/v1",
+        "AuthorityRegistrySnapshot/v1",
+        "RevocationSnapshot/v1",
+        "ResourceScope/v1",
+        "AgentProfile/v1",
+        "AgentCatalogSnapshot/v1",
+    )
+    kernel = chr(10).join(path.read_text(encoding="utf-8") for path in _kernel_files())
+    platform = {path: path.read_text(encoding="utf-8") for path in _platform_files()}
+    for tag in tags:
+        assert tag in kernel, f"{tag} is not declared in the kernel"
+        for path, source in platform.items():
+            assert tag not in source, f"{path.name} declares the wire tag {tag}"
