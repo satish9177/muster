@@ -1,0 +1,59 @@
+#  What `gcloud builds submit` uploads to the Cloud Build staging bucket.
+#
+#  That bucket is a general-purpose one: it has none of the prefix conditions,
+#  and none of the per-source IAM, that the evidence bucket has. Everything the
+#  build context carries is readable by the build identity and by every project
+#  Editor -- so the rule here is that source goes up and material does not.
+#
+#  Without this file, gcloud synthesises one from .gitignore, which is about
+#  what belongs in version control and is a different question.
+
+.git/
+.gitignore
+
+#  **The sources' own material, and verification output.** Neither belongs in a
+#  general-purpose staging bucket: a deployed source reads its material out of
+#  the private bucket under its own identity, and no image copies it.
+packages/muster-agents/fixtures/
+infra/evidence/
+
+#  Nothing here is built into either image.
+spec/
+docs/
+bench/
+packages/muster-kernel/tests/
+packages/muster-agents/agent_tests/
+packages/muster-platform/tests/acceptance/
+packages/muster-platform/tests/adversarial/
+packages/muster-platform/tests/architecture/
+packages/muster-platform/tests/contract/
+packages/muster-platform/tests/golden/
+packages/muster-platform/tests/integration/
+packages/muster-platform/tests/property/
+packages/muster-platform/tests/unit/
+
+#  **What is deliberately kept**, and why each one is not material:
+#
+#    demo/cloud_hero.py                     the control plane's composition root
+#    packages/muster-platform/tests/support the worked case, its keys and its
+#                                           publications -- a synthetic fixture,
+#                                           checked on every commit, and the
+#                                           reason the demonstrated run and the
+#                                           tested run are one case
+#    packages/muster-kernel/fixtures        the case files that fixture reads
+#
+#  All three are synthetic and none of them is a source's private material.
+
+#  Local state.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.specvenv-z3/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.import_linter_cache/
+*.pem
+*.key

@@ -17,6 +17,17 @@ venv/
 .env.*
 !.env.example
 
+# Private keys, wherever somebody puts one.  30-secrets.sh --generate writes
+# outside the tree on purpose; this is the guard for the time it does not.
+*.pem
+*.p12
+*.key
+
+# Deployment verification output.  It records outcomes rather than object
+# bodies -- and a directory named for evidence, beside a repository, is not
+# one to leave trackable on the strength of that.
+infra/evidence/
+
 # IDE / OS
 .vscode/
 .idea/

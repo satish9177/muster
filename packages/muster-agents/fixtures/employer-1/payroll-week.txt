@@ -1,0 +1,20 @@
+EMPLOYER-1  PAYROLL EXPORT (weekly)  run 2026-08-03
+cost centre CC-114   contract CN-2026-0041   currency INR
+=================================================================
+
+  worker : RAVI  (emp 4471)
+  rate   : 850.00 per day  [daily, standard]
+
+  roster / attendance reconciliation, week ending 2026-08-01
+  ---------------------------------------------------------------
+   day   rostered   paid    note
+   MON      Y         Y
+   TUE      Y         Y
+   WED      Y         Y
+   THU      Y         Y
+   FRI      Y         Y
+   SAT      Y         N     no attendance record received from site
+  ---------------------------------------------------------------
+   days paid: 5      gross: 4,250.00
+
+  (SAT was rostered. It was not paid. Query raised by worker 2026-08-03.)

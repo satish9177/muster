@@ -196,14 +196,45 @@ ALLOWED: dict[str, frozenset[str]] = {
             "disclose.views",
         }
     ),
+    #  ---- dispatch: the outbound edge ---------------------------------------
+    #
+    #  The one package that names *both* the fleet catalog and the admission
+    #  path, and it is allowed to because it decides nothing with either.  It
+    #  resolves an address, carries octets, checks a reply against what was
+    #  asked, and hands each receipt to the ordinary command -- which judges it
+    #  against the authority snapshot the case pinned, exactly as it would judge
+    #  a receipt that arrived any other way.
+    #
+    #  It is deliberately *not* on the ``deciding`` list below: an admission
+    #  decision must have no path to a routing record, and this package is a
+    #  caller of both rather than a step inside either.
+    "dispatch": frozenset(),
+    "dispatch.assign": frozenset({"casework.ports", "catalog.route"}),
+    "dispatch.acquire": frozenset(
+        {
+            "casework.advance",
+            "casework.commands",
+            "casework.ports",
+            "casework.snapshot",
+            "dispatch.assign",
+        }
+    ),
+    #  A rendering of a report.  It emits nothing, writes nothing and reads no
+    #  clock, which is why it sees the acquisition record and nothing else.
+    "dispatch.observe": frozenset({"dispatch.acquire"}),
+    #  The outbound HTTP client: the only module here that opens a socket, and
+    #  the only one that names a URL.  Written against the kernel's delivery
+    #  port, so it imports nothing from this package at all.
+    "adapters.http": frozenset(),
 }
 
 #  Packages the final architecture contains and this milestone does not.
-#  ``authority`` and ``catalog`` left this set at milestone E, which is what
-#  the milestone is.  ``dispatch`` is still absent and must stay so: routing
-#  produces an address, and something that *sent* a request to it would be the
-#  agent runtime this milestone deliberately does not build.
-NOT_YET_BUILT = frozenset({"dispatch", "gate", "api", "entrypoints"})
+#  ``authority`` and ``catalog`` left this set at milestone E and ``dispatch``
+#  left it here, which is what each milestone is: routing produced an address,
+#  and this one sends a request to it and admits the reply.  What is still
+#  absent is everything that decides whether MUSTER *acts* -- the gate, its
+#  settlement adapter -- plus the inbound surfaces nothing yet needs.
+NOT_YET_BUILT = frozenset({"gate", "api", "entrypoints"})
 
 #  Third-party roots forbidden anywhere in this package. The database driver is
 #  exempt under ``adapters`` alone -- listed by subtree, so a second module
@@ -241,7 +272,27 @@ FORBIDDEN_EXTERNAL = frozenset(
 DRIVER = "psycopg"
 DRIVER_SUBTREE = "adapters.sql"
 
-CONFINED: dict[str, str] = {DRIVER: DRIVER_SUBTREE, "cryptography": "adapters.crypto"}
+#  ``urllib`` is the standard library and is confined all the same, for the
+#  same reason the driver is: the control plane has exactly one outbound
+#  network edge, and a second module that opened a socket would be a second
+#  place a case's content could leave from.
+CONFINED: dict[str, str] = {
+    DRIVER: DRIVER_SUBTREE,
+    "cryptography": "adapters.crypto",
+    "urllib": "adapters.http",
+}
+
+#  The subset ``import-linter`` also constrains.  ``urllib`` is not on its
+#  forbidden list and could not be -- the contract bans third-party
+#  distributions, and the standard library is not one -- so the socket rule is
+#  enforced here alone, and the exemption comparison below is over the two
+#  libraries both tools see.
+#
+#  What forces a decision about a *newly* confined package is the hand-written
+#  equality on ``CONFINED`` further down, which fails until somebody writes the
+#  new entry out.  This constant is stated separately so that the comparison
+#  against the contract stays over the libraries the contract actually names.
+CONFINED_EXTERNAL: frozenset[str] = frozenset({DRIVER, "cryptography"})
 
 #  Nondeterminism and ambient state. Permitted nowhere in this package.
 #
@@ -503,7 +554,11 @@ def test_a_confined_library_is_reached_from_its_subtree_and_nowhere_else(library
     #  Named by hand rather than derived, so widening a constant to a parent
     #  package fails here instead of silently granting the exemption to
     #  everything below it.
-    assert CONFINED == {"psycopg": "adapters.sql", "cryptography": "adapters.crypto"}
+    assert CONFINED == {
+        "psycopg": "adapters.sql",
+        "cryptography": "adapters.crypto",
+        "urllib": "adapters.http",
+    }
 
 
 def _platform_contract_section() -> str:
@@ -529,9 +584,10 @@ def test_the_confinement_exemptions_match_the_imports_that_exist() -> None:
         f"{_dotted(path)} -> {imported.split('.')[0]}"
         for path in _platform_files()
         for imported in _imports(path)
-        if imported.split(".")[0] in CONFINED
+        if imported.split(".")[0] in CONFINED_EXTERNAL
     }
     assert exempted == found
+    assert set(CONFINED) > CONFINED_EXTERNAL, "every contract-exempt library is also confined"
 
 
 def test_the_two_forbidden_lists_agree() -> None:

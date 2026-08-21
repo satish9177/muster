@@ -206,7 +206,7 @@ class _PausingDatabase:
             if not paused:
                 yield scope
             else:
-                yield _PausingScope(scope, self.after_revocations)  # type: ignore[arg-type]
+                yield _PausingScope(scope, self.after_revocations)
 
 
 #  ---- fixtures ------------------------------------------------------------
@@ -295,7 +295,7 @@ def test_REVOCATION_PUBLICATION_AND_ADMISSION_HAVE_DEFINED_ORDER(
         assert release.wait(timeout=RELEASE_TIMEOUT), "the admission was never released"
 
     paused = _PausingDatabase(database, pause)
-    work = ravi.casework(paused)  # type: ignore[arg-type]
+    work = ravi.casework(paused)
 
     admission: dict[str, Any] = {}
 
@@ -475,7 +475,7 @@ def test_two_concurrent_admissions_do_not_wait_for_each_other(
 
     def admit_first() -> None:
         outcomes["first"] = append_transcript_entry(
-            ravi.casework(held),  # type: ignore[arg-type]
+            ravi.casework(held),
             tenant_id=first.case.tenant_id,
             case_id=first.case.case_id,
             entry=first.case.entries[SATURDAY_PRESENCE],
@@ -529,7 +529,7 @@ def test_an_unrelated_tenants_revocation_is_not_blocked(
 
     def admit() -> None:
         append_transcript_entry(
-            ravi.casework(held),  # type: ignore[arg-type]
+            ravi.casework(held),
             tenant_id=mine.case.tenant_id,
             case_id=mine.case.case_id,
             entry=mine.case.entries[SATURDAY_PRESENCE],

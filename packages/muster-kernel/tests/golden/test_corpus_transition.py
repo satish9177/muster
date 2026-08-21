@@ -41,8 +41,8 @@ from __future__ import annotations
 import pytest
 
 from muster.core.results import Ok
-from muster.core.wire.codec import decode
-from muster.core.wire.nodes import NBytes, NDigest, Node, NRec, NSeq, NSet, NTagged
+from muster.core.wire.codec import canonical_set, decode
+from muster.core.wire.nodes import NAtom, NBytes, NDigest, Node, NRec, NSeq, NSet, NTagged
 from tests.conftest import GoldenVector
 
 pytestmark = pytest.mark.golden
@@ -149,6 +149,18 @@ def _load_octets() -> None:
 _load_octets()
 
 
+def _members(node: NSeq | NSet) -> tuple[Node, ...]:
+    """The children of an ordered sequence or of a canonical set.
+
+    Two field names for one idea, and the distinction is load-bearing
+    everywhere else: order is semantic in one and canonical in the other. Here
+    it is not -- a shape comparison walks children -- so the two are read
+    through one function rather than through a field name that happens to
+    exist on only one of them.
+    """
+    return node.items if isinstance(node, NSeq) else node.members
+
+
 def _shape_differences(previous: Node, current: Node, path: str = "") -> list[str]:
     """Every way two encodings differ that is **not** a digest or hash value.
 
@@ -188,11 +200,18 @@ def _shape_differences(previous: Node, current: Node, path: str = "") -> list[st
             return _shape_differences(previous.payload, current.payload, f"{path}/{previous.tag}")
         case ((NSeq() | NSet()), (NSeq() | NSet())):
             assert isinstance(current, NSeq | NSet)
-            if len(previous.items) != len(current.items):
-                return [f"{path}: {len(previous.items)} members became {len(current.items)}"]
+            #  Through ``_members`` rather than ``.items``: a sequence holds
+            #  ``items`` and a set holds ``members``, and reading one field off
+            #  both worked only because no *moved* vector has yet differed
+            #  inside a set. The first one that does would have raised
+            #  ``AttributeError`` here -- out of the diagnostic whose whole job
+            #  is to say what moved, at the moment somebody needed it to.
+            was_members, now_members = _members(previous), _members(current)
+            if len(was_members) != len(now_members):
+                return [f"{path}: {len(was_members)} members became {len(now_members)}"]
             return [
                 difference
-                for index, (was, now) in enumerate(zip(previous.items, current.items, strict=True))
+                for index, (was, now) in enumerate(zip(was_members, now_members, strict=True))
                 for difference in _shape_differences(was, now, f"{path}[{index}]")
             ]
         case NDigest(), NDigest():
@@ -355,3 +374,34 @@ def test_the_moved_vectors_really_did_move(
             f"{name}: the superseded octets are today's octets, so the "
             "comparison against them proves nothing"
         )
+
+
+def test_the_diagnostic_survives_a_set_that_moved() -> None:
+    """A set is a shape this comparison walks, and it must report rather than raise.
+
+    The path exists for a movement that has not happened yet: no vector moved
+    so far has differed *inside* a set, so the branch that reads a set's
+    children has never run on one. It read ``.items``, which only a sequence
+    has -- so the first milestone to move a set inside a frozen vector would
+    have got an ``AttributeError`` from the tool it was relying on to tell it
+    what had moved.
+
+    Both cases are asserted, because reporting a difference is only half of it:
+    a comparison that reported one for two equal sets would fail every future
+    milestone for nothing.
+    """
+    was = canonical_set((NAtom("HR_PAYROLL_SYSTEM"), NAtom("SITE_ACCESS_CONTROL")))
+    widened = canonical_set(
+        (NAtom("HR_PAYROLL_SYSTEM"), NAtom("SITE_ACCESS_CONTROL"), NAtom("ANYBODY_AT_ALL"))
+    )
+
+    assert _shape_differences(was, was) == []
+    assert _shape_differences(NSeq(()), NSeq(())) == []
+
+    grew = _shape_differences(was, widened, "permitted_source_classes")
+    assert grew == ["permitted_source_classes: 2 members became 3"]
+
+    swapped = canonical_set((NAtom("HR_PAYROLL_SYSTEM"), NAtom("SITE_B_ACCESS_CONTROL")))
+    changed = _shape_differences(was, swapped, "permitted_source_classes")
+    assert len(changed) == 1
+    assert "SITE_ACCESS_CONTROL" in changed[0]

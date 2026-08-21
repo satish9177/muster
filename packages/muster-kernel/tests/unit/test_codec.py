@@ -16,6 +16,9 @@ from muster.core.wire.codec import (
 from muster.core.wire.digests import Digest, DigestKind, digest_octets
 from muster.core.wire.nodes import (
     MAX_ATOM_OCTETS,
+    MAX_NESTING_DEPTH,
+    TAG_TAGGED,
+    TAG_UNIT,
     NAtom,
     NBool,
     NBytes,
@@ -193,3 +196,56 @@ def test_digest_domains_separate() -> None:
 def test_digest_is_thirty_two_octets() -> None:
     with pytest.raises(InvariantViolation):
         Digest(b"short")
+
+
+#  ---- nesting depth -------------------------------------------------------
+#
+#  The decoder is recursive, and before this bound existed a few kilobytes of
+#  octets raised ``RecursionError`` out of ``decode`` -- which promises a
+#  ``Result``.  It mattered because Milestone F made the first caller that
+#  hands this function octets written by a party the architecture treats as
+#  untrusted: a source answering an assignment, over a transport that caps the
+#  response at a megabyte.  Four octets buy one level, so the cap was never the
+#  control.
+
+
+def _nested(levels: int) -> bytes:
+    """``levels`` of ``NTagged`` wrapping one unit, built as octets.
+
+    Built at the octet level rather than with ``encode``, because encoding a
+    node this deep would hit the same recursion from the other side -- and the
+    thing under test is what a *decoder* does with octets somebody else wrote.
+    """
+    body = bytearray()
+    for _ in range(levels):
+        body.append(TAG_TAGGED)
+        body += encode(NAtom("x"))
+    body.append(TAG_UNIT)
+    return bytes(body)
+
+
+def test_a_value_nested_to_the_bound_still_decodes() -> None:
+    """The bound is generous: real artifacts nest around thirteen levels."""
+    outcome = decode(_nested(MAX_NESTING_DEPTH - 1))
+    assert isinstance(outcome, Ok), outcome
+
+
+def test_a_value_nested_past_the_bound_is_refused_rather_than_raised() -> None:
+    outcome = decode(_nested(MAX_NESTING_DEPTH))
+    assert isinstance(outcome, Err)
+    assert outcome.error.failure is DecodeFailure.NESTING_TOO_DEEP
+
+
+def test_octets_that_would_exhaust_the_stack_are_a_value_and_not_an_exception() -> None:
+    """The reproduction: twelve kilobytes, well inside every transport cap."""
+    hostile = _nested(3_000)
+    assert len(hostile) < 256 * 1024
+    outcome = decode(hostile)
+    assert isinstance(outcome, Err)
+    assert outcome.error.failure is DecodeFailure.NESTING_TOO_DEEP
+
+
+def test_the_bound_is_over_depth_and_not_over_breadth() -> None:
+    """A wide artifact is ordinary; a deep one is not.  Only one is refused."""
+    wide = NSeq(tuple(NInt(index) for index in range(2_000)))
+    assert isinstance(decode(encode(wide)), Ok)

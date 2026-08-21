@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "muster-agents"
+version = "0.1.0"
+description = "MUSTER source-local acquisition agents: ADK runtimes, model interpretation, local signing."
+requires-python = ">=3.12"
+
+#  The third distribution exists for one reason, and it is a fact about the
+#  lockfile rather than a rule somebody has to remember.
+#
+#  An agent runtime needs a model client and an agent framework.  Shipped in
+#  one wheel with the control plane, those packages would install into the
+#  process that holds the case salt and the whole record, and a later edit
+#  could add ``import google.genai`` there without violating a single import
+#  contract.  Separate distributions make "no model dependency in the control
+#  plane" checkable with ``pip show`` instead of with discipline.
+#
+#  ``muster-kernel`` is depended on and ``muster-platform`` is **not**.  What
+#  an agent needs from MUSTER is the wire contract -- what a receipt is, what a
+#  signature covers, what an assignment says -- and all of it is in the kernel.
+#  Depending on the control plane would drag a database driver into a process a
+#  source operates, and would put the case-custody code one import away from a
+#  runtime that talks to a model.
+dependencies = [
+    "muster-kernel==0.1.0",
+    "google-adk>=2.5,<3",
+    "google-genai>=2.0,<3",
+    #  Verifying the identity token of an inbound call.  It arrives with the
+    #  agent framework anyway; naming it makes the dependency this package
+    #  actually imports visible in its own metadata.
+    "google-auth>=2.35,<3",
+    #  Signing is asymmetric and the standard library has no asymmetric
+    #  primitive.  Confined to ``muster.agents.keys`` exactly as the control
+    #  plane confines it to one adapter.
+    "cryptography>=43,<52",
+]
+
+[project.optional-dependencies]
+#  Reading source-local evidence out of Cloud Storage, and verifying the
+#  identity token of an inbound call.  Declared as an extra because an agent
+#  reading a local directory needs neither, and because "the base distribution
+#  reaches no cloud storage" should stay a fact about the metadata.
+cloud = ["google-cloud-storage>=2.18,<4"]
+
+[project.scripts]
+muster-agent = "muster.agents.entrypoints.serve:main"
+muster-agent-probe = "muster.agents.entrypoints.probe:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["muster.agents*"]
+namespaces = true

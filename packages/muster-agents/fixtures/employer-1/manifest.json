@@ -1,0 +1,14 @@
+{
+  "//": "Employer-controlled records. The employer agent may interpret these and",
+  "//2": "attest at RECORD. It holds no grant for any site observation.",
+  "items": [
+    {
+      "ref": "payroll-week",
+      "media_type": "text/plain",
+      "label": "Weekly payroll and roster reconciliation export",
+      "file": "payroll-week.txt",
+      "subject": "RAVI",
+      "scope": [{"kind": "EMPLOYER", "value": "EMPLOYER-1"}]
+    }
+  ]
+}

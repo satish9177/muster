@@ -48,6 +48,7 @@ from muster.application.case_file import (
 from muster.core.authority.check import AuthorityView
 from muster.core.authority.grants import AuthorityRegistrySnapshot, canonical_grants
 from muster.core.authority.revocation import RevocationSnapshot
+from muster.core.authority.signing import SourceVerifier
 from muster.core.case.revision import AuthorizationContext, RebuildMode
 from muster.core.evidence.requests import EvidenceRequest
 from muster.core.evidence.transcript import (
@@ -72,6 +73,7 @@ from muster.solve.backend import SolverBackend
 from muster.solve.reference.bounded import BoundedEnumerationBackend
 from support.authority import (
     AUTHORITY_PUBLISHER_KEY,
+    WORKER,
     officer_verifier,
     publisher_signer,
     publisher_verifier,
@@ -144,8 +146,17 @@ def casework(
     max_publication_attempts: int = 3,
     evidence_request_ttl: Duration = ONE_HOUR,
     solver: Callable[[], SolverBackend] | None = None,
+    sources: SourceVerifier | None = None,
 ) -> Casework:
-    """Compose the control plane over a database. No mocks anywhere in it."""
+    """Compose the control plane over a database. No mocks anywhere in it.
+
+    ``sources`` overrides the keyring the admission path verifies attestations
+    against.  It is a parameter because a *deployed* source signs under a key
+    this process never generated: the fixture keyring holds the seeded record's
+    public halves, and a run that talks to real agents has to hold theirs as
+    well.  Defaulting it to the fixture's keeps every existing caller reading
+    the way it did.
+    """
     return Casework(
         database=database,
         registry=registry(),
@@ -155,7 +166,7 @@ def casework(
             max_publication_attempts=max_publication_attempts,
             evidence_request_ttl=evidence_request_ttl,
         ),
-        source_verifier=source_verifier(),
+        source_verifier=source_verifier() if sources is None else sources,
         publisher_verifier=publisher_verifier(),
         officer_verifier=officer_verifier(),
     )
@@ -310,6 +321,80 @@ def _rebind_entry(entry: TranscriptEntry, tenant_id: str, case_id: str) -> Trans
             )
         case Statement(record):
             return Statement(replace(record, tenant_id=tenant_id, case_id=case_id))
+
+
+#  ---- shaping the worked transcript --------------------------------------
+#
+#  Here rather than beside the fleet fixture, because shaping a case is a
+#  statement about the *case* and nothing in it knows an agent exists.  The
+#  fleet fixture and the cloud composition root both read it, which is what
+#  keeps "what the fleet is asked for" one list rather than two.
+
+#: The Saturday under dispute, as the worked case names it.
+SATURDAY = "SAT"
+
+#: What the fleet is asked to supply in the worked run: the employer's roster
+#: entry for the Saturday, and the site's two observations of it.  Removing the
+#: worker's own statement as well is what lets a *worker agent* produce it from
+#: his own words rather than the fixture producing it from JSON -- so a run
+#: driving that agent removes all three, and a run replaying the claim removes
+#: only what a source could attest.
+ACQUIRED_BY_THE_FLEET: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("scheduled", (WORKER, SATURDAY)),
+    ("present_on_site", (WORKER, SATURDAY)),
+    ("on_site_duration", (WORKER, SATURDAY)),
+)
+
+
+def without(case: RaviCase, *propositions: tuple[str, tuple[str, ...]]) -> RaviCase:
+    """The same case with named propositions removed from its transcript.
+
+    The worked fixture carries a complete week.  An agent-driven run has to
+    *acquire* the disputed Saturday rather than start with it, so the entries
+    that would have answered it are removed and the fleet is asked instead.
+    Everything else -- the authority snapshots, the construction record, the
+    pins -- is untouched, so what the run exercises is acquisition and not a
+    differently-configured case.
+    """
+    removed = set(propositions)
+    return replace(
+        case,
+        entries=tuple(entry for entry in case.entries if _proposition(entry) not in removed),
+    )
+
+
+def without_attestations(case: RaviCase, *propositions: tuple[str, tuple[str, ...]]) -> RaviCase:
+    """The same case with named propositions removed from its *attested* record.
+
+    Statements stay.  A claim is not something a source can be asked for -- the
+    fleet has no agent that could attest one and no target could name it -- so a
+    run that acquires the attested half still replays what the claimant said,
+    and the claim is inert on arrival exactly as it was when it was made.
+
+    Separate from :func:`without` rather than a flag on it: the two express
+    different intentions about the same case, and a boolean at the call site
+    would say neither.
+    """
+    removed = set(propositions)
+    return replace(
+        case,
+        entries=tuple(
+            entry
+            for entry in case.entries
+            if not (isinstance(entry, Attestation) and _proposition(entry) in removed)
+        ),
+    )
+
+
+def _proposition(entry: TranscriptEntry) -> tuple[str, tuple[str, ...]]:
+    match entry:
+        case Attestation(receipt):
+            reference = receipt.payload.proposition
+        case Statement(record):
+            reference = record.proposition
+        case _:
+            raise AssertionError(f"an entry is an attestation or a statement: {entry}")
+    return (reference.predicate_id, reference.args)
 
 
 def admission_authority(case: RaviCase) -> AdmissionAuthority:

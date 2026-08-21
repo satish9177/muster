@@ -29,6 +29,7 @@ from muster.core.wire.nodes import (
     DIGEST_OCTETS,
     MAX_ATOM_OCTETS,
     MAX_INT_OCTETS,
+    MAX_NESTING_DEPTH,
     MAX_RECORD_ARITY,
     TAG_ATOM,
     TAG_BOOL_FALSE,
@@ -72,6 +73,13 @@ class DecodeFailure(Enum):
     RECORD_SEPARATOR_MISSING = "RECORD_SEPARATOR_MISSING"
     ARITY_OUT_OF_RANGE = "ARITY_OUT_OF_RANGE"
     UNSUPPORTED_DIGEST_ALGORITHM = "UNSUPPORTED_DIGEST_ALGORITHM"
+    #: The value nests deeper than ``MAX_NESTING_DEPTH``.  A refusal rather
+    #: than a ``RecursionError``, because this decoder reads octets supplied by
+    #: parties the architecture treats as untrusted -- a source answering an
+    #: assignment, a control plane sending one -- and a decoder that raises on
+    #: hostile input is a decoder whose ``Result`` is a promise it does not
+    #: keep.
+    NESTING_TOO_DEEP = "NESTING_TOO_DEEP"
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,11 +222,16 @@ def _int_octets(value: int) -> bytes:
 
 
 class _Reader:
-    __slots__ = ("octets", "offset")
+    #: ``depth`` is the nesting level currently being decoded.  It lives on the
+    #: reader rather than travelling as an argument so that the bound is
+    #: enforced in one place -- the single function every nested value passes
+    #: through -- rather than in each of the four that recurse.
+    __slots__ = ("depth", "octets", "offset")
 
     def __init__(self, octets: bytes) -> None:
         self.octets = octets
         self.offset = 0
+        self.depth = 0
 
     def take(self, count: int) -> bytes | None:
         end = self.offset + count
@@ -230,6 +243,18 @@ class _Reader:
 
 
 def _decode_node(reader: _Reader) -> Result[Node, DecodeError]:
+    if reader.depth >= MAX_NESTING_DEPTH:
+        return Err(
+            DecodeError(DecodeFailure.NESTING_TOO_DEEP, reader.offset, str(MAX_NESTING_DEPTH))
+        )
+    reader.depth += 1
+    try:
+        return _decode_one(reader)
+    finally:
+        reader.depth -= 1
+
+
+def _decode_one(reader: _Reader) -> Result[Node, DecodeError]:
     start = reader.offset
     head = reader.take(1)
     if head is None:

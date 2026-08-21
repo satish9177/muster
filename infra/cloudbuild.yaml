@@ -1,0 +1,43 @@
+#  Build both images from the repository root, in one submission.
+#
+#  A build config rather than `gcloud builds submit --tag`, for one reason: the
+#  Dockerfiles are not at the root of the context.  The context has to be the
+#  repository, so that the package directories are visible to the COPY steps,
+#  while the Dockerfiles themselves belong beside the rest of the deployment
+#  material.
+#
+#  **Two images, one submission, one tag.**  The agent image installs a model
+#  client; the control-plane image installs neither it nor anything that could
+#  reach one.  Building them together is what keeps the pair consistent: a
+#  control plane built from one commit and a fleet built from another would
+#  disagree about the wire contract, and the symptom would be receipts refused
+#  on an envelope check that nobody changed.
+#
+#  `_IMAGE` and `_CONTROL_PLANE_IMAGE` are substituted by
+#  infra/scripts/40-build.sh, which is where the registry, the region and the
+#  tag are decided.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: agent
+    args:
+      - build
+      - --file=infra/docker/agent.Dockerfile
+      - --tag=${_IMAGE}
+      - .
+  - name: gcr.io/cloud-builders/docker
+    id: control-plane
+    args:
+      - build
+      - --file=infra/docker/control-plane.Dockerfile
+      - --tag=${_CONTROL_PLANE_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+  - ${_CONTROL_PLANE_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s

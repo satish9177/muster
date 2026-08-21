@@ -152,8 +152,18 @@ ALLOWED: dict[str, frozenset[str]] = {
     },
 }
 
-#  Packages the final architecture contains and this milestone does not. Naming
-#  them in a contract would assert something about code nobody has written.
+#  Rows this matrix does not cover, and does not need to.
+#
+#  ``platform`` and ``agents`` are *other distributions*.  They exist now, and
+#  they are absent from this graph on purpose: the scan below is rooted at the
+#  kernel's own source tree, so "the kernel imports no database" is checked
+#  against a graph the control plane is not in, and "the kernel imports no
+#  model" against one the fleet is not in.  Each of those distributions carries
+#  its own matrix, checked with its own set of importable packages.
+#
+#  ``domains.procurement`` is the one row here that is genuinely unwritten.
+#  Naming it in a contract would assert something about code nobody has
+#  written.
 NOT_YET_BUILT = frozenset({"platform", "agents", "domains.procurement"})
 
 #  The one production subtree permitted to import a solver library, and the one

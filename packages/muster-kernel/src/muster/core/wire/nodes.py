@@ -38,6 +38,17 @@ MAX_ATOM_OCTETS: int = 0xFF
 MAX_INT_OCTETS: int = 0x20
 MAX_RECORD_ARITY: int = 0xFF
 
+#  How deeply a decoded value may nest.  A bound on *shape* rather than on
+#  size, and it exists because the decoder is recursive: every level of
+#  ``NTagged``, ``NSeq``, ``NSet`` or ``NRec`` costs interpreter stack, and
+#  four octets of input buys one level.  Without this, a few kilobytes of
+#  octets from a party the architecture treats as untrusted raise
+#  ``RecursionError`` out of ``decode`` -- which promises a ``Result`` and is
+#  read by callers that promise one too.  The deepest artifact this system
+#  actually produces nests thirteen levels; sixty-four is generous enough that
+#  no honest producer meets it and small enough that the stack never notices.
+MAX_NESTING_DEPTH: int = 64
+
 
 @dataclass(frozen=True, slots=True)
 class NUnit:

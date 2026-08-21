@@ -196,6 +196,17 @@ def source_signer(key_ref: str) -> LocalEcdsaSourceSigner:
     return LocalEcdsaSourceSigner(key_ref, _keypair(key_ref)[0])
 
 
+def source_public_key(key_ref: str) -> bytes:
+    """The public half of a source key, as PEM.
+
+    What a deployment publishes and a verifier holds.  Named for what it is,
+    because it is the one piece of key material in this module that is safe to
+    hand to anything -- and a test that stands in for a deployed agent needs
+    exactly this and nothing else.
+    """
+    return _keypair(key_ref)[1]
+
+
 def source_verifier() -> LocalEcdsaSourceVerifier:
     """A reader holding every source key the suite uses.
 
@@ -204,7 +215,26 @@ def source_verifier() -> LocalEcdsaSourceVerifier:
     of that regression is that the signature is **valid** and the authority is
     absent.  Holding all of them keeps the two failures distinguishable.
     """
-    return LocalEcdsaSourceVerifier({key: _keypair(key)[1] for key in SOURCE_KEYS})
+    return source_keyring()
+
+
+def source_keyring(**deployed: bytes) -> LocalEcdsaSourceVerifier:
+    """The suite's source keys, plus the public half of any deployed key named.
+
+    A deployed source signs under a key this process never generated: its
+    private half was minted by an operator and lives in Secret Manager, and all
+    that reaches here is the public PEM.  So the keyring is the suite's *plus*
+    whatever the deployment registered, keyed by the reference the deployment
+    configured.
+
+    ``deployed`` is keyword-only and its keys are key references, which means a
+    reference that collides with a fixture key **replaces** it rather than
+    sitting beside it.  That is the honest behaviour and it is also why the
+    deployment uses its own references: one reference resolves to one public
+    key, so two keys under one name is a state the registry cannot represent
+    and Q-12(b) would decide by whichever won the merge.
+    """
+    return LocalEcdsaSourceVerifier({key: _keypair(key)[1] for key in SOURCE_KEYS} | deployed)
 
 
 def publisher_signer(key_ref: str = AUTHORITY_PUBLISHER_KEY) -> LocalEcdsaPublisherSigner:
@@ -288,10 +318,16 @@ def site_grant(tenant_id: str, *, site: str = SITE_A, key_ref: str = SITE_A_KEY)
     )
 
 
-def payroll_grant(tenant_id: str) -> AuthorityGrant:
-    """The payroll system's grant: one employer, two record predicates."""
+def payroll_grant(tenant_id: str, *, key_ref: str = PAYROLL_KEY) -> AuthorityGrant:
+    """The payroll system's grant: one employer, two record predicates.
+
+    ``key_ref`` is a parameter for the same reason it is one on
+    :func:`site_grant`: a deployed agent signs under a key of its own, and the
+    registry has to grant *that* reference the same standing -- same principal,
+    same class, same predicates, same scope -- rather than a wider one.
+    """
     return grant(
-        key_ref=PAYROLL_KEY,
+        key_ref=key_ref,
         principal_id=EMPLOYER,
         tenant_id=tenant_id,
         source_class=SOURCE_PAYROLL,

@@ -1,0 +1,8 @@
+#  Deployment scripts run on Linux and macOS, where a carriage return is
+#  not whitespace: a CRLF checkout makes `set -euo pipefail` an invalid
+#  option name and names an interpreter that does not exist.  This
+#  repository is worked on under core.autocrlf=true, which would restore
+#  CRLF on every checkout, so the ending is pinned here rather than left
+#  to each clone.  test_every_deployment_script_is_line_ended_for_the_
+#  shell_that_runs_it is the other half of this.
+*.sh text eol=lf

@@ -1,30 +1,83 @@
 #  MUSTER workspace root.
 #
 #  This file configures tooling only.  The distributions are declared in
-#  packages/*/pyproject.toml.  There are two: the deterministic kernel, which
-#  has no runtime dependency, and the control plane, which has a database
-#  driver.  The agent distribution does not exist yet.
+#  packages/*/pyproject.toml.  There are three: the deterministic kernel, which
+#  has no runtime dependency; the control plane, which has a database driver
+#  and a cryptography library; and the agent runtime, which has a model client
+#  and an agent framework and which neither of the other two may import.
+
+#  ---- the gate's own toolchain -------------------------------------------
+#
+#  The gates are ``ruff``, ``mypy --strict``, ``import-linter`` and ``pytest``,
+#  and until this table existed none of them was pinned anywhere.  A checker is
+#  not a library: its *findings* are the artifact, and an unpinned checker means
+#  two people running "the gate" run two different gates and the milestone
+#  record says which one they happened to install.
+#
+#  The floor and the ceiling are both measured rather than guessed.  The whole
+#  tree is clean under 1.17.1, 1.18.2, 1.20.2, 2.0.0 and 2.3.0; 1.16.1 and
+#  earlier fail on a typeshed signature this codebase does not control, which is
+#  what makes 1.17 the floor rather than a preference.  The ceiling is the
+#  newest version actually run against this tree -- raise it by running it, not
+#  by widening the range and hoping.
+#
+#  Install with pip 25.1 or newer:
+#
+#      pip install --group dev
+[dependency-groups]
+dev = [
+    "mypy>=1.17,<=2.3.0",
+    "ruff>=0.16,<0.17",
+    "import-linter>=2.13,<3",
+    "pytest>=9,<10",
+    "hypothesis>=6.99,<7",
+    #  Not used by anything that ships.  One architecture test reads back what
+    #  the deployment writes for --env-vars-file, and the claim it makes -- that
+    #  a value reaches its container as the bytes it was given -- is only worth
+    #  something if a real YAML parser says so, rather than a second hand-written
+    #  one in the test agreeing with the first.
+    "pyyaml>=6,<7",
+]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-testpaths = ["packages/muster-kernel/tests", "packages/muster-platform/tests"]
+testpaths = [
+    "packages/muster-kernel/tests",
+    "packages/muster-platform/tests",
+    "packages/muster-agents/agent_tests",
+]
 #  The kernel suite is rooted one level above its ``tests`` package, so it
 #  imports ``tests.support``. The platform suite is rooted *at* its own
 #  ``tests`` directory instead, so its top-level test packages are ``support``,
 #  ``unit`` and the rest. Two importable packages both called ``tests`` would
 #  collide on the first collection, and the collision is silent about which one
 #  won -- so only one of them is named that.
+#
+#  The agent suite is the third root and has the same problem twice over: it
+#  cannot be ``tests`` (the kernel is) and it cannot contribute ``support`` or
+#  ``acceptance`` (the platform does). So its package is named for what it
+#  holds, and its imports read ``agent_tests.support`` -- which also makes it
+#  obvious, in a traceback, which distribution's fixture is in the frame.
 pythonpath = [
     "packages/muster-kernel/src",
     "packages/muster-kernel",
     "packages/muster-platform/src",
     "packages/muster-platform/tests",
+    "packages/muster-agents/src",
+    "packages/muster-agents",
+    #  The worked run is a composition root, not a package: it assembles the
+    #  kernel, the control plane and the fleet, which is exactly what nothing
+    #  inside any of the three may do.  The acceptance suite imports it so the
+    #  run demonstrated on a stage and the run checked on every commit are one
+    #  code path.
+    ".",
 ]
 addopts = "-q --strict-markers --strict-config"
 markers = [
     "golden: reproduces a frozen Phase-0.8 golden vector",
     "architecture: enforces a ratified dependency or import contract",
     "postgres: needs a real PostgreSQL instance; skipped without MUSTER_TEST_DSN",
+    "model: calls a real hosted model; skipped without MUSTER_LIVE_MODEL",
 ]
 
 [tool.ruff]
@@ -35,6 +88,8 @@ src = [
     "packages/muster-kernel",
     "packages/muster-platform/src",
     "packages/muster-platform/tests",
+    "packages/muster-agents/src",
+    "packages/muster-agents",
 ]
 #  ``spec/`` is non-production specification material.
 #  ``README.md`` is a pre-existing UTF-16 file this milestone does not own.
@@ -70,6 +125,9 @@ ignore = [
 #  than one whose subject is hidden in a header. Production hoists every import.
 "packages/muster-kernel/tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
 "packages/muster-platform/tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
+"packages/muster-agents/agent_tests/*" = ["PLR2004", "S101", "PLR0915", "PLC0415"]
+#  A composition root imports what it composes, where it composes it.
+"demo/*" = ["PLC0415", "S101"]
 
 [tool.ruff.lint.pylint]
 #  Several pure functions take their complete input tuple: ``load_bundle`` takes
@@ -84,12 +142,15 @@ ban-relative-imports = "all"
 
 [tool.mypy]
 python_version = "3.12"
-mypy_path = "packages/muster-kernel/src:packages/muster-platform/src"
+mypy_path = "packages/muster-kernel/src:packages/muster-platform/src:packages/muster-agents/src"
 files = [
     "packages/muster-kernel/src",
     "packages/muster-kernel/tests",
     "packages/muster-platform/src",
     "packages/muster-platform/tests",
+    "packages/muster-agents/src",
+    "packages/muster-agents/agent_tests",
+    "demo",
 ]
 namespace_packages = true
 explicit_package_bases = true
@@ -111,4 +172,19 @@ ignore_missing_imports = true
 #  untyped value reaches the port, because the port's own types are ours.
 [[tool.mypy.overrides]]
 module = ["z3", "z3.*"]
+ignore_missing_imports = true
+
+#  PyYAML ships no type information.  It is held by one architecture test, which
+#  reads back a file the deployment wrote; nothing it returns reaches anything
+#  that ships, and what comes out is compared against a literal.
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
+#  The Cloud Storage client ships no type information, so its terms are opaque.
+#  Confined by an import contract to ``muster.agents.google``, which is the one
+#  module allowed to hold one -- and the port it satisfies is ours, so no
+#  untyped value reaches anything above it.
+[[tool.mypy.overrides]]
+module = ["google.cloud.*"]
 ignore_missing_imports = true
