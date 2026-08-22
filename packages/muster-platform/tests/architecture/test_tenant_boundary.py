@@ -27,6 +27,7 @@ from muster.platform.casework.ports import (
     EvidenceRequestRepository,
     TranscriptRepository,
 )
+from muster.platform.gate.ports import ExecutionRepository
 
 pytestmark = pytest.mark.architecture
 
@@ -35,6 +36,7 @@ TENANT_SCOPED_TABLES = (
     "casework.case_head",
     "casework.transcript_entry",
     "casework.evidence_request",
+    "action_gate.execution",
 )
 
 
@@ -49,6 +51,7 @@ def test_no_repository_method_takes_a_tenant_argument() -> None:
         TranscriptRepository,
         CaseHeadRepository,
         EvidenceRequestRepository,
+        ExecutionRepository,
     ):
         for name, member in vars(protocol).items():
             if name.startswith("_") or not callable(member):
@@ -81,10 +84,10 @@ def test_a_scope_cannot_be_repointed_at_another_tenant() -> None:
 
 def test_every_statement_over_a_tenant_scoped_table_names_the_tenant() -> None:
     """Read out of the SQL itself, so a new statement cannot quietly omit it."""
-    from muster.platform.adapters.sql import content, head, requests, transcript
+    from muster.platform.adapters.sql import content, executions, head, requests, transcript
 
     checked = 0
-    for module in (content, head, requests, transcript):
+    for module in (content, executions, head, requests, transcript):
         for name, value in vars(module).items():
             if not name.startswith("_") or not isinstance(value, str):
                 continue

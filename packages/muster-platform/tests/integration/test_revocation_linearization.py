@@ -175,6 +175,10 @@ class _PausingScope:
         return self.inner.catalog
 
     @property
+    def executions(self) -> Any:
+        return self.inner.executions
+
+    @property
     def authority(self) -> Any:
         return _PausingAuthority(self.inner.authority, self.after_revocations)
 

@@ -369,11 +369,108 @@ _PUBLICATION_STATE_UP: tuple[str, ...] = (
 _PUBLICATION_STATE_DOWN: tuple[str, ...] = ("DROP TABLE authority.publication_state",)
 
 
+#  The deterministic Action Gate.  One row is one exact authorized proposal's
+#  complete execution lifecycle, and every identity column is immutable:
+#  only state and its outcome fields are ever updated.  ``intent_octets`` is a
+#  canonical operational value, not an entry in the content-addressed semantic
+#  store; its execution id is the idempotency hash over those exact octets.
+_ACTION_GATE_UP: tuple[str, ...] = (
+    "CREATE SCHEMA IF NOT EXISTS action_gate",
+    """
+    CREATE TABLE action_gate.execution (
+        tenant_id                    text    NOT NULL,
+        case_id                      text    NOT NULL,
+        execution_id                 bytea   NOT NULL,
+        intent_octets                bytea   NOT NULL,
+        revision_number              integer NOT NULL,
+        revision_digest              bytea   NOT NULL,
+        certificate_digest           bytea   NOT NULL,
+        kernel_result_digest         bytea   NOT NULL,
+        bundle_manifest_digest       bytea   NOT NULL,
+        authorization_context_digest bytea   NOT NULL,
+        action_schema_digest          bytea   NOT NULL,
+        action_digest                 bytea   NOT NULL,
+        action_kind                   text    NOT NULL,
+        gate_id                       text    NOT NULL,
+        executor_id                   text    NOT NULL,
+        requested_by                  text    NOT NULL,
+        state                         text    NOT NULL,
+        reserved_at                   bigint  NOT NULL,
+        dispatched_at                 bigint,
+        finalized_at                  bigint,
+        external_reference            text,
+        outcome_code                  text,
+        detail                        text,
+        PRIMARY KEY (tenant_id, execution_id),
+        CONSTRAINT action_gate_one_lifecycle_per_authorized_proposal UNIQUE (
+            tenant_id, case_id, revision_number, revision_digest,
+            certificate_digest, kernel_result_digest, bundle_manifest_digest,
+            authorization_context_digest, action_schema_digest, action_digest
+        ),
+        CONSTRAINT action_gate_external_reference_unique
+            UNIQUE (tenant_id, external_reference),
+        CONSTRAINT action_gate_case_exists
+            FOREIGN KEY (tenant_id, case_id)
+            REFERENCES casework.case_head (tenant_id, case_id),
+        CONSTRAINT action_gate_execution_id_width
+            CHECK (octet_length(execution_id) = 32),
+        CONSTRAINT action_gate_revision_digest_width
+            CHECK (octet_length(revision_digest) = 32),
+        CONSTRAINT action_gate_certificate_digest_width
+            CHECK (octet_length(certificate_digest) = 32),
+        CONSTRAINT action_gate_kernel_result_digest_width
+            CHECK (octet_length(kernel_result_digest) = 32),
+        CONSTRAINT action_gate_bundle_digest_width
+            CHECK (octet_length(bundle_manifest_digest) = 32),
+        CONSTRAINT action_gate_authorization_digest_width
+            CHECK (octet_length(authorization_context_digest) = 32),
+        CONSTRAINT action_gate_action_schema_digest_width
+            CHECK (octet_length(action_schema_digest) = 32),
+        CONSTRAINT action_gate_action_digest_width
+            CHECK (octet_length(action_digest) = 32),
+        CONSTRAINT action_gate_intent_not_empty CHECK (octet_length(intent_octets) > 0),
+        CONSTRAINT action_gate_revision_positive CHECK (revision_number >= 1),
+        CONSTRAINT action_gate_state_closed
+            CHECK (state IN ('RESERVED', 'DISPATCHED', 'CONFIRMED', 'FAILED', 'UNCERTAIN')),
+        CONSTRAINT action_gate_timestamps_ordered CHECK (
+            (dispatched_at IS NULL OR dispatched_at >= reserved_at)
+            AND (finalized_at IS NULL OR (
+                dispatched_at IS NOT NULL AND finalized_at >= dispatched_at
+            ))
+        ),
+        CONSTRAINT action_gate_state_shape CHECK (
+            (state = 'RESERVED'
+                AND dispatched_at IS NULL AND finalized_at IS NULL
+                AND external_reference IS NULL AND outcome_code IS NULL AND detail IS NULL)
+            OR
+            (state = 'DISPATCHED'
+                AND dispatched_at IS NOT NULL AND finalized_at IS NULL
+                AND external_reference IS NULL AND outcome_code IS NULL AND detail IS NULL)
+            OR
+            (state = 'CONFIRMED'
+                AND dispatched_at IS NOT NULL AND finalized_at IS NOT NULL
+                AND external_reference IS NOT NULL AND outcome_code IS NOT NULL)
+            OR
+            (state IN ('FAILED', 'UNCERTAIN')
+                AND dispatched_at IS NOT NULL AND finalized_at IS NOT NULL
+                AND external_reference IS NULL AND outcome_code IS NOT NULL)
+        )
+    )
+    """,
+)
+
+_ACTION_GATE_DOWN: tuple[str, ...] = (
+    "DROP TABLE action_gate.execution",
+    "DROP SCHEMA action_gate",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "case_custody", _INITIAL_UP, _INITIAL_DOWN),
     Migration(2, "case_commitment", _COMMITMENT_UP, _COMMITMENT_DOWN),
     Migration(3, "authority_and_catalog", _AUTHORITY_UP, _AUTHORITY_DOWN),
     Migration(4, "authority_publication_state", _PUBLICATION_STATE_UP, _PUBLICATION_STATE_DOWN),
+    Migration(5, "deterministic_action_gate", _ACTION_GATE_UP, _ACTION_GATE_DOWN),
 )
 
 #  The ledger. Created by the runner rather than by a migration, because a

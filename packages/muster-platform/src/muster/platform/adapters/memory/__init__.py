@@ -48,6 +48,7 @@ from dataclasses import dataclass, field, replace
 
 from muster.core.case.revision import RebuildInputs, RebuildMode
 from muster.core.results import Err, InvariantViolation, Ok, Result
+from muster.core.values.times import Instant
 from muster.core.wire.digests import Digest, DigestKind, digest_octets
 from muster.platform.casework.ports import (
     AuthorityRepository,
@@ -77,6 +78,21 @@ from muster.platform.casework.ports import (
     TranscriptRepository,
     is_durable_instant,
     same_authored_case,
+)
+from muster.platform.gate.model import (
+    ActionIntent,
+    ExecutionKey,
+    ExecutionRecord,
+    ExecutionState,
+    binding_mismatches,
+    transition_is_legal,
+)
+from muster.platform.gate.ports import (
+    DispatchClaim,
+    ExecutionRepository,
+    ExecutionStoreError,
+    ExecutionStoreFailure,
+    Reservation,
 )
 
 #  ---- the records ---------------------------------------------------------
@@ -117,6 +133,7 @@ class MemoryRecords:
     #  the pure suites would exercise a different admission path from the
     #  durable one and prove nothing about it.
     publication_state: dict[str, PublicationState] = field(default_factory=dict)
+    executions: dict[tuple[str, ExecutionKey], ExecutionRecord] = field(default_factory=dict)
 
     def copy(self) -> MemoryRecords:
         """A copy a transaction can write to and then abandon.
@@ -135,6 +152,7 @@ class MemoryRecords:
             revocation_snapshots=dict(self.revocation_snapshots),
             catalog_snapshots=dict(self.catalog_snapshots),
             publication_state=dict(self.publication_state),
+            executions=dict(self.executions),
         )
 
 
@@ -670,6 +688,196 @@ class MemoryCatalogRepository:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryExecutionRepository:
+    """Gate lifecycles over immutable values; concurrency is PostgreSQL's claim."""
+
+    records: MemoryRecords
+    tenant_id: str
+    writable: bool
+
+    def reserve(
+        self, intent: ActionIntent, *, requested_by: str, now: Instant
+    ) -> Result[Reservation, ExecutionStoreError]:
+        _require_writable(self.writable, "action_gate.execution")
+        durable = self._durable(now)
+        if durable is not None:
+            return durable
+        if intent.tenant_id != self.tenant_id:
+            return Err(
+                ExecutionStoreError(
+                    ExecutionStoreFailure.CASE_IDENTITY_CONFLICT,
+                    f"intent names tenant {intent.tenant_id!r}",
+                )
+            )
+        if (self.tenant_id, intent.case_id) not in self.records.heads:
+            return Err(ExecutionStoreError(ExecutionStoreFailure.ABSENT, intent.case_id))
+
+        execution_key = intent.execution_key()
+        existing_key = self.records.executions.get((self.tenant_id, execution_key))
+        if existing_key is not None:
+            mismatches = binding_mismatches(existing_key.intent, intent)
+            if mismatches:
+                return Err(
+                    ExecutionStoreError(
+                        ExecutionStoreFailure.EXECUTION_KEY_COLLISION,
+                        ", ".join(mismatches),
+                    )
+                )
+            return Ok(Reservation(existing_key, acquired=False))
+
+        existing_proposal = self._for_proposal(intent)
+        if existing_proposal is not None:
+            return Err(
+                ExecutionStoreError(
+                    ExecutionStoreFailure.CASE_IDENTITY_CONFLICT,
+                    "the authorized proposal is already reserved as "
+                    f"{existing_proposal.execution_key.hex}",
+                )
+            )
+        record = ExecutionRecord(
+            intent=intent,
+            state=ExecutionState.RESERVED,
+            requested_by=requested_by,
+            reserved_at=now,
+        )
+        self.records.executions[(self.tenant_id, execution_key)] = record
+        return Ok(Reservation(record, acquired=True))
+
+    def read(
+        self, execution_key: ExecutionKey
+    ) -> Result[ExecutionRecord, ExecutionStoreError]:
+        found = self.records.executions.get((self.tenant_id, execution_key))
+        if found is None:
+            return Err(ExecutionStoreError(ExecutionStoreFailure.ABSENT, execution_key.hex))
+        return Ok(found)
+
+    def read_for_case(self, case_id: str) -> Result[ExecutionRecord, ExecutionStoreError]:
+        found = self._for_case(case_id)
+        if found is None:
+            return Err(ExecutionStoreError(ExecutionStoreFailure.ABSENT, case_id))
+        return Ok(found)
+
+    def begin_dispatch(
+        self, execution_key: ExecutionKey, *, now: Instant
+    ) -> Result[DispatchClaim, ExecutionStoreError]:
+        _require_writable(self.writable, "action_gate.execution")
+        durable = self._durable(now)
+        if durable is not None:
+            return durable
+        current = self.read(execution_key)
+        if isinstance(current, Err):
+            return current
+        if not transition_is_legal(current.value.state, ExecutionState.DISPATCHED):
+            return Ok(DispatchClaim(current.value, acquired=False))
+        updated = replace(
+            current.value,
+            state=ExecutionState.DISPATCHED,
+            dispatched_at=now,
+        )
+        self.records.executions[(self.tenant_id, execution_key)] = updated
+        return Ok(DispatchClaim(updated, acquired=True))
+
+    def finalize(
+        self,
+        execution_key: ExecutionKey,
+        *,
+        state: ExecutionState,
+        outcome_code: str,
+        external_reference: str | None,
+        detail: str | None,
+        now: Instant,
+    ) -> Result[ExecutionRecord, ExecutionStoreError]:
+        _require_writable(self.writable, "action_gate.execution")
+        durable = self._durable(now)
+        if durable is not None:
+            return durable
+        current = self.read(execution_key)
+        if isinstance(current, Err):
+            return current
+        if not transition_is_legal(current.value.state, state):
+            return self._illegal(current.value.state, state)
+        updated = replace(
+            current.value,
+            state=state,
+            finalized_at=now,
+            outcome_code=outcome_code,
+            external_reference=external_reference,
+            detail=detail,
+        )
+        self.records.executions[(self.tenant_id, execution_key)] = updated
+        return Ok(updated)
+
+    def _for_case(self, case_id: str) -> ExecutionRecord | None:
+        found = [
+            record
+            for (tenant, _), record in self.records.executions.items()
+            if tenant == self.tenant_id and record.intent.case_id == case_id
+        ]
+        if not found:
+            return None
+        return max(
+            found,
+            key=lambda record: (
+                record.intent.revision_number,
+                record.reserved_at,
+                record.execution_key.hex,
+            ),
+        )
+
+    def _for_proposal(self, intent: ActionIntent) -> ExecutionRecord | None:
+        identity = _proposal_identity(intent)
+        return next(
+            (
+                record
+                for (tenant, _), record in self.records.executions.items()
+                if tenant == self.tenant_id
+                and _proposal_identity(record.intent) == identity
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _durable(
+        now: Instant,
+    ) -> Err[ExecutionStoreError] | None:
+        if is_durable_instant(now):
+            return None
+        return Err(
+            ExecutionStoreError(
+                ExecutionStoreFailure.INSTANT_NOT_DURABLE,
+                str(now),
+            )
+        )
+
+    @staticmethod
+    def _illegal(
+        before: ExecutionState, after: ExecutionState
+    ) -> Err[ExecutionStoreError]:
+        return Err(
+            ExecutionStoreError(
+                ExecutionStoreFailure.ILLEGAL_TRANSITION,
+                f"{before.value} -> {after.value}",
+            )
+        )
+
+
+def _proposal_identity(intent: ActionIntent) -> tuple[object, ...]:
+    """The adapter-independent identity of one authorized proposal."""
+    return (
+        intent.tenant_id,
+        intent.case_id,
+        intent.revision_number,
+        intent.revision_digest,
+        intent.certificate_digest,
+        intent.kernel_result_digest,
+        intent.bundle_manifest_digest,
+        intent.authorization_context_digest,
+        intent.action_schema_digest,
+        intent.action_digest,
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryTenantScope:
     """Five repositories over one set of records, one tenant, one transaction."""
 
@@ -708,6 +916,10 @@ class MemoryTenantScope:
     @property
     def catalog(self) -> CatalogRepository:
         return MemoryCatalogRepository(self.records, self._tenant_id, self.writable)
+
+    @property
+    def executions(self) -> ExecutionRepository:
+        return MemoryExecutionRepository(self.records, self._tenant_id, self.writable)
 
 
 def _require_writable(writable: bool, table: str) -> None:

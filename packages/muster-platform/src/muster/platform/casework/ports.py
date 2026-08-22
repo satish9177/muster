@@ -36,6 +36,7 @@ from muster.core.case.revision import RebuildInputs
 from muster.core.results import InvariantViolation, Result
 from muster.core.values.times import Instant
 from muster.core.wire.digests import Digest, DigestKind
+from muster.platform.gate.ports import ExecutionRepository
 
 #  ---- durable instants ---------------------------------------------------
 
@@ -756,6 +757,8 @@ class TenantScope(Protocol):
     def authority(self) -> AuthorityRepository: ...
     @property
     def catalog(self) -> CatalogRepository: ...
+    @property
+    def executions(self) -> ExecutionRepository: ...
 
 
 class CaseworkDatabase(Protocol):

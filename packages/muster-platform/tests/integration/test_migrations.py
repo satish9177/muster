@@ -128,7 +128,8 @@ def test_the_schema_is_what_the_repositories_expect(scratch_database: str) -> No
             (row[0], row[1])
             for row in connection.execute(
                 "SELECT table_schema, table_name FROM information_schema.tables "
-                "WHERE table_schema IN ('store', 'casework', 'authority', 'catalog')"
+                "WHERE table_schema IN "
+                "('store', 'casework', 'authority', 'catalog', 'action_gate')"
             ).fetchall()
         }
     assert tables == {
@@ -145,12 +146,13 @@ def test_the_schema_is_what_the_repositories_expect(scratch_database: str) -> No
         #  fails it.
         ("authority", "publication_state"),
         ("catalog", "agent_snapshot"),
+        ("action_gate", "execution"),
     }
 
 
 @pytest.mark.postgres
-def test_no_gate_settlement_or_agent_runtime_table_is_created(scratch_database: str) -> None:
-    """Nothing is built for a milestone that does not exist yet.
+def test_no_real_settlement_or_agent_runtime_table_is_created(scratch_database: str) -> None:
+    """The Gate exists without a real settlement or agent runtime.
 
     An authorization table created "ready for the gate" would be a schema whose
     owner does not exist, in a design whose whole point about the gate is that
@@ -184,7 +186,8 @@ def test_no_gate_settlement_or_agent_runtime_table_is_created(scratch_database: 
                 "WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
             ).fetchall()
         }
-    assert "gate" not in schemas
+    assert "gate" not in schemas  # the owned schema is explicitly ``action_gate``
+    assert "action_gate" in schemas
     assert "policy" not in schemas
     for forbidden in (
         "authorization_attempt",
@@ -205,6 +208,7 @@ def test_no_gate_settlement_or_agent_runtime_table_is_created(scratch_database: 
     #  published snapshots.  A second catalog table would be where per-agent
     #  mutable state started.
     assert {name for name in names if "agent" in name} == {"agent_snapshot"}
+    assert {name for name in names if "execution" in name} == {"execution"}
 
 
 @pytest.mark.postgres

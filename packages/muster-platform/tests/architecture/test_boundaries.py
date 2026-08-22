@@ -55,7 +55,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     #  adapter that imported the SQL one would be sharing an implementation
     #  rather than satisfying a contract, and the shared contract suite would
     #  stop being evidence of anything.
-    "adapters.memory": frozenset({"casework.ports"}),
+    "adapters.memory": frozenset({"casework.ports", "gate.model", "gate.ports"}),
     "orchestration": frozenset(),
     #  Pure. Reads kernel values, returns a decision. Does not know a database
     #  exists, and must not learn.
@@ -63,7 +63,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     "orchestration.decide": frozenset({"orchestration.decisions"}),
     "orchestration.status": frozenset(),
     #  The custody boundary: protocols and value types, and nothing below it.
-    "casework.ports": frozenset(),
+    "casework.ports": frozenset({"gate.ports"}),
     #  Reaches ``authority.resolve`` because a snapshot of a case is not
     #  complete without the authority state the case pinned: every rebuild is
     #  judged against it, and resolving it later would mean resolving it after
@@ -119,6 +119,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     "adapters.sql.transcript": frozenset({"casework.ports"}),
     "adapters.sql.head": frozenset({"casework.ports"}),
     "adapters.sql.requests": frozenset({"casework.ports"}),
+    "adapters.sql.executions": frozenset({"casework.ports", "gate.model", "gate.ports"}),
     "adapters.sql.database": frozenset(
         {
             "casework.ports",
@@ -126,8 +127,10 @@ ALLOWED: dict[str, frozenset[str]] = {
             "adapters.sql.transcript",
             "adapters.sql.head",
             "adapters.sql.requests",
+            "adapters.sql.executions",
             "adapters.sql.commitments",
             "adapters.sql.authority",
+            "gate.ports",
         }
     ),
     "adapters.sql.commitments": frozenset({"casework.ports"}),
@@ -226,6 +229,26 @@ ALLOWED: dict[str, frozenset[str]] = {
     #  the only one that names a URL.  Written against the kernel's delivery
     #  port, so it imports nothing from this package at all.
     "adapters.http": frozenset(),
+    #  ---- deterministic Action Gate --------------------------------------
+    "gate": frozenset(),
+    "gate.model": frozenset(),
+    "gate.authority": frozenset(),
+    "gate.ports": frozenset({"gate.model"}),
+    "gate.executor": frozenset({"gate.model"}),
+    "gate.eligibility": frozenset(
+        {"casework.commands", "gate.model", "orchestration.status"}
+    ),
+    "gate.service": frozenset(
+        {
+            "casework.advance",
+            "casework.commands",
+            "gate.authority",
+            "gate.eligibility",
+            "gate.executor",
+            "gate.model",
+            "gate.ports",
+        }
+    ),
 }
 
 #  Packages the final architecture contains and this milestone does not.
@@ -234,7 +257,7 @@ ALLOWED: dict[str, frozenset[str]] = {
 #  and this one sends a request to it and admits the reply.  What is still
 #  absent is everything that decides whether MUSTER *acts* -- the gate, its
 #  settlement adapter -- plus the inbound surfaces nothing yet needs.
-NOT_YET_BUILT = frozenset({"gate", "api", "entrypoints"})
+NOT_YET_BUILT = frozenset({"api", "entrypoints"})
 
 #  Third-party roots forbidden anywhere in this package. The database driver is
 #  exempt under ``adapters`` alone -- listed by subtree, so a second module
@@ -320,11 +343,7 @@ AMBIENT_EXEMPT: frozenset[str] = frozenset()
 #  plane declaring its own grant type would be a second answer to "who may
 #  attest" with no wire contract behind it.
 FORBIDDEN_DECLARATIONS = (
-    "authorizedaction",
-    "gatedecision",
     "spendinglimit",
-    "executionreservation",
-    "finality",
     "disbursement",
     "payout",
     "settlement",
@@ -729,8 +748,8 @@ def test_the_publication_holds_the_case_before_it_writes_or_swaps() -> None:
     assert hold < body.index("heads.advance("), "TX B swaps before holding"
 
 
-def test_no_milestone_e_or_later_concept_is_declared() -> None:
-    """Authority, the gate, settlement and dispatch are not here.
+def test_no_unbuilt_payment_or_agent_runtime_concept_is_declared() -> None:
+    """The Gate is here; real settlement and agent runtime remain absent.
 
     Not prepared for, either: a speculative abstraction for a component nobody
     has written is a design decision taken without the information that would
@@ -842,6 +861,10 @@ def test_the_keyed_primitive_appears_only_where_a_key_does() -> None:
         "commit.salts",
         "adapters.crypto",
         "adapters.sql.migrations",
+        #  The Action Gate's operational idempotency key hashes its canonical
+        #  intent. It is unkeyed and deliberately outside the semantic digest
+        #  namespace; no credential or case salt reaches this module.
+        "gate.model",
     }
 
 

@@ -35,6 +35,7 @@ import psycopg
 from muster.platform.adapters.sql.authority import SqlAuthorityRepository, SqlCatalogRepository
 from muster.platform.adapters.sql.commitments import SqlCommitmentRepository
 from muster.platform.adapters.sql.content import SqlContentStore
+from muster.platform.adapters.sql.executions import SqlExecutionRepository
 from muster.platform.adapters.sql.head import SqlCaseHeadRepository
 from muster.platform.adapters.sql.requests import SqlEvidenceRequestRepository
 from muster.platform.adapters.sql.transcript import SqlTranscriptRepository
@@ -48,6 +49,7 @@ from muster.platform.casework.ports import (
     TranscriptRepository,
 )
 from muster.platform.casework.ports import CaseHeadRepository as CaseHeadRepositoryPort
+from muster.platform.gate.ports import ExecutionRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +90,10 @@ class SqlTenantScope:
     @property
     def catalog(self) -> CatalogRepository:
         return SqlCatalogRepository(self.connection, self._tenant_id)
+
+    @property
+    def executions(self) -> ExecutionRepository:
+        return SqlExecutionRepository(self.connection, self._tenant_id)
 
 
 @dataclass(frozen=True, slots=True)
