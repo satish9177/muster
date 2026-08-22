@@ -57,3 +57,5 @@ venv/
 .import_linter_cache/
 *.pem
 *.key
+# Frontend is not part of the agent/control-plane container images.
+packages/muster-ui/

@@ -33,7 +33,7 @@ export function CaseTrace({ events, activeId, onSelect }: CaseTraceProps) {
       <ol className="trace-list">
         {events.map((event, index) => {
           const active = event.id === activeId;
-          const siteAgent = event.id === "site-agent";
+          const siteAgent = event.inspector.sourceClass.includes("SITE");
           return (
             <li
               className={`trace-entry ${event.kind} ${active ? "active" : ""}`}

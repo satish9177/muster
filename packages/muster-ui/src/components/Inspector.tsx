@@ -44,7 +44,7 @@ export function Inspector({ event, model }: InspectorProps) {
             <strong>Security boundary held</strong>
             <span>Raw site material never entered the Control Plane.</span>
           </div>
-          <b>403</b>
+          <b>{event.httpStatus}</b>
         </div>
       )}
 

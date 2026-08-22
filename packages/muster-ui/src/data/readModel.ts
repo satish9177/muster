@@ -9,7 +9,10 @@ export const EVENT_KINDS = [
 
 export type EventKind = (typeof EVENT_KINDS)[number];
 export type ResultTone = "neutral" | "denied" | "verified" | "invariant" | "pending";
-export type ReplayMode = "verified-replay" | "captured-replay" | "live";
+export type ReplayMode =
+  | "verified-cloud-execution"
+  | "deterministic-local-replay"
+  | "curated-example";
 
 export interface RawInspectorDetail {
   source_class: string;
@@ -35,6 +38,7 @@ export interface RawTraceEvent {
   result: string;
   result_tone: ResultTone;
   tags: string[];
+  http_status?: number;
   inspector: RawInspectorDetail;
 }
 
@@ -92,6 +96,7 @@ export interface TraceEvent {
   result: string;
   resultTone: ResultTone;
   tags: string[];
+  httpStatus: number | null;
   inspector: InspectorDetail;
 }
 
@@ -125,12 +130,14 @@ const RESULT_TONES = new Set<ResultTone>([
 export function transformHeroCase(input: unknown): HeroCaseViewModel {
   assertHeroCase(input);
 
-  if (input.provenance.mode === "live" && !input.provenance.captured_at) {
-    throw new Error("A live read model must carry its observation timestamp");
+  if (
+    input.provenance.mode === "verified-cloud-execution" &&
+    (!input.provenance.capture_available || !input.provenance.captured_at)
+  ) {
+    throw new Error("A verified cloud replay must identify its execution capture");
   }
-
-  if (input.provenance.mode === "captured-replay" && !input.provenance.capture_available) {
-    throw new Error("A captured replay must identify an available capture");
+  if (input.provenance.mode === "curated-example" && input.provenance.capture_available) {
+    throw new Error("A curated example cannot claim an execution capture");
   }
 
   const ids = input.events.map((event) => event.id);
@@ -171,6 +178,7 @@ export function transformHeroCase(input: unknown): HeroCaseViewModel {
       result: event.result,
       resultTone: event.result_tone,
       tags: [...event.tags],
+      httpStatus: event.http_status ?? null,
       inspector: {
         sourceClass: event.inspector.source_class,
         sourceIdentity: event.inspector.source_identity,
@@ -193,6 +201,9 @@ function assertHeroCase(input: unknown): asserts input is RawHeroCase {
   }
   if (!isRecord(input.case) || !isRecord(input.provenance) || !Array.isArray(input.events)) {
     throw new Error("Hero-case read model is incomplete");
+  }
+  if (!isProvenance(input.provenance)) {
+    throw new Error("Hero-case provenance is malformed");
   }
   if (!isRecord(input.case.action) || input.case.action.execution !== "NOT_EXECUTED") {
     throw new Error("UI-1 may only render actions that have not been executed");
@@ -228,7 +239,25 @@ function isTraceEvent(value: unknown): value is RawTraceEvent {
     RESULT_TONES.has(value.result_tone as ResultTone) &&
     Array.isArray(value.tags) &&
     value.tags.every(isString) &&
+    (value.http_status === undefined || Number.isInteger(value.http_status)) &&
+    (value.kind !== "boundary" || Number.isInteger(value.http_status)) &&
     isInspectorDetail(value.inspector)
+  );
+}
+
+function isProvenance(value: unknown): value is RawHeroCase["provenance"] {
+  return (
+    isRecord(value) &&
+    [
+      "verified-cloud-execution",
+      "deterministic-local-replay",
+      "curated-example",
+    ].includes(value.mode as ReplayMode) &&
+    isString(value.label) &&
+    isString(value.description) &&
+    isString(value.basis) &&
+    (value.captured_at === null || isString(value.captured_at)) &&
+    typeof value.capture_available === "boolean"
   );
 }
 

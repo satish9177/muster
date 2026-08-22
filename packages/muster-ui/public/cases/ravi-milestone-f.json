@@ -21,10 +21,10 @@
     ]
   },
   "provenance": {
-    "mode": "verified-replay",
-    "label": "Milestone F · verified replay",
-    "description": "Curated read model of the verified Milestone-F case; this screen is not live telemetry.",
-    "basis": "Existing worked-run narration, source manifests, architecture checks, and acceptance contracts",
+    "mode": "curated-example",
+    "label": "CURATED EXAMPLE · DEVELOPMENT FALLBACK",
+    "description": "Bundled explanatory example; this is not execution evidence or live telemetry.",
+    "basis": "Curated UI-1 development fixture",
     "captured_at": null,
     "capture_available": false
   },
@@ -93,6 +93,7 @@
       "summary": "The identity holding the case record cannot read private site material.",
       "result": "DENIED · HTTP 403 · GCP IAM",
       "result_tone": "denied",
+      "http_status": 403,
       "tags": ["REAL IAM BOUNDARY", "NO DISCLOSURE"],
       "inspector": {
         "source_class": "SITE SOURCE BOUNDARY",
@@ -106,7 +107,7 @@
         "q12_result": "Not applicable — denial precedes attestation",
         "model_interpretation": "No model client in the Control Plane",
         "deterministic_decision": "No — GCP IAM enforces the boundary",
-        "provenance_note": "Milestone-F verified GCP boundary shown as a replayed case fact. No saved live trace artifact is connected to UI-1."
+        "provenance_note": "Explanatory example only. The preferred path supplies this status from a captured execution artifact."
       }
     },
     {

@@ -54,6 +54,7 @@ from muster.core.evidence.acquisition import (
 from muster.core.evidence.delivery import AcquisitionTransport, TransportError
 from muster.core.evidence.requests import EvidenceRequest, read_evidence_request
 from muster.core.evidence.transcript import (
+    AcquisitionPayload,
     Attestation,
     CaseConstructionRecord,
     VerificationReceipt,
@@ -133,6 +134,11 @@ class AdmittedReceipt:
     """One receipt that became transcript membership, and what followed."""
 
     proposition: SymbolRef
+    #: The signed payload that passed ordinary admission.  The signature and
+    #: source-private material stay behind; this is retained so a caller can
+    #: project narrow, sanitized provenance without rereading transcript
+    #: octets or reconstructing what Q-12 admitted.
+    payload: AcquisitionPayload
     entry_digest: Digest
     #: ``False`` when the entry was already a member -- a duplicate delivery,
     #: and a success.  Structural idempotence: a receipt is identified by its
@@ -490,6 +496,7 @@ def _submit_all(
         admitted.append(
             AdmittedReceipt(
                 proposition=receipt.payload.proposition,
+                payload=receipt.payload,
                 entry_digest=appended.value.entry_digest,
                 created=appended.value.created,
                 advanced=appended.value.advanced,

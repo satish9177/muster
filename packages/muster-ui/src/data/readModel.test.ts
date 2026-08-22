@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import curatedPayload from "../../public/cases/ravi-milestone-f.json";
 import { transformHeroCase, type RawHeroCase } from "./readModel";
 
 const specimen: RawHeroCase = {
@@ -22,8 +23,8 @@ const specimen: RawHeroCase = {
     unresolved: ["exact on-site duration"],
   },
   provenance: {
-    mode: "verified-replay",
-    label: "Verified replay",
+    mode: "curated-example",
+    label: "Curated example",
     description: "Not live telemetry",
     basis: "Milestone F",
     captured_at: null,
@@ -58,6 +59,13 @@ const specimen: RawHeroCase = {
 };
 
 describe("transformHeroCase", () => {
+  it("keeps the bundled fallback explicitly distinguishable as curated", () => {
+    const result = transformHeroCase(curatedPayload);
+
+    expect(result.provenance.mode).toBe("curated-example");
+    expect(result.provenance.capture_available).toBe(false);
+  });
+
   it("formats the decided amount while preserving unresolved facts", () => {
     const result = transformHeroCase(specimen);
 
@@ -89,10 +97,10 @@ describe("transformHeroCase", () => {
     expect(() => transformHeroCase(duplicate)).toThrow(/identifiers must be unique/);
   });
 
-  it("does not allow an un-timestamped model to present itself as live", () => {
+  it("does not allow a curated example to claim an execution capture", () => {
     const misleading = structuredClone(specimen);
-    misleading.provenance.mode = "live";
+    misleading.provenance.capture_available = true;
 
-    expect(() => transformHeroCase(misleading)).toThrow(/observation timestamp/);
+    expect(() => transformHeroCase(misleading)).toThrow(/cannot claim an execution capture/);
   });
 });

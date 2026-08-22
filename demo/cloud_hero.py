@@ -67,6 +67,7 @@ REPOSITORY = Path(__file__).resolve().parent.parent
 #  **Deliberately not the fleet.**  An agent package on this path would make
 #  "no model runs here" a thing to check rather than a thing that is true.
 for _entry in (
+    REPOSITORY,
     REPOSITORY / "packages" / "muster-kernel" / "src",
     REPOSITORY / "packages" / "muster-platform" / "src",
     REPOSITORY / "packages" / "muster-platform" / "tests",
@@ -703,6 +704,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         raw_object=fleet.raw_object,
     )
     narrate(run)
+    if run.reached_invariant() and run.raw_access == RawAttempt(
+        RawAccess.DENIED, run.raw_access.reference, 403
+    ):
+        from demo.case_trace_artifact import (
+            build_case_trace_artifact,
+            cloud_artifact_context_from_environment,
+        )
+
+        try:
+            artifact = build_case_trace_artifact(
+                run, case, cloud_artifact_context_from_environment()
+            )
+        except ValueError as error:
+            raise SystemExit(f"muster-cloud-hero: ARTIFACT REFUSED: {error}") from error
+        print(artifact.machine_record())
     #  The exit status is the claim.  A run that did not reach the invariant
     #  answer is a run that did not demonstrate anything, and an operator
     #  reading a job execution should not have to read the log to find out.

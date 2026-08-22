@@ -119,6 +119,12 @@ env_file="${MUSTER_ENV_FILE}"
   muster::env_entry MUSTER_HERO_SITE_PUBLIC_KEY "${SITE_PUBLIC}"
   muster::env_entry MUSTER_HERO_EMPLOYER_PUBLIC_KEY "${EMPLOYER_PUBLIC}"
   muster::env_entry MUSTER_HERO_RAW_OBJECT "gs://${EVIDENCE_BUCKET}/${HERO_RAW_OBJECT}"
+  muster::env_entry MUSTER_TRACE_PROJECT_ID "${PROJECT_ID}"
+  muster::env_entry MUSTER_TRACE_JOB_NAME "${HERO_JOB}"
+  muster::env_entry MUSTER_TRACE_CLOUD_RUN_REGION "${REGION}"
+  muster::env_entry MUSTER_TRACE_MODEL "${AGENT_MODEL}"
+  muster::env_entry MUSTER_TRACE_MODEL_LOCATION "${VERTEX_LOCATION}"
+  muster::env_entry MUSTER_TRACE_CONTROL_PLANE_ID "${CONTROL_PLANE_SA_ID}"
 } > "${env_file}"
 
 #  ---- Direct VPC egress, which is how this job reaches an internal agent ---
@@ -224,11 +230,18 @@ muster::banner "what it printed"
 #  predicate names, identifiers, digests, enum values and counts -- so it is
 #  safe to read back here and safe to show.
 #
-#  Scoped to ${execution}, and to nothing else.  ``|| true`` covers the read
-#  itself failing or coming back empty, which is a statement about the logs and
-#  not about the run: the verdict below comes from the execution's own outcome.
-#  What it deliberately does not do is widen the filter to fill the gap.
-muster::execution_output "${HERO_JOB}" "${execution}" || true
+#  Scoped to ${execution}, and to nothing else.  Keep the exact bytes that are
+#  shown, because the machine record is captured from this same bounded read --
+#  never from a second query that might observe a different ingestion state.
+trace_logs="$(mktemp "${TMPDIR:-/tmp}/muster-case-trace.XXXXXX")"
+trap 'rm -f "${trace_logs}"' EXIT
+logs_read=1
+if ! muster::execution_output "${HERO_JOB}" "${execution}" > "${trace_logs}"; then
+  logs_read=0
+fi
+if [[ -s "${trace_logs}" ]]; then
+  cat "${trace_logs}"
+fi
 
 echo
 if [[ ${status} -eq 2 ]]; then
@@ -245,6 +258,35 @@ UNDETERMINED
 fi
 
 if [[ ${status} -eq 0 ]]; then
+  if [[ ${logs_read} -ne 1 ]]; then
+    echo "  the execution succeeded but its artifact-bearing output was unavailable" >&2
+    exit 4
+  fi
+
+  execution_times="$(gcloud run jobs executions describe "${execution}" \
+    --project="${PROJECT_ID}" --region="${REGION}" \
+    --format="value(status.startTime,status.completionTime)" 2>/dev/null || true)"
+  read -r executed_at completed_at <<< "${execution_times}"
+  if [[ -z "${executed_at:-}" || -z "${completed_at:-}" ]]; then
+    echo "  ${execution} succeeded but its execution timestamps could not be bound" >&2
+    exit 4
+  fi
+
+  artifact_output="${EVIDENCE_DIR}/case-traces/${execution}.json"
+  ui_output="${REPOSITORY_ROOT}/packages/muster-ui/public/cases/ravi-cloud-execution.json"
+  if ! "${MUSTER_PYTHON}" "${REPOSITORY_ROOT}/infra/scripts/capture_case_trace.py" \
+    --logs "${trace_logs}" \
+    --project "${PROJECT_ID}" \
+    --job "${HERO_JOB}" \
+    --region "${REGION}" \
+    --execution "${execution}" \
+    --executed-at "${executed_at}" \
+    --completed-at "${completed_at}" \
+    --output "${artifact_output}" \
+    --ui-output "${ui_output}"; then
+    echo "  ${execution} succeeded but no valid sanitized case trace was captured" >&2
+    exit 4
+  fi
   echo "  the case reached the invariant answer"
   exit 0
 fi
