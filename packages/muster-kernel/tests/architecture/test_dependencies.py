@@ -135,6 +135,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     "hinge": _ALL_CORE_DECIDING | {"policy", "solve"},
     "evidence": _ALL_CORE_DECIDING | {"hinge"},
     "domains.workforce": _ALL_CORE_DECIDING | {"policy"},
+    "domains.procurement": _ALL_CORE_DECIDING | {"policy"},
     #  The frozen matrix gives the composition root "all of the above,
     #  **including solve.z3 and solve.reference**". Omitting an adapter here
     #  would forbid the only layer allowed to construct one from constructing
@@ -149,6 +150,7 @@ ALLOWED: dict[str, frozenset[str]] = {
         "hinge",
         "evidence",
         "domains.workforce",
+        "domains.procurement",
     },
 }
 
@@ -164,7 +166,7 @@ ALLOWED: dict[str, frozenset[str]] = {
 #  ``domains.procurement`` is the one row here that is genuinely unwritten.
 #  Naming it in a contract would assert something about code nobody has
 #  written.
-NOT_YET_BUILT = frozenset({"platform", "agents", "domains.procurement"})
+NOT_YET_BUILT = frozenset({"platform", "agents"})
 
 #  The one production subtree permitted to import a solver library, and the one
 #  library it may import. Both halves matter: a second adapter added elsewhere
@@ -370,14 +372,9 @@ def test_the_graph_is_acyclic() -> None:
         walk(row, ())
 
 
-def test_the_two_domains_would_be_independent_of_each_other() -> None:
-    """The rule that a top-level checker cannot see.
-
-    Only one domain exists today, so this asserts the *checker* can express the
-    rule -- otherwise it would start passing vacuously the moment the second
-    domain lands.
-    """
-    assert "domains.procurement" in NOT_YET_BUILT
+def test_the_two_domains_are_independent_of_each_other() -> None:
+    """Domain packages see generic seams, never each other."""
+    assert {"domains.workforce", "domains.procurement"} <= set(ALLOWED)
     for row, allowed in ALLOWED.items():
         if row.startswith("domains."):
             assert not any(other.startswith("domains.") for other in allowed)

@@ -1,0 +1,109 @@
+{
+  "schema_version": "muster.procurement-case/v1",
+  "case": {
+    "tenant_id": "MUSTER-DEMO",
+    "case_id": "PROCUREMENT-PO-4821",
+    "po_id": "PO-4821",
+    "supplier": "SUPPLIER-ORION",
+    "title": "Supplier Delivery"
+  },
+  "sources": [
+    {
+      "label": "Supplier declaration",
+      "source_class": "SUPPLIER_DECLARATION",
+      "quantity": 100,
+      "relation": "CLAIM"
+    },
+    {
+      "label": "Warehouse receiving",
+      "source_class": "WAREHOUSE_RECEIVING",
+      "quantity": 97,
+      "relation": "LOWER_BOUND"
+    }
+  ],
+  "uncertainty": {
+    "predicate": "delivered_quantity",
+    "status": "UNRESOLVED",
+    "admissible_min": 97,
+    "admissible_max": 100,
+    "lower_bound": {
+      "quantity": 97,
+      "source_class": "WAREHOUSE_RECEIVING",
+      "semantics": "CLOSED_LOWER_BOUND"
+    },
+    "upper_bound": {
+      "quantity": 100,
+      "source_class": "PROCUREMENT_PO",
+      "semantics": "CLOSED_UPPER_BOUND"
+    }
+  },
+  "policy": {
+    "key": "PER_UNIT",
+    "policy_id": "procurement-per-unit",
+    "version": "1.0.0",
+    "manifest_digest": "50934dc045dda48ddf3f55a092d46d54e9cfdd5b34f5e3bf1b5cb149a7c60253",
+    "acceptance_minimum": 97,
+    "fixed_amount_minor": 6300000,
+    "per_unit_rate_minor": 63000,
+    "currency": "INR"
+  },
+  "alternatives": [
+    {
+      "quantity": 97,
+      "action": {
+        "kind": "PAY",
+        "recipient": "SUPPLIER-ORION",
+        "currency": "INR",
+        "amount_minor": 6111000
+      }
+    },
+    {
+      "quantity": 98,
+      "action": {
+        "kind": "PAY",
+        "recipient": "SUPPLIER-ORION",
+        "currency": "INR",
+        "amount_minor": 6174000
+      }
+    },
+    {
+      "quantity": 99,
+      "action": {
+        "kind": "PAY",
+        "recipient": "SUPPLIER-ORION",
+        "currency": "INR",
+        "amount_minor": 6237000
+      }
+    },
+    {
+      "quantity": 100,
+      "action": {
+        "kind": "PAY",
+        "recipient": "SUPPLIER-ORION",
+        "currency": "INR",
+        "amount_minor": 6300000
+      }
+    }
+  ],
+  "result": {
+    "outcome": "DIVERGENT",
+    "proposed_action": null,
+    "additional_evidence": {
+      "status": "REQUIRED",
+      "reason": "ACTION_SENSITIVE_UNCERTAINTY",
+      "hinge": {
+        "predicate": "delivered_quantity",
+        "label": "delivered quantity",
+        "permitted_source_classes": [
+          "WAREHOUSE_RECEIVING"
+        ]
+      }
+    },
+    "reachable_action_count": 4
+  },
+  "provenance": {
+    "mode": "deterministic-local-replay",
+    "description": "Derived from the pinned procurement bundle by the MUSTER kernel.",
+    "basis": "No model or cloud execution is used for this procurement proof."
+  }
+}

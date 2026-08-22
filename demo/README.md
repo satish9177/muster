@@ -1,5 +1,43 @@
 # The worked run
 
+## Durable browser demo on Windows
+
+The browser demo keeps Ravi's Action Gate lifecycle in a local PostgreSQL
+database. It does not use a cloud-hosted PostgreSQL service and transfers no
+real funds.
+
+From the repository root, use three PowerShell terminals.
+
+Terminal 1 — create the existing PostgreSQL 16 test container once:
+
+```powershell
+docker run -d --name muster-pg -p 55432:5432 -e POSTGRES_USER=muster -e POSTGRES_PASSWORD=muster -e POSTGRES_DB=muster postgres:16-alpine
+```
+
+On later days, start the same container instead:
+
+```powershell
+docker start muster-pg
+```
+
+Terminal 2 — configure the database and start the loopback API:
+
+```powershell
+$env:MUSTER_DATABASE_URL = 'postgresql://muster:muster@127.0.0.1:55432/muster'
+.\.venv\Scripts\python.exe demo\action_gate_api.py
+```
+
+Terminal 3 — start the unchanged Vite UI:
+
+```powershell
+Set-Location packages\muster-ui
+npm.cmd run dev
+```
+
+Open `http://127.0.0.1:5173`. The API applies the repository's migrations and
+restores the authoritative Ravi fixture idempotently on startup. If PostgreSQL
+or the DSN is unavailable, the API exits instead of falling back to memory.
+
 ```
 python demo/hero.py
 ```

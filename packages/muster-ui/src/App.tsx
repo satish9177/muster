@@ -2,9 +2,11 @@ import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ActionGatePanel } from "./components/ActionGatePanel";
+import { CaseSelector, type CaseKind } from "./components/CaseSelector";
 import { CaseHeader } from "./components/CaseHeader";
 import { CaseTrace } from "./components/CaseTrace";
 import { Inspector } from "./components/Inspector";
+import { ProcurementCase } from "./components/ProcurementCase";
 import {
   actionGateClient,
   withActionGate,
@@ -14,6 +16,17 @@ import { heroCaseClient } from "./data/caseClient";
 import type { HeroCaseViewModel } from "./data/readModel";
 
 export function App() {
+  const [caseKind, setCaseKind] = useState<CaseKind>("workforce");
+
+  return (
+    <>
+      <CaseSelector active={caseKind} onSelect={setCaseKind} />
+      {caseKind === "workforce" ? <WorkforceCase /> : <ProcurementCase />}
+    </>
+  );
+}
+
+function WorkforceCase() {
   const [model, setModel] = useState<HeroCaseViewModel | null>(null);
   const [activeId, setActiveId] = useState("boundary");
   const [error, setError] = useState<string | null>(null);
