@@ -1,12 +1,16 @@
-import { CircleDotDashed, LockKeyhole, RadioTower } from "lucide-react";
+import { CircleDotDashed, LockKeyhole, Play, RadioTower } from "lucide-react";
 
+import { gateActionLabel, mayInvokeGate, type ActionGateReadModel } from "../data/actionGate";
 import type { HeroCaseViewModel } from "../data/readModel";
 
 interface CaseHeaderProps {
   model: HeroCaseViewModel;
+  gate: ActionGateReadModel | null;
+  executing: boolean;
+  onExecute: () => void;
 }
 
-export function CaseHeader({ model }: CaseHeaderProps) {
+export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProps) {
   return (
     <>
       <header className="app-bar">
@@ -61,8 +65,19 @@ export function CaseHeader({ model }: CaseHeaderProps) {
           </div>
           <div className="gate-state">
             <span className="gate-indicator" aria-hidden="true" />
-            Action Gate pending · nothing executed
+            {gate?.phase === "EXECUTED"
+              ? "Sandbox confirmation is durable"
+              : "Action Gate · no real funds transferred"}
           </div>
+          <button
+            type="button"
+            className="execute-action"
+            onClick={onExecute}
+            disabled={!gate || executing || !mayInvokeGate(gate)}
+          >
+            <Play size={13} fill="currentColor" aria-hidden="true" />
+            {executing ? "Executing exact proposal…" : gate ? gateActionLabel(gate) : "Sandbox unavailable"}
+          </button>
         </div>
       </section>
     </>

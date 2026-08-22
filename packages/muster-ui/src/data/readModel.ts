@@ -8,7 +8,14 @@ export const EVENT_KINDS = [
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
-export type ResultTone = "neutral" | "denied" | "verified" | "invariant" | "pending";
+export type ResultTone =
+  | "neutral"
+  | "denied"
+  | "verified"
+  | "invariant"
+  | "pending"
+  | "uncertain"
+  | "failed";
 export type ReplayMode =
   | "verified-cloud-execution"
   | "deterministic-local-replay"
@@ -125,6 +132,8 @@ const RESULT_TONES = new Set<ResultTone>([
   "verified",
   "invariant",
   "pending",
+  "uncertain",
+  "failed",
 ]);
 
 export function transformHeroCase(input: unknown): HeroCaseViewModel {

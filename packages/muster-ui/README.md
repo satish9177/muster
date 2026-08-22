@@ -15,8 +15,15 @@ cloud artifact fails closed instead of silently falling back.
 
 ```powershell
 npm.cmd install
+..\..\.venv\Scripts\python.exe ..\..\demo\action_gate_api.py
 npm.cmd run dev
 ```
+
+The first process is a loopback-only local demo API over the real deterministic
+Action Gate and synthetic sandbox executor. The browser sends an empty POST to
+an opaque proposal-reference URL; it never submits recipient, amount, currency,
+or action kind. This local action path is labeled separately from the verified
+Google Cloud evidence/agent replay. No real funds are transferred.
 
 Validation:
 
