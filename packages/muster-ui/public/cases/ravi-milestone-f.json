@@ -1,0 +1,219 @@
+{
+  "schema_version": "muster.hero-case/v1",
+  "case": {
+    "id": "MSR-RAVI-SAT-001",
+    "title": "Ravi — Saturday Shift Pay",
+    "subject": "RAVI",
+    "pinned_policy": "scheduled ∧ present_on_site ∧ duration ≥ 240m ⇒ PAY daily_rate",
+    "policy_version": "Q-12 / workforce-v1",
+    "status": "PROPOSED",
+    "outcome": "INVARIANT",
+    "action": {
+      "kind": "PAY",
+      "recipient": "RAVI",
+      "currency": "INR",
+      "amount_minor": 510000,
+      "execution": "NOT_EXECUTED"
+    },
+    "unresolved": [
+      "Exact on-site duration",
+      "shift_payable_under_policy as a standalone fact"
+    ]
+  },
+  "provenance": {
+    "mode": "verified-replay",
+    "label": "Milestone F · verified replay",
+    "description": "Curated read model of the verified Milestone-F case; this screen is not live telemetry.",
+    "basis": "Existing worked-run narration, source manifests, architecture checks, and acceptance contracts",
+    "captured_at": null,
+    "capture_available": false
+  },
+  "events": [
+    {
+      "id": "claim",
+      "sequence": "01",
+      "kind": "claim",
+      "actor": "Ravi / Worker Agent",
+      "eyebrow": "Worker claim",
+      "title": "“I worked Saturday.”",
+      "summary": "The case records Ravi’s statement. A claim alone creates no authority.",
+      "result": "CLAIM ONLY — INERT",
+      "result_tone": "neutral",
+      "tags": [],
+      "inspector": {
+        "source_class": "WORKER CLAIM",
+        "source_identity": "RAVI",
+        "key_id": null,
+        "authority_grant": "None — claimant statements are not justification variants",
+        "predicates": [
+          "present_on_site(RAVI, SAT) = true [claimed]"
+        ],
+        "disclosure": "Ravi’s own statement enters the transcript; it does not establish the fact.",
+        "q12_result": "Not applicable — no attestation",
+        "model_interpretation": "Not in cloud replay — the claim is replayed",
+        "deterministic_decision": "No — transcript entry only",
+        "provenance_note": "The deployed cloud hero replays this prior claim; it does not pretend the Worker Agent ran in that job."
+      }
+    },
+    {
+      "id": "planner",
+      "sequence": "02",
+      "kind": "plan",
+      "actor": "Deterministic planner",
+      "eyebrow": "Evidence plan",
+      "title": "Three propositions are required",
+      "summary": "The planner derives the narrow facts needed under the pinned policy.",
+      "result": "REQUIRES 3 FACTS",
+      "result_tone": "neutral",
+      "tags": ["DETERMINISTIC"],
+      "inspector": {
+        "source_class": "DETERMINISTIC KERNEL",
+        "source_identity": "Control Plane / evidence planner",
+        "key_id": null,
+        "authority_grant": "Policy-pinned planning only; no source access",
+        "predicates": [
+          "scheduled(RAVI, SAT)",
+          "present_on_site(RAVI, SAT)",
+          "on_site_duration(RAVI, SAT) ≥ 240m"
+        ],
+        "disclosure": "A request for propositions and permitted source classes — not raw evidence.",
+        "q12_result": "Not reached — attestations requested",
+        "model_interpretation": "No",
+        "deterministic_decision": "Yes — constructs the evidence request",
+        "provenance_note": "The frontend renders this plan from the case read model and does not derive policy requirements."
+      }
+    },
+    {
+      "id": "boundary",
+      "sequence": "03",
+      "kind": "boundary",
+      "actor": "Control Plane → Site evidence",
+      "eyebrow": "Security boundary",
+      "title": "Raw source access refused",
+      "summary": "The identity holding the case record cannot read private site material.",
+      "result": "DENIED · HTTP 403 · GCP IAM",
+      "result_tone": "denied",
+      "tags": ["REAL IAM BOUNDARY", "NO DISCLOSURE"],
+      "inspector": {
+        "source_class": "SITE SOURCE BOUNDARY",
+        "source_identity": "muster-control-plane",
+        "key_id": null,
+        "authority_grant": "No storage.objects.get grant on site evidence",
+        "predicates": [
+          "raw_object_access(site-evidence) = DENIED"
+        ],
+        "disclosure": "None. The request is rejected before raw material can cross the boundary.",
+        "q12_result": "Not applicable — denial precedes attestation",
+        "model_interpretation": "No model client in the Control Plane",
+        "deterministic_decision": "No — GCP IAM enforces the boundary",
+        "provenance_note": "Milestone-F verified GCP boundary shown as a replayed case fact. No saved live trace artifact is connected to UI-1."
+      }
+    },
+    {
+      "id": "employer-agent",
+      "sequence": "04",
+      "kind": "agent",
+      "actor": "Employer Agent",
+      "eyebrow": "Institutional source",
+      "title": "scheduled(RAVI, SAT) = true",
+      "summary": "Gemini interprets employer-controlled payroll material inside the source boundary.",
+      "result": "SIGNED · Q-12 PASSED",
+      "result_tone": "verified",
+      "tags": ["GEMINI 3.7", "NARROW ATTESTATION"],
+      "inspector": {
+        "source_class": "HR_PAYROLL_SYSTEM",
+        "source_identity": "EMPLOYER-1 / agent-hr-payroll",
+        "key_id": "key-hr-payroll-cloud-1",
+        "authority_grant": "scheduled, daily_rate at RECORD",
+        "predicates": [
+          "scheduled(RAVI, SAT) = true"
+        ],
+        "disclosure": "Only the scheduled relation returns; payroll source material stays local.",
+        "q12_result": "PASSED — signer, scope, predicate, validity",
+        "model_interpretation": "Yes — Gemini 3.7 Flash inside Employer Agent",
+        "deterministic_decision": "No — the agent interprets and attests",
+        "provenance_note": "Source identity and cloud key reference follow the existing Milestone-F deployment contract."
+      }
+    },
+    {
+      "id": "site-agent",
+      "sequence": "05",
+      "kind": "agent",
+      "actor": "Site Agent",
+      "eyebrow": "Institutional source · SITE-A",
+      "title": "Presence and duration threshold attested",
+      "summary": "The Site Agent reads private site evidence and returns two narrow signed relations.",
+      "result": "2 SIGNED · Q-12 PASSED",
+      "result_tone": "verified",
+      "tags": ["GEMINI 3.7", "SOURCE-LOCAL EVIDENCE"],
+      "inspector": {
+        "source_class": "SITE_ACCESS_CONTROL",
+        "source_identity": "SITE-A / agent-site-a",
+        "key_id": "key-site-a-cloud-1",
+        "authority_grant": "present_on_site, on_site_duration at OBSERVATION",
+        "predicates": [
+          "present_on_site(RAVI, SAT) = true",
+          "on_site_duration(RAVI, SAT) ≥ 240m"
+        ],
+        "disclosure": "Presence and a sufficient lower bound return. Exact minutes and raw logs do not.",
+        "q12_result": "PASSED ×2 — signer, scope, predicate, validity",
+        "model_interpretation": "Yes — Gemini 3.7 Flash inside Site Agent",
+        "deterministic_decision": "No — the agent interprets and attests",
+        "provenance_note": "The agent has source-local access; the Control Plane receives relations, never the gate log or attendance image."
+      }
+    },
+    {
+      "id": "rebuild",
+      "sequence": "06",
+      "kind": "rebuild",
+      "actor": "Deterministic kernel",
+      "eyebrow": "Case rebuild",
+      "title": "Authorized facts entail one outcome",
+      "summary": "Exact duration remains unknown, but every policy-consistent world yields the same action.",
+      "result": "INVARIANT",
+      "result_tone": "invariant",
+      "tags": ["NO MODEL DECISION", "EXACT DURATION UNRESOLVED"],
+      "inspector": {
+        "source_class": "DETERMINISTIC KERNEL",
+        "source_identity": "Control Plane / rebuild",
+        "key_id": null,
+        "authority_grant": "Admitted transcript entries only",
+        "predicates": [
+          "all policy-consistent worlds ⇒ PAY(RAVI, INR 5100)",
+          "on_site_duration exact value = unresolved"
+        ],
+        "disclosure": "The certificate exposes the outcome and unresolved references, not source material.",
+        "q12_result": "PASSED on all 3 admitted attestations",
+        "model_interpretation": "No — models cannot decide or authorize",
+        "deterministic_decision": "Yes — rebuild, entailment, invariant result",
+        "provenance_note": "The UI receives the computed result; it does not recompute policy semantics."
+      }
+    },
+    {
+      "id": "action",
+      "sequence": "07",
+      "kind": "action",
+      "actor": "Proposed action",
+      "eyebrow": "Authorization handoff",
+      "title": "PAY Ravi ₹5,100",
+      "summary": "The action is ready for a future authorization gate. No payment has been sent.",
+      "result": "NOT EXECUTED",
+      "result_tone": "pending",
+      "tags": ["ACTION GATE PENDING"],
+      "inspector": {
+        "source_class": "DETERMINISTIC CASE RESULT",
+        "source_identity": "MUSTER Control Plane",
+        "key_id": null,
+        "authority_grant": "None to execute — Action Gate is not implemented",
+        "predicates": [
+          "proposed_action = PAY(RAVI, INR 5100)"
+        ],
+        "disclosure": "A proposed consequential action, explicitly not a settlement receipt.",
+        "q12_result": "Source authority validated upstream",
+        "model_interpretation": "No",
+        "deterministic_decision": "Yes — proposed from invariant analysis",
+        "provenance_note": "MUSTER has not decided that Ravi worked; it established payability under the pinned policy on attested grounds."
+      }
+    }
+  ]
+}
