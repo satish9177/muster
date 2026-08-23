@@ -81,6 +81,7 @@ from muster.core.evidence.delivery import AcquisitionTransport  # noqa: E402
 from muster.core.evidence.requests import EvidenceRequest  # noqa: E402
 from muster.core.evidence.transcript import Statement, StatementRecord  # noqa: E402
 from muster.core.results import Err, Ok  # noqa: E402
+from muster.core.values.scalars import render  # noqa: E402
 from muster.core.values.times import Instant  # noqa: E402
 from muster.platform.adapters.http import (  # noqa: E402
     HttpAcquisitionTransport,
@@ -629,7 +630,9 @@ def _narrate_result(report: CaseReport | None, write: Callable[[str], None]) -> 
     write(f"  outcome    {outcome_class(analysis.kernel.outcome)}")
     action = getattr(analysis.kernel.outcome, "action", None)
     if action is not None:
-        fields = "  ".join(f"{field.name}={field.value}" for field in action.consequential_fields)
+        fields = "  ".join(
+            f"{field.name}={render(field.value)}" for field in action.consequential_fields
+        )
         write(f"  action     {action.kind}  {fields}")
     unresolved = sorted(str(reference) for reference in analysis.projected.unresolved())
     write(f"  unresolved {', '.join(unresolved) if unresolved else 'nothing'}")
