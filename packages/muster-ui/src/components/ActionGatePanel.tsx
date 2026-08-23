@@ -12,8 +12,8 @@ export function ActionGatePanel({ gate, unavailableReason }: ActionGatePanelProp
     <section className="action-gate-panel" aria-label="Action Gate execution proof">
       <div className="gate-provenance">
         <span className="section-label">ACTION EXECUTION</span>
-        <strong>LOCAL DETERMINISTIC SANDBOX EXECUTION</strong>
-        <span>No real funds transferred</span>
+        <strong>POSTGRESQL-BACKED LOCAL SANDBOX ACTION GATE</strong>
+        <span>Local deterministic sandbox execution · No real funds transferred</span>
       </div>
 
       {gate ? (
@@ -88,8 +88,10 @@ function GateOutcome({ gate }: { gate: ActionGateReadModel }) {
     <div className="gate-outcome authorized">
       <ShieldCheck size={17} aria-hidden="true" />
       <span>
-        <strong>{gate.phase === "AUTHORIZED" ? "AUTHORIZED · GATE ELIGIBLE" : gate.phase}</strong>
-        Proposal identity verified · sandbox only
+        <strong>{gate.phase === "AUTHORIZED" ? "NOT EXECUTED" : gate.phase}</strong>
+        {gate.phase === "AUTHORIZED"
+          ? "AUTHORIZED · GATE ELIGIBLE · sandbox only"
+          : "Proposal identity verified · sandbox only"}
       </span>
     </div>
   );

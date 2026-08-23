@@ -47,6 +47,9 @@ export interface RawProcurementCase {
   };
   policy: {
     key: ProcurementPolicyKey;
+    display_name: string;
+    display_rule: string;
+    display_note: string;
     policy_id: string;
     version: string;
     manifest_digest: string;
@@ -61,9 +64,12 @@ export interface RawProcurementCase {
     proposed_action: RawAction | null;
     additional_evidence: {
       status: "NONE_REQUIRED" | "REQUIRED";
+      display_status: string;
       reason: string;
       hinge: RawHinge | null;
     };
+    exact_quantity_relevance: string;
+    explanation: string;
     reachable_action_count: number;
   };
   provenance: {
@@ -134,7 +140,7 @@ function assertProcurementCase(input: unknown): asserts input is RawProcurementC
     !isUncertainty(uncertainty) ||
     !isPolicy(input.policy) ||
     !Array.isArray(input.alternatives) ||
-    input.alternatives.length !== 4 ||
+    input.alternatives.length === 0 ||
     !input.alternatives.every(isAlternative) ||
     !isResult(input.result) ||
     !isProvenance(input.provenance)
@@ -174,6 +180,7 @@ function resultShapeMatchesOutcome(
     );
   }
   return (
+    alternatives.length >= 2 &&
     result.proposed_action === null &&
     result.additional_evidence.status === "REQUIRED" &&
     result.additional_evidence.hinge !== null &&
@@ -229,6 +236,7 @@ function isPolicy(value: unknown): value is RawProcurementCase["policy"] {
     isRecord(value) &&
     (value.key === "FIXED_TOLERANCE" || value.key === "PER_UNIT") &&
     allStrings(value, "policy_id", "version", "manifest_digest") &&
+    allStrings(value, "display_name", "display_rule", "display_note") &&
     typeof value.manifest_digest === "string" &&
     /^[0-9a-f]{64}$/.test(value.manifest_digest) &&
     value.currency === "INR" &&
@@ -256,6 +264,8 @@ function isResult(value: unknown): value is RawProcurementCase["result"] {
     (value.outcome !== "INVARIANT" && value.outcome !== "DIVERGENT") ||
     (value.proposed_action !== null && !isAction(value.proposed_action)) ||
     !Number.isInteger(value.reachable_action_count) ||
+    typeof value.exact_quantity_relevance !== "string" ||
+    typeof value.explanation !== "string" ||
     !isRecord(value.additional_evidence)
   ) {
     return false;
@@ -263,6 +273,7 @@ function isResult(value: unknown): value is RawProcurementCase["result"] {
   const evidence = value.additional_evidence;
   return (
     (evidence.status === "NONE_REQUIRED" || evidence.status === "REQUIRED") &&
+    typeof evidence.display_status === "string" &&
     typeof evidence.reason === "string" &&
     (evidence.hinge === null || isHinge(evidence.hinge))
   );

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import fixedPayload from "../../public/cases/procurement-fixed.json";
 import perUnitPayload from "../../public/cases/procurement-per-unit.json";
+import procurementComponentSource from "../components/ProcurementCase.tsx?raw";
 import { transformProcurementCase } from "./procurementReadModel";
 
 describe("transformProcurementCase", () => {
@@ -44,6 +45,18 @@ describe("transformProcurementCase", () => {
     ]);
     expect(fixed.result.outcome).toBe("INVARIANT");
     expect(perUnit.result.outcome).toBe("DIVERGENT");
+    expect(fixed.result.additional_evidence.display_status).toBe("NONE REQUIRED");
+    expect(perUnit.result.additional_evidence.display_status).toBe("REQUIRED");
+    expect(fixed.result.explanation).toContain("resolving 97 vs 100");
+    expect(perUnit.result.explanation).toContain("asks for proof");
+  });
+
+  it("keeps procurement decision values and kernel arithmetic out of React", () => {
+    expect(procurementComponentSource).not.toMatch(/\b(?:97|98|99|100)\b/);
+    expect(procurementComponentSource).not.toContain("resolving ${");
+    expect(procurementComponentSource).not.toMatch(/amount_minor\s+(?:[*/+-])/);
+    expect(procurementComponentSource).not.toMatch(/quantity\s+(?:[*/+-])/);
+    expect(procurementComponentSource).not.toContain('strong>UNRESOLVED');
   });
 
   it("fails closed when the evidence plan is malformed", () => {

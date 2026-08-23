@@ -5,7 +5,7 @@
     the fleet catalog         -> two agents, one per source class
     the control plane's own   -> the site's raw object          DENIED
       identity
-    HttpAcquisitionTransport  -> authenticated Cloud Run agents -> live Gemini
+    HttpAcquisitionTransport  -> authenticated Cloud Run agents -> configured Gemini
     signed receipts           -> append_transcript_entry        -> Q-12
     rebuild and analyse       -> Invariant
 
@@ -13,8 +13,8 @@ Run it as a Cloud Run job under ``muster-control-plane``:
 
     infra/scripts/90-hero-job.sh
 
-**This is the control plane, and it is the whole of it.**  Every step is a
-production call -- ``open_case``, ``append_transcript_entry``,
+**This is the control plane, and it is the whole of it.** Every step uses the
+production-oriented application path -- ``open_case``, ``append_transcript_entry``,
 ``acquire_outstanding``, ``case_status`` -- carried to the fleet by
 ``HttpAcquisitionTransport`` over authenticated HTTPS.  There is no in-process
 agent here and there cannot be one: this module imports nothing from

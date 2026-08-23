@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   ArrowRight,
-  Boxes,
   CheckCircle2,
   CircleDotDashed,
   FileCheck2,
@@ -62,18 +61,6 @@ export function ProcurementCase() {
   const invariant = model.result.outcome === "INVARIANT";
   return (
     <div className="procurement-shell">
-      <header className="app-bar procurement-bar">
-        <div className="brand" aria-label="MUSTER procurement proof">
-          <span className="brand-mark" aria-hidden="true">M</span>
-          <span className="brand-name">MUSTER</span>
-          <span className="brand-section">CASE CONTROL</span>
-        </div>
-        <div className="replay-state">
-          <Scale size={14} aria-hidden="true" />
-          <span>DETERMINISTIC CROSS-DOMAIN PROOF</span>
-        </div>
-      </header>
-
       <section className="procurement-heading">
         <div>
           <span className="case-kicker">PROCUREMENT / SUPPLIER DELIVERY</span>
@@ -81,8 +68,8 @@ export function ProcurementCase() {
           <p>One unresolved fact. Two pinned policies. The action decides whether proof is needed.</p>
         </div>
         <div className="kernel-note">
-          <Boxes size={18} aria-hidden="true" />
-          <span><strong>Same MUSTER kernel</strong>Same authority and admissibility machinery</span>
+          <Scale size={18} aria-hidden="true" />
+          <span><strong>Deterministic cross-domain proof</strong>Same MUSTER kernel · no Gemini/cloud claim</span>
         </div>
       </section>
 
@@ -117,8 +104,8 @@ export function ProcurementCase() {
           <div className="disagreement-callout">
             <AlertTriangle size={17} aria-hidden="true" />
             <div>
-              <strong>AUTHORITATIVE RANGE · 97–100 UNITS</strong>
-              <span>97 confirmed is a closed lower bound; exact delivered quantity remains unresolved</span>
+              <strong>AUTHORITATIVE RANGE · {model.uncertainty.lower_bound.quantity}–{model.uncertainty.upper_bound.quantity} UNITS</strong>
+              <span>{model.uncertainty.lower_bound.quantity} confirmed is a closed lower bound; exact delivered quantity remains unresolved</span>
             </div>
           </div>
           <dl className="source-facts">
@@ -141,22 +128,18 @@ export function ProcurementCase() {
               type="button"
               className={policy === "FIXED_TOLERANCE" ? "active" : ""}
               onClick={() => setPolicy("FIXED_TOLERANCE")}
-            >Fixed contract</button>
+            >{policy === "FIXED_TOLERANCE" ? model.policy.display_name : "Fixed contract"}</button>
             <button
               type="button"
               className={policy === "PER_UNIT" ? "active" : ""}
               onClick={() => setPolicy("PER_UNIT")}
-            >Per-unit contract</button>
+            >{policy === "PER_UNIT" ? model.policy.display_name : "Per-unit contract"}</button>
           </div>
           <div className="policy-definition">
             <LockKeyhole size={16} aria-hidden="true" />
             <div>
               <span>POLICY</span>
-              <strong>
-                {policy === "FIXED_TOLERANCE"
-                  ? `Acceptable if quantity ≥ ${model.policy.acceptance_minimum}`
-                  : `${model.policy.perUnitRate} / unit`}
-              </strong>
+              <strong>{model.policy.display_rule}</strong>
               <code>{model.policy.policy_id} · {model.policy.version}</code>
             </div>
           </div>
@@ -170,9 +153,7 @@ export function ProcurementCase() {
             ))}
           </div>
           <p className="contract-note">
-            {policy === "FIXED_TOLERANCE"
-              ? `Fixed payment ${model.policy.fixedAmount}`
-              : `Rate pinned at ${model.policy.perUnitRate} per unit`}
+            {model.policy.display_note}
           </p>
           <code className="manifest-pin" title={model.policy.manifest_digest}>
             MANIFEST {model.policy.manifest_digest.slice(0, 16)}…
@@ -191,7 +172,7 @@ export function ProcurementCase() {
           </div>
           <div className="evidence-result">
             <span>ADDITIONAL EVIDENCE</span>
-            <strong>{model.result.additional_evidence.status.replace("_", " ")}</strong>
+            <strong>{model.result.additional_evidence.display_status}</strong>
           </div>
           {model.result.additional_evidence.hinge && (
             <div className="hinge-result">
@@ -202,14 +183,10 @@ export function ProcurementCase() {
           )}
           <div className="quantity-result">
             <span>EXACT QUANTITY</span>
-            <strong>UNRESOLVED</strong>
-            <small>{invariant ? "IRRELEVANT TO THIS ACTION" : "ACTION-SENSITIVE"}</small>
+            <strong>{model.uncertainty.status}</strong>
+            <small>{model.result.exact_quantity_relevance}</small>
           </div>
-          <p className="stop-rule">
-            {invariant
-              ? "MUSTER stops here because resolving 97 vs 100 cannot change the action."
-              : "The same uncertainty now changes the action, so MUSTER asks for proof."}
-          </p>
+          <p className="stop-rule">{model.result.explanation}</p>
         </section>
       </main>
 

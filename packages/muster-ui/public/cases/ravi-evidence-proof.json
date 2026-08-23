@@ -1,0 +1,99 @@
+{
+  "schema_version": "muster.evidence-proof/v1",
+  "provenance": {
+    "source": "committed-milestone-f-path-audit",
+    "commit": "d7d2a6eeb3ce49c7a69234eeebd6026116a12cda",
+    "note": "Runtime and fixture audit. Candidate facts and cloud metadata are joined from the separate verified execution artifact."
+  },
+  "worker": {
+    "label": "Worker Agent",
+    "agent_runtime": "Google ADK ClaimAgent",
+    "capture_status": "COMMITTED PATH · NOT RERUN IN CLOUD CAPTURE",
+    "source_material": [
+      {
+        "ref": "ravi-account",
+        "file": "ravi-account.txt",
+        "media_type": "text/plain",
+        "delivery": "DIRECT TEXT USER TURN"
+      }
+    ],
+    "statement": "hi -- i checked my payslip and its only five days again. i worked saturday too, full day, came in about nine and left after five like normal. the gate let me in with my badge so it should be on the system. can you look please",
+    "model_receives": [
+      "Worker claim instructions and a closed target brief",
+      "The worker statement as text in the ADK user turn"
+    ],
+    "modalities": ["TEXT"],
+    "accepted_candidate": "target label + asserted value",
+    "validation": [
+      "target label is in the closed claim brief",
+      "at most one claim per target",
+      "value parses under the pinned sort",
+      "value lies inside the pinned domain"
+    ],
+    "signed": "Nothing. The StatementRecord carries an explicit UNSIGNED marker.",
+    "q12": "Not applicable. A worker statement is CLAIM ONLY and cannot become justification."
+  },
+  "employer": {
+    "label": "Employer Agent",
+    "agent_runtime": "Google ADK AcquisitionAgent",
+    "capture_status": "DEPLOYED SOURCE AGENT · VERIFIED CLOUD CAPTURE",
+    "source_class": "HR_PAYROLL_SYSTEM",
+    "source_material": [
+      {
+        "ref": "payroll-week",
+        "file": "payroll-week.txt",
+        "media_type": "text/plain",
+        "delivery": "read_text_evidence TOOL RESPONSE"
+      }
+    ],
+    "model_receives": [
+      "Source-local instruction and closed acquisition targets",
+      "UTF-8 payroll and roster text returned by the local read tool"
+    ],
+    "modalities": ["TEXT"],
+    "accepted_candidate": "target label + relation + value + observed_at + local basis ref",
+    "validation": [
+      "target and citation were actually offered to this turn",
+      "unique target, permitted relation, pinned sort and domain",
+      "observation timestamp is parseable and inside the configured horizon",
+      "validity window contains the case instant"
+    ],
+    "signed": "One narrow AcquisitionPayload: case/request/schema pins, proposition, relation, source class, key ref, validity and nonce.",
+    "q12": "After signature verification, Q-12 checks permitted class, unique key grant, tenant, principal and resource scope, predicate, validity, revocation and policy version."
+  },
+  "site": {
+    "label": "Site Agent",
+    "agent_runtime": "Google ADK AcquisitionAgent",
+    "capture_status": "DEPLOYED SOURCE AGENT · VERIFIED CLOUD CAPTURE",
+    "source_class": "SITE_ACCESS_CONTROL",
+    "source_material": [
+      {
+        "ref": "attendance-board-sat",
+        "file": "attendance-board-sat.png",
+        "media_type": "image/png",
+        "delivery": "RAW PNG BYTES · ADK inline_data"
+      },
+      {
+        "ref": "gate-log-sat",
+        "file": "gate-log-sat.txt",
+        "media_type": "text/plain",
+        "delivery": "read_text_evidence TOOL RESPONSE"
+      }
+    ],
+    "model_receives": [
+      "Source-local instruction and closed acquisition targets",
+      "The attendance-board PNG attached to the opening Gemini turn",
+      "Gate-log UTF-8 text when selected through the local read tool"
+    ],
+    "modalities": ["IMAGE", "TEXT"],
+    "accepted_candidate": "target label + relation + value + observed_at + local basis ref",
+    "validation": [
+      "target and citation were actually offered to this subject-only turn",
+      "unique target, permitted relation, pinned sort and domain",
+      "observation timestamp is parseable and inside the configured horizon",
+      "validity window contains the case instant"
+    ],
+    "signed": "One narrow AcquisitionPayload per validated observation; raw image, raw text and basis ref are not signed or returned.",
+    "q12": "After signature verification, Q-12 checks permitted class, unique key grant, tenant, principal and SITE-A scope, predicate, validity, revocation and policy version."
+  }
+}

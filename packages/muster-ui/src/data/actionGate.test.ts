@@ -95,6 +95,7 @@ describe("Action Gate client and read model", () => {
 
     expect(markup).toContain("EXECUTED ONCE · SANDBOX");
     expect(markup).toContain("sandbox-pay-abababababababababababab");
+    expect(markup).toContain("POSTGRESQL-BACKED LOCAL SANDBOX ACTION GATE");
     expect(markup).toContain("No real funds transferred");
     expect(markup.toLowerCase()).not.toContain(["payment", "sent"].join(" "));
     expect(markup.toLowerCase()).not.toContain(["money", "transferred"].join(" "));

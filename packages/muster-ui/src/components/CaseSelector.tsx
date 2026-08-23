@@ -1,6 +1,6 @@
-import { Boxes, HardHat } from "lucide-react";
+import { Boxes, Grid2X2, HardHat } from "lucide-react";
 
-export type CaseKind = "workforce" | "procurement";
+export type CaseKind = "cases" | "workforce" | "procurement";
 
 interface CaseSelectorProps {
   active: CaseKind;
@@ -9,30 +9,25 @@ interface CaseSelectorProps {
 
 export function CaseSelector({ active, onSelect }: CaseSelectorProps) {
   return (
-    <nav className="case-selector" aria-label="MUSTER demo cases">
-      <button
-        type="button"
-        className={active === "workforce" ? "active" : ""}
-        onClick={() => onSelect("workforce")}
-      >
-        <HardHat size={13} aria-hidden="true" />
-        <span>
-          <strong>WORKFORCE</strong>
-          <small>Ravi · Verified cloud</small>
-        </span>
+    <header className="product-bar">
+      <button type="button" className="product-brand" onClick={() => onSelect("cases")} aria-label="MUSTER case catalog">
+        <span className="brand-mark" aria-hidden="true">M</span>
+        <span><strong>MUSTER</strong><small>ENTERPRISE CASE CONTROL</small></span>
       </button>
-      <button
-        type="button"
-        className={active === "procurement" ? "active" : ""}
-        onClick={() => onSelect("procurement")}
-      >
-        <Boxes size={13} aria-hidden="true" />
-        <span>
-          <strong>PROCUREMENT</strong>
-          <small>PO-4821 · Cross-domain proof</small>
-        </span>
-      </button>
-    </nav>
+      <nav className="product-primary-nav" aria-label="Product navigation">
+        <button type="button" className={active === "cases" ? "active" : ""} onClick={() => onSelect("cases")}>
+          <Grid2X2 size={13} aria-hidden="true" /> Cases
+        </button>
+        <span>Fleet</span>
+      </nav>
+      <nav className="case-selector" aria-label="MUSTER cases">
+        <button type="button" className={active === "workforce" ? "active" : ""} onClick={() => onSelect("workforce")}>
+          <HardHat size={13} aria-hidden="true" /> Workforce
+        </button>
+        <button type="button" className={active === "procurement" ? "active" : ""} onClick={() => onSelect("procurement")}>
+          <Boxes size={13} aria-hidden="true" /> Procurement
+        </button>
+      </nav>
+    </header>
   );
 }
-

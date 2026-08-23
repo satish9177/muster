@@ -12,23 +12,6 @@ interface CaseHeaderProps {
 
 export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProps) {
   return (
-    <>
-      <header className="app-bar">
-        <div className="brand" aria-label="MUSTER case control">
-          <span className="brand-mark" aria-hidden="true">
-            M
-          </span>
-          <span className="brand-name">MUSTER</span>
-          <span className="brand-section">CASE CONTROL</span>
-        </div>
-        <div className="replay-state" aria-label={model.provenance.description}>
-          <RadioTower size={14} aria-hidden="true" />
-          <span>{model.provenance.label}</span>
-          <span className="replay-separator" aria-hidden="true" />
-          <strong>NOT LIVE</strong>
-        </div>
-      </header>
-
       <section className="case-header" aria-labelledby="case-title">
         <div className="case-identity">
           <div className="case-kicker">
@@ -42,6 +25,9 @@ export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProp
             <span className="policy-label">PINNED POLICY</span>
             <code>{model.pinnedPolicy}</code>
             <span className="policy-version">{model.policyVersion}</span>
+          </div>
+          <div className="case-replay-state" aria-label={model.provenance.description}>
+            <RadioTower size={12} aria-hidden="true" /> {model.provenance.label} <b>NOT LIVE</b>
           </div>
         </div>
 
@@ -66,8 +52,8 @@ export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProp
           <div className="gate-state">
             <span className="gate-indicator" aria-hidden="true" />
             {gate?.phase === "EXECUTED"
-              ? "Sandbox confirmation is durable"
-              : "Action Gate · no real funds transferred"}
+              ? "EXECUTED ONCE · sandbox confirmation is durable"
+              : "NOT EXECUTED · no real funds transferred"}
           </div>
           <button
             type="button"
@@ -80,6 +66,5 @@ export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProp
           </button>
         </div>
       </section>
-    </>
   );
 }

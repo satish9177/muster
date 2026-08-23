@@ -90,7 +90,7 @@
       "actor": "Control Plane → Site evidence",
       "eyebrow": "Security boundary",
       "title": "Raw source access refused",
-      "summary": "The identity holding the case record cannot read private site material.",
+      "summary": "The Control Plane identity was denied access to Site-A raw evidence by GCP IAM; the Site Agent identity was allowed.",
       "result": "DENIED · HTTP 403 · GCP IAM",
       "result_tone": "denied",
       "http_status": 403,
@@ -99,11 +99,11 @@
         "source_class": "SITE SOURCE BOUNDARY",
         "source_identity": "muster-control-plane",
         "key_id": null,
-        "authority_grant": "No storage.objects.get grant on site evidence",
+        "authority_grant": "GCP IAM denied the Control Plane identity storage.objects.get on Site-A raw evidence",
         "predicates": [
           "raw_object_access(site-evidence) = DENIED"
         ],
-        "disclosure": "None. The request is rejected before raw material can cross the boundary.",
+        "disclosure": "Observed HTTP 403: GCP IAM refused the Control Plane request for Site-A raw evidence.",
         "q12_result": "Not applicable — denial precedes attestation",
         "model_interpretation": "No model client in the Control Plane",
         "deterministic_decision": "No — GCP IAM enforces the boundary",

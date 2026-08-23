@@ -39,6 +39,9 @@
   },
   "policy": {
     "key": "PER_UNIT",
+    "display_name": "Per-unit contract",
+    "display_rule": "\u20b9630 / unit",
+    "display_note": "Rate pinned at \u20b9630 per unit",
     "policy_id": "procurement-per-unit",
     "version": "1.0.0",
     "manifest_digest": "50934dc045dda48ddf3f55a092d46d54e9cfdd5b34f5e3bf1b5cb149a7c60253",
@@ -90,6 +93,7 @@
     "proposed_action": null,
     "additional_evidence": {
       "status": "REQUIRED",
+      "display_status": "REQUIRED",
       "reason": "ACTION_SENSITIVE_UNCERTAINTY",
       "hinge": {
         "predicate": "delivered_quantity",
@@ -99,6 +103,8 @@
         ]
       }
     },
+    "exact_quantity_relevance": "ACTION-SENSITIVE",
+    "explanation": "The same uncertainty now changes the action, so MUSTER asks for proof.",
     "reachable_action_count": 4
   },
   "provenance": {

@@ -2,11 +2,13 @@ import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ActionGatePanel } from "./components/ActionGatePanel";
+import { CaseControlLanding } from "./components/CaseControlLanding";
 import { CaseSelector, type CaseKind } from "./components/CaseSelector";
 import { CaseHeader } from "./components/CaseHeader";
 import { CaseTrace } from "./components/CaseTrace";
 import { Inspector } from "./components/Inspector";
 import { ProcurementCase } from "./components/ProcurementCase";
+import { RaviEvidence } from "./components/RaviEvidence";
 import {
   actionGateClient,
   withActionGate,
@@ -16,13 +18,19 @@ import { heroCaseClient } from "./data/caseClient";
 import type { HeroCaseViewModel } from "./data/readModel";
 
 export function App() {
-  const [caseKind, setCaseKind] = useState<CaseKind>("workforce");
+  const [caseKind, setCaseKind] = useState<CaseKind>("cases");
 
   return (
-    <>
+    <div className="product-shell">
       <CaseSelector active={caseKind} onSelect={setCaseKind} />
-      {caseKind === "workforce" ? <WorkforceCase /> : <ProcurementCase />}
-    </>
+      {caseKind === "cases" ? (
+        <CaseControlLanding onOpen={setCaseKind} />
+      ) : caseKind === "workforce" ? (
+        <WorkforceCase />
+      ) : (
+        <ProcurementCase />
+      )}
+    </div>
   );
 }
 
@@ -34,6 +42,7 @@ function WorkforceCase() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [view, setView] = useState<"overview" | "evidence">("overview");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -121,11 +130,23 @@ function WorkforceCase() {
         executing={executing}
         onExecute={() => void executeProposal()}
       />
-      <ActionGatePanel gate={gate} unavailableReason={gateError} />
-      <main className="case-workspace">
-        <CaseTrace events={displayedModel.events} activeId={activeEvent.id} onSelect={setActiveId} />
-        <Inspector event={activeEvent} model={displayedModel} />
-      </main>
+      <nav className="case-view-nav" aria-label="Ravi case views">
+        <button type="button" className={view === "overview" && !["rebuild", "action"].includes(activeEvent.id) ? "active" : ""} onClick={() => setView("overview")}>Overview</button>
+        <button type="button" className={view === "evidence" ? "active" : ""} onClick={() => setView("evidence")}>Evidence</button>
+        <button type="button" className={view === "overview" && activeEvent.id === "rebuild" ? "active" : ""} onClick={() => { setView("overview"); setActiveId("rebuild"); }}>Decision</button>
+        <button type="button" className={view === "overview" && activeEvent.id === "action" ? "active" : ""} onClick={() => { setView("overview"); setActiveId("action"); }}>Action</button>
+      </nav>
+      {view === "evidence" ? (
+        <RaviEvidence />
+      ) : (
+        <div className="workforce-overview">
+          <ActionGatePanel gate={gate} unavailableReason={gateError} />
+          <main className="case-workspace">
+            <CaseTrace events={displayedModel.events} activeId={activeEvent.id} onSelect={setActiveId} />
+            <Inspector event={activeEvent} model={displayedModel} />
+          </main>
+        </div>
+      )}
       <footer className="app-footer">
         <span>{model.provenance.description}</span>
         <span>{model.provenance.basis}</span>

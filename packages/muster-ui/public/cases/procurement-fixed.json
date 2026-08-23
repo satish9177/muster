@@ -39,6 +39,9 @@
   },
   "policy": {
     "key": "FIXED_TOLERANCE",
+    "display_name": "Fixed contract",
+    "display_rule": "Acceptable if quantity \u2265 97",
+    "display_note": "Fixed payment \u20b963,000",
     "policy_id": "procurement-fixed-tolerance",
     "version": "1.0.0",
     "manifest_digest": "c6dc2bba34bbd8381f601c3e754a445b0fb6364681211d36cc22eccfc5f62adf",
@@ -95,9 +98,12 @@
     },
     "additional_evidence": {
       "status": "NONE_REQUIRED",
+      "display_status": "NONE REQUIRED",
       "reason": "ACTION_INVARIANT",
       "hinge": null
     },
+    "exact_quantity_relevance": "IRRELEVANT TO THIS ACTION",
+    "explanation": "MUSTER stops here because resolving 97 vs 100 cannot change the action.",
     "reachable_action_count": 1
   },
   "provenance": {

@@ -42,7 +42,7 @@ export function Inspector({ event, model }: InspectorProps) {
           <LockKeyhole size={18} aria-hidden="true" />
           <div>
             <strong>Security boundary held</strong>
-            <span>Raw site material never entered the Control Plane.</span>
+            <span>The Control Plane identity was denied Site-A raw evidence access by GCP IAM.</span>
           </div>
           <b>{event.httpStatus}</b>
         </div>

@@ -232,6 +232,9 @@ def test_react_does_not_recompute_procurement_policy() -> None:
 
     assert "amount_minor" not in component
     assert "630" not in component
+    assert "97" not in component
+    assert "100" not in component
+    assert "resolving ${" not in component
     assert "quantity *" not in component
     assert "quantity >=" not in component
 

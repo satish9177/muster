@@ -84,6 +84,10 @@ def _alternative(policy: ProcurementPolicy, quantity: int) -> dict[str, Any]:
     return {"quantity": quantity, "action": _action_model(evaluated.value)}
 
 
+def _display_inr(minor: int) -> str:
+    return f"₹{minor // 100:,}"
+
+
 def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
     fixture = case_fixture()
     bundle = procurement_bundle(policy)
@@ -93,13 +97,23 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
 
     if isinstance(outcome, Invariant):
         proposed_action: dict[str, Any] | None = _action_model(outcome.action)
+        result_explanation = (
+            f"MUSTER stops here because resolving {WAREHOUSE_QUANTITY} vs "
+            f"{ORDERED_QUANTITY} cannot change the action."
+        )
+        exact_quantity_relevance = "IRRELEVANT TO THIS ACTION"
     else:
         proposed_action = None
+        result_explanation = (
+            "The same uncertainty now changes the action, so MUSTER asks for proof."
+        )
+        exact_quantity_relevance = "ACTION-SENSITIVE"
 
     if isinstance(planning, EvidenceRequested):
         target = planning.request.targets[0]
         evidence: dict[str, Any] = {
             "status": "REQUIRED",
+            "display_status": "REQUIRED",
             "reason": "ACTION_SENSITIVE_UNCERTAINTY",
             "hinge": {
                 "predicate": target.proposition.predicate_id,
@@ -110,6 +124,7 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
     elif isinstance(planning, NoActionRequired):
         evidence = {
             "status": "NONE_REQUIRED",
+            "display_status": "NONE REQUIRED",
             "reason": planning.reason.value,
             "hinge": None,
         }
@@ -160,6 +175,21 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
         },
         "policy": {
             "key": policy.value,
+            "display_name": (
+                "Fixed contract"
+                if policy is ProcurementPolicy.FIXED_TOLERANCE
+                else "Per-unit contract"
+            ),
+            "display_rule": (
+                f"Acceptable if quantity ≥ {ACCEPTANCE_THRESHOLD}"
+                if policy is ProcurementPolicy.FIXED_TOLERANCE
+                else f"{_display_inr(PER_UNIT_RATE_MINOR)} / unit"
+            ),
+            "display_note": (
+                f"Fixed payment {_display_inr(FIXED_AMOUNT_MINOR)}"
+                if policy is ProcurementPolicy.FIXED_TOLERANCE
+                else f"Rate pinned at {_display_inr(PER_UNIT_RATE_MINOR)} per unit"
+            ),
             "policy_id": bundle.manifest.policy_id,
             "version": bundle.manifest.human_version,
             "manifest_digest": bundle.digest().hex,
@@ -176,6 +206,8 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
             "outcome": outcome_class(outcome),
             "proposed_action": proposed_action,
             "additional_evidence": evidence,
+            "exact_quantity_relevance": exact_quantity_relevance,
+            "explanation": result_explanation,
             "reachable_action_count": (
                 len(outcome.reachable.actions)
                 if isinstance(outcome, Divergent) and isinstance(outcome.reachable, ExactReachable)

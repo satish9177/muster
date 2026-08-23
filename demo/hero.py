@@ -1,4 +1,4 @@
-"""The worked run, end to end, through the production path and nothing else.
+"""The worked run, end to end, through the production-oriented path.
 
     Ravi's message            -> Worker Agent  -> an inert claim
     the payroll export        -> Employer Agent -> one attested record
@@ -10,10 +10,10 @@
 Run it:
 
     python demo/hero.py                    the deterministic interpreters
-    python demo/hero.py --live             real Gemini, real model calls
+    python demo/hero.py --live             explicit configured Gemini model calls
     python demo/hero.py --postgres DSN     against a real database
 
-**Every step below is a production call.**  ``open_case``,
+**Every step below uses the production-oriented application path.** ``open_case``,
 ``append_transcript_entry``, ``acquire_outstanding`` and ``case_status`` are the
 functions the control plane exposes; the agents are the ADK runtimes a
 deployment runs; the receipts are signed by source keys and admitted through
