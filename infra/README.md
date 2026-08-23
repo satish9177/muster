@@ -5,9 +5,12 @@ identities, one control-plane job that runs the worked case against them, and
 an IAM policy whose most important property is something the control plane
 **cannot** do.
 
-Nothing here has been run. Every script is written to be read before it is
-executed, and `70-verify-iam.sh`, `55-probe-job.sh` and the hero job itself
-exist so that the claim these scripts make can be checked rather than believed.
+These deployment scripts are real and were exercised for the verified Stage-90
+hero execution documented in `../ARCHITECTURE.md`. They are intended to
+reproduce that environment, but they create billable Google Cloud resources.
+Inspect and configure the project variables in `scripts/env.sh` before running
+them; `70-verify-iam.sh`, `55-probe-job.sh`, and the hero job make the resulting
+security and execution claims independently checkable.
 
 ## Order
 
@@ -479,10 +482,10 @@ Billable, and small at demo scale:
   needs no ingress of its own for this slice. The two things deployed under its
   identity are jobs: the probe, which exists to prove a negative, and the hero
   run, which exits when it is done.
-* **No action gate and no settlement.** The hero job stops at the analysis. It
-  reaches an invariant answer and does not act on it, because acting is a later
-  milestone and a demo that acted would be claiming a capability this system
-  does not have.
+* **No cloud Action Gate and no settlement.** The verified hero job stops at
+  analysis: no gate, nothing authorized, nothing settled. A PostgreSQL-backed
+  Action Gate exists only in the local sandbox demo, outside this infrastructure
+  slice, and it transfers no real funds.
 * **No Terraform.** The material here is `gcloud`, so that what will be created
   can be read line by line before anything is — which is what an approval step
   is for.

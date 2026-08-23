@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1630" role="img" aria-labelledby="title description">
+  <title id="title">MUSTER architecture</title>
+  <desc id="description">A stacked architecture showing Ravi's inert worker claim, consequence planning, source-isolated Google Cloud agents and Gemini interpretation, IAM denial of Control Plane raw evidence access, narrow signed attestations entering Q-12, deterministic policy resolution, a local PostgreSQL Action Gate, and a local procurement proof.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#B91C1C"/>
+    </marker>
+    <style>
+      .canvas { fill: #FFFFFF; }
+      .panel { fill: #F8FAFC; stroke: #CBD5E1; stroke-width: 1.5; }
+      .panel-cloud { fill: #F7FAFF; stroke: #93C5FD; stroke-width: 1.5; }
+      .panel-source { fill: #FCFAFF; stroke: #C4B5FD; stroke-width: 1.3; }
+      .node-ai { fill: #FFE8C2; stroke: #B45309; stroke-width: 1.7; }
+      .node-source { fill: #EDE0FB; stroke: #6B21A8; stroke-width: 1.7; }
+      .node-control { fill: #DCEAFE; stroke: #1D4ED8; stroke-width: 1.7; }
+      .node-deny { fill: #FEE2E2; stroke: #B91C1C; stroke-width: 2.2; }
+      .node-exec { fill: #D1FAE5; stroke: #047857; stroke-width: 1.7; }
+      .node-inert { fill: #F1F5F9; stroke: #64748B; stroke-width: 1.6; stroke-dasharray: 6 4; }
+      .attestation { fill: #FAF5FF; stroke: #7E22CE; stroke-width: 1.7; }
+      .connector { fill: none; stroke: #475569; stroke-width: 1.7; marker-end: url(#arrow); }
+      .connector-dashed { fill: none; stroke: #64748B; stroke-width: 1.6; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .connector-ai { fill: none; stroke: #B45309; stroke-width: 1.7; marker-end: url(#arrow); }
+      .connector-deny { fill: none; stroke: #B91C1C; stroke-width: 2.1; stroke-dasharray: 7 5; marker-end: url(#arrow-red); }
+      .title { font: 600 27px Arial, Helvetica, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 17px Arial, Helvetica, sans-serif; fill: #334155; }
+      .panel-title { font: 600 18px Arial, Helvetica, sans-serif; fill: #0F172A; letter-spacing: .25px; }
+      .panel-note { font: 400 15px Arial, Helvetica, sans-serif; fill: #475569; }
+      .node-title { font: 600 17px Arial, Helvetica, sans-serif; fill: #111827; }
+      .node-text { font: 400 15px Arial, Helvetica, sans-serif; fill: #111827; }
+      .node-small { font: 400 14px Arial, Helvetica, sans-serif; fill: #111827; }
+      .edge-label { font: 500 15px Arial, Helvetica, sans-serif; fill: #334155; }
+      .edge-label-red { font: 600 15px Arial, Helvetica, sans-serif; fill: #991B1B; }
+    </style>
+  </defs>
+
+  <rect class="canvas" width="1200" height="1630"/>
+  <text class="title" x="600" y="36" text-anchor="middle">MUSTER — CONSEQUENCE-SENSITIVE ENTERPRISE AGENTS</text>
+  <text class="subtitle" x="600" y="65" text-anchor="middle">Gemini interprets · Sources attest · Policy determines consequences · Deterministic controls authorize execution</text>
+
+  <!-- Worker claim -->
+  <rect class="panel" x="30" y="90" width="1140" height="145" rx="12"/>
+  <text class="panel-title" x="55" y="119">WORKER / CLAIM</text>
+  <rect class="node-inert" x="60" y="137" width="280" height="72" rx="8"/>
+  <text class="node-title" x="200" y="164" text-anchor="middle">Ravi's own words</text>
+  <text class="node-text" x="200" y="188" text-anchor="middle">ravi-account.txt</text>
+  <rect class="node-ai" x="460" y="127" width="280" height="92" rx="8"/>
+  <text class="node-title" x="600" y="153" text-anchor="middle">Worker Agent · Google ADK + Gemini</text>
+  <text class="node-text" x="600" y="177" text-anchor="middle">committed path</text>
+  <text class="node-title" x="600" y="201" text-anchor="middle">NOT rerun in Stage-90</text>
+  <rect class="node-inert" x="860" y="127" width="280" height="92" rx="8"/>
+  <text class="node-title" x="1000" y="153" text-anchor="middle">UNSIGNED · CLAIM_ONLY</text>
+  <text class="node-text" x="1000" y="177" text-anchor="middle">recorded non-effect · inert</text>
+  <text class="node-text" x="1000" y="201" text-anchor="middle">no Q-12 authority</text>
+  <path class="connector" d="M340 173 H460"/>
+  <path class="connector" d="M740 173 H860"/>
+
+  <!-- Consequence planning -->
+  <rect class="panel" x="30" y="270" width="1140" height="155" rx="12"/>
+  <text class="panel-title" x="55" y="299">MUSTER DETERMINISTIC CONTROL PLANE — CONSEQUENCE PLANNING</text>
+  <rect class="node-control" x="60" y="320" width="280" height="82" rx="8"/>
+  <text class="node-title" x="200" y="345" text-anchor="middle">Control Plane identity</text>
+  <text class="node-small" x="200" y="367" text-anchor="middle">no source key · no model client</text>
+  <text class="node-small" x="200" y="388" text-anchor="middle">no storage grant</text>
+  <rect class="node-control" x="460" y="320" width="280" height="82" rx="8"/>
+  <text class="node-title" x="600" y="345" text-anchor="middle">Hinge + evidence planning</text>
+  <text class="node-text" x="600" y="369" text-anchor="middle">DIVERGENT → 3 propositions needed</text>
+  <text class="node-small" x="600" y="390" text-anchor="middle">determine what can change the action</text>
+  <rect class="node-control" x="860" y="320" width="280" height="82" rx="8"/>
+  <text class="node-title" x="1000" y="345" text-anchor="middle">Fleet Catalog</text>
+  <text class="node-text" x="1000" y="369" text-anchor="middle">discovers + routes source agents</text>
+  <text class="node-title" x="1000" y="391" text-anchor="middle">grants no authority</text>
+  <path class="connector" d="M340 361 H460"/>
+  <path class="connector" d="M740 361 H860"/>
+  <path class="connector-dashed" d="M1000 219 V250 H600 V320"/>
+  <text class="edge-label" x="800" y="253" text-anchor="middle">inert · decides nothing</text>
+
+  <!-- Google Cloud source acquisition -->
+  <rect class="panel-cloud" x="30" y="455" width="1140" height="445" rx="12"/>
+  <text class="panel-title" x="55" y="484">GOOGLE CLOUD SOURCE ACQUISITION — SEPARATED LOCATIONS + IDENTITIES</text>
+  <rect class="panel-source" x="55" y="505" width="760" height="305" rx="10"/>
+  <text class="panel-title" x="75" y="532">SOURCE DOMAINS · CLOUD RUN + CLOUD STORAGE · asia-south1</text>
+
+  <text class="panel-note" x="75" y="565">EMPLOYER-1 · authorized identity only</text>
+  <rect class="node-source" x="75" y="580" width="205" height="72" rx="7"/>
+  <text class="node-title" x="177.5" y="607" text-anchor="middle">payroll-week.txt</text>
+  <text class="node-small" x="177.5" y="630" text-anchor="middle">GCS · employer-1/ prefix</text>
+  <rect class="node-ai" x="315" y="570" width="235" height="92" rx="7"/>
+  <text class="node-title" x="432.5" y="597" text-anchor="middle">Employer Agent · Cloud Run</text>
+  <text class="node-small" x="432.5" y="620" text-anchor="middle">Google ADK</text>
+  <text class="node-small" x="432.5" y="642" text-anchor="middle">muster-employer-agent SA</text>
+  <rect class="node-source" x="585" y="570" width="205" height="92" rx="7"/>
+  <text class="node-title" x="687.5" y="597" text-anchor="middle">deterministic validation</text>
+  <text class="node-small" x="687.5" y="620" text-anchor="middle">→ source signature</text>
+  <text class="node-small" x="687.5" y="642" text-anchor="middle">Secret Manager key</text>
+  <path class="connector" d="M280 616 H315"/>
+  <path class="connector" d="M550 616 H585"/>
+
+  <text class="panel-note" x="75" y="705">SITE-A · authorized identity only</text>
+  <rect class="node-source" x="75" y="720" width="205" height="72" rx="7"/>
+  <text class="node-text" x="177.5" y="746" text-anchor="middle">attendance-board-sat.png</text>
+  <text class="node-small" x="177.5" y="769" text-anchor="middle">gate-log-sat.txt · GCS site-a/</text>
+  <rect class="node-ai" x="315" y="710" width="235" height="92" rx="7"/>
+  <text class="node-title" x="432.5" y="737" text-anchor="middle">Site Agent · Cloud Run</text>
+  <text class="node-small" x="432.5" y="760" text-anchor="middle">Google ADK</text>
+  <text class="node-small" x="432.5" y="782" text-anchor="middle">muster-site-agent SA</text>
+  <rect class="node-source" x="585" y="710" width="205" height="92" rx="7"/>
+  <text class="node-title" x="687.5" y="737" text-anchor="middle">deterministic validation</text>
+  <text class="node-small" x="687.5" y="760" text-anchor="middle">→ source signature</text>
+  <text class="node-small" x="687.5" y="782" text-anchor="middle">Secret Manager key</text>
+  <path class="connector" d="M280 756 H315"/>
+  <path class="connector" d="M550 756 H585"/>
+
+  <rect class="panel" x="845" y="515" width="300" height="165" rx="10"/>
+  <text class="panel-title" x="865" y="543">VERTEX AI · location: global</text>
+  <rect class="node-ai" x="875" y="562" width="240" height="92" rx="8"/>
+  <text class="node-title" x="995" y="589" text-anchor="middle">Gemini 3.7 Flash</text>
+  <text class="node-text" x="995" y="613" text-anchor="middle">raw PNG inline_data + text/plain</text>
+  <text class="node-small" x="995" y="636" text-anchor="middle">→ candidate facts · multimodal</text>
+  <path class="connector-ai" d="M550 600 C700 545 780 570 875 592"/>
+  <path class="connector-ai" d="M550 746 C700 700 780 650 875 625"/>
+
+  <rect class="node-deny" x="845" y="710" width="300" height="92" rx="8"/>
+  <text class="node-title" x="995" y="737" text-anchor="middle">GCP IAM · HTTP 403 DENIED</text>
+  <text class="node-text" x="995" y="761" text-anchor="middle">Control Plane storage.objects.get</text>
+  <text class="node-small" x="995" y="783" text-anchor="middle">mirrored in tracked cloud trace</text>
+  <path class="connector-deny" d="M200 402 V438 H1180 V756 H1145"/>
+  <text class="edge-label-red" x="970" y="447" text-anchor="middle">raw Site-A object read → 403</text>
+
+  <path class="connector-dashed" d="M1000 402 V445 H825 V545 H432 V570"/>
+  <path class="connector-dashed" d="M1000 445 H825 V685 H432 V710"/>
+
+  <rect class="attestation" x="220" y="830" width="760" height="55" rx="8"/>
+  <text class="node-title" x="600" y="852" text-anchor="middle">ONLY NARROW, VALIDATED + SIGNED ATTESTATIONS ENTER MUSTER</text>
+  <text class="node-small" x="600" y="874" text-anchor="middle">scheduled=true · present_on_site=true · on_site_duration ≥ 508 min</text>
+  <path class="connector" d="M687.5 662 V830"/>
+  <path class="connector" d="M687.5 802 V830"/>
+
+  <!-- Authority and deterministic decision -->
+  <rect class="panel" x="30" y="930" width="1140" height="205" rx="12"/>
+  <text class="panel-title" x="55" y="959">MUSTER DETERMINISTIC CONTROL PLANE — AUTHORITY + DECISION</text>
+  <rect class="node-control" x="60" y="985" width="300" height="112" rx="8"/>
+  <text class="node-title" x="210" y="1012" text-anchor="middle">Q-12 source authority</text>
+  <text class="node-small" x="210" y="1036" text-anchor="middle">key · principal · tenant · source class</text>
+  <text class="node-small" x="210" y="1058" text-anchor="middle">predicate · resource · validity · revocation</text>
+  <text class="node-title" x="210" y="1082" text-anchor="middle">signed ≠ authorized</text>
+  <rect class="node-control" x="450" y="985" width="300" height="112" rx="8"/>
+  <text class="node-title" x="600" y="1012" text-anchor="middle">Deterministic kernel</text>
+  <text class="node-small" x="600" y="1036" text-anchor="middle">pinned workforce policy · 7c9925f5…</text>
+  <text class="node-small" x="600" y="1058" text-anchor="middle">bounded enumeration decides</text>
+  <text class="node-small" x="600" y="1080" text-anchor="middle">Z3 performs differential checking</text>
+  <rect class="node-control" x="840" y="985" width="300" height="112" rx="8"/>
+  <text class="node-title" x="990" y="1012" text-anchor="middle">Reproducible certificate</text>
+  <text class="node-title" x="990" y="1038" text-anchor="middle">outcome INVARIANT</text>
+  <text class="node-small" x="990" y="1062" text-anchor="middle">exact on_site_duration stays unresolved</text>
+  <text class="node-small" x="990" y="1084" text-anchor="middle">same consequence in every admissible world</text>
+  <path class="connector" d="M600 885 V920 H210 V985"/>
+  <path class="connector" d="M360 1041 H450"/>
+  <path class="connector" d="M750 1041 H840"/>
+
+  <!-- Local action gate -->
+  <rect class="panel" x="30" y="1185" width="1140" height="190" rx="12"/>
+  <text class="panel-title" x="55" y="1214">ACTION GATE · LOCAL · DETERMINISTIC CODE, NOT AN AI AGENT</text>
+  <rect class="node-exec" x="55" y="1245" width="245" height="88" rx="8"/>
+  <text class="node-title" x="177.5" y="1272" text-anchor="middle">exact action binding</text>
+  <text class="node-text" x="177.5" y="1296" text-anchor="middle">+ separate execution authority</text>
+  <text class="node-small" x="177.5" y="1318" text-anchor="middle">PAY RAVI INR 5,100 weekly total</text>
+  <rect class="node-exec" x="340" y="1245" width="245" height="88" rx="8"/>
+  <text class="node-title" x="462.5" y="1272" text-anchor="middle">PostgreSQL · LOCAL</text>
+  <text class="node-text" x="462.5" y="1296" text-anchor="middle">durable reservation</text>
+  <text class="node-small" x="462.5" y="1318" text-anchor="middle">idempotency + finality</text>
+  <rect class="node-exec" x="625" y="1245" width="245" height="88" rx="8"/>
+  <text class="node-title" x="747.5" y="1272" text-anchor="middle">RESERVED → DISPATCHED</text>
+  <text class="node-small" x="747.5" y="1296" text-anchor="middle">CONFIRMED | FAILED | UNCERTAIN</text>
+  <text class="node-small" x="747.5" y="1318" text-anchor="middle">no automatic uncertain redispatch</text>
+  <rect class="node-exec" x="910" y="1245" width="245" height="88" rx="8"/>
+  <text class="node-title" x="1032.5" y="1272" text-anchor="middle">EXECUTED ONCE</text>
+  <text class="node-text" x="1032.5" y="1296" text-anchor="middle">local sandbox executor</text>
+  <text class="node-small" x="1032.5" y="1318" text-anchor="middle">no real funds transferred</text>
+  <path class="connector" d="M990 1097 V1155 H177.5 V1245"/>
+  <text class="edge-label" x="604" y="1150" text-anchor="middle">proposed INR 5,100 = corrected weekly total</text>
+  <path class="connector" d="M300 1289 H340"/>
+  <path class="connector" d="M585 1289 H625"/>
+  <path class="connector" d="M870 1289 H910"/>
+
+  <!-- Local procurement proof -->
+  <rect class="panel" x="30" y="1415" width="1140" height="175" rx="12"/>
+  <text class="panel-title" x="55" y="1444">SAME KERNEL · DIFFERENT DOMAIN · LOCAL DETERMINISTIC PROOF · NO MODEL OR CLOUD</text>
+  <rect class="node-control" x="70" y="1480" width="300" height="78" rx="8"/>
+  <text class="node-title" x="220" y="1507" text-anchor="middle">Procurement PO-4821</text>
+  <text class="node-text" x="220" y="1533" text-anchor="middle">97 ≤ delivered quantity ≤ 100</text>
+  <rect class="node-control" x="450" y="1480" width="300" height="78" rx="8"/>
+  <text class="node-title" x="600" y="1507" text-anchor="middle">Fixed price → INVARIANT</text>
+  <text class="node-text" x="600" y="1533" text-anchor="middle">one consequence · no extra evidence</text>
+  <rect class="node-control" x="830" y="1480" width="300" height="78" rx="8"/>
+  <text class="node-title" x="980" y="1507" text-anchor="middle">Per-unit → DIVERGENT</text>
+  <text class="node-text" x="980" y="1533" text-anchor="middle">four consequences · exact quantity required</text>
+  <path class="connector" d="M370 1519 H450"/>
+  <path class="connector" d="M370 1519 C400 1568 785 1568 830 1519"/>
+  <path class="connector-dashed" d="M600 1097 V1120 H15 V1519 H70"/>
+</svg>

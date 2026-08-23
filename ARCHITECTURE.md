@@ -57,7 +57,7 @@ never asks anyone to resolve it.
 ## 2. System Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   classDef ai    fill:#FFE8C2,stroke:#B45309,stroke-width:1.5px,color:#111827
   classDef src   fill:#EDE0FB,stroke:#6B21A8,stroke-width:1.5px,color:#111827
   classDef det   fill:#DCEAFE,stroke:#1D4ED8,stroke-width:1.5px,color:#111827
@@ -65,77 +65,85 @@ flowchart LR
   classDef exec  fill:#D1FAE5,stroke:#047857,stroke-width:1.5px,color:#111827
   classDef inert fill:#F1F5F9,stroke:#64748B,stroke-width:1.5px,color:#111827,stroke-dasharray:4 3
 
-  subgraph Z1["1 · WORKER / CLAIM"]
-    direction TB
+  subgraph Z1["WORKER / CLAIM"]
+    direction LR
     RAVI["Ravi's own words<br/>ravi-account.txt"]:::inert
-    WKR["<b>Worker Agent</b><br/>Google ADK + Gemini<br/><i>committed path · NOT rerun in Stage-90</i>"]:::ai
+    WKR["Worker Agent<br/>Google ADK + Gemini<br/>committed path · NOT rerun in Stage-90"]:::ai
     CLM["Statement · UNSIGNED · CLAIM_ONLY<br/>inert: recorded non-effect<br/>no Q-12 authority"]:::inert
     RAVI --> WKR --> CLM
   end
 
-  subgraph Z2["2 · SOURCE DOMAINS — private · Cloud Run + Cloud Storage · asia-south1"]
-    direction TB
-    subgraph EMP["EMPLOYER-1 · authorized identity only"]
-      direction LR
-      EDATA["payroll-week.txt<br/>GCS · employer-1/ prefix"]:::src
-      EAG["<b>Employer Agent</b> · Cloud Run<br/>Google ADK · muster-employer-agent SA"]:::ai
-      EVAL["deterministic validation<br/>→ source signature<br/>Secret Manager key"]:::src
-      EDATA -->|"authorized read"| EAG
-      EAG --> EVAL
-    end
-    subgraph SITE["SITE-A · authorized identity only"]
-      direction LR
-      SDATA["attendance-board-sat.png<br/>gate-log-sat.txt<br/>GCS · site-a/ prefix"]:::src
-      SAG["<b>Site Agent</b> · Cloud Run<br/>Google ADK · muster-site-agent SA"]:::ai
-      SVAL["deterministic validation<br/>→ source signature<br/>Secret Manager key"]:::src
-      SDATA -->|"authorized read"| SAG
-      SAG --> SVAL
-    end
-  end
-
-  subgraph VTX["VERTEX AI · location: global"]
-    GEM["<b>Gemini 3.7 Flash</b><br/>multimodal interpretation<br/>image + text → candidate facts"]:::ai
-  end
-  EAG <-->|"evidence content: text/plain<br/>→ candidate facts"| GEM
-  SAG <-->|"evidence content: raw PNG via<br/>ADK inline_data + gate-log text<br/>→ candidate facts"| GEM
-
-  DENY["<b>GCP IAM — HTTP 403 DENIED</b><br/>storage.objects.get on site-a/<br/><i>captured in infra/evidence/</i>"]:::deny
-
-  subgraph Z3["3 · MUSTER DETERMINISTIC CONTROL PLANE"]
-    direction TB
+  subgraph Z3A["MUSTER DETERMINISTIC CONTROL PLANE — CONSEQUENCE PLANNING"]
+    direction LR
     CPID["Control Plane identity<br/>muster-control-plane SA<br/>no source key · no model client<br/>no storage grant"]:::det
     PLAN["Hinge + evidence planning<br/>DIVERGENT → 3 propositions needed"]:::det
     CAT["Fleet Catalog<br/>routes an address · grants no authority"]:::det
-    Q12["<b>Q-12 source authority</b><br/>key · principal · tenant · class<br/>predicate · resource · validity · revocation"]:::det
-    KERN["<b>Deterministic kernel</b><br/>pinned policy workforce-demo · 7c9925f5…<br/>bounded enumeration · Z3 differential check"]:::det
-    CERT["Reproducible certificate<br/>outcome <b>INVARIANT</b><br/>on_site_duration stays UNRESOLVED"]:::det
-    PLAN --> CAT
-    Q12 --> KERN --> CERT
+    CPID --> PLAN --> CAT
   end
-  CPID -->|"raw Site-A object read"| DENY
-  DENY --x SDATA
 
-  subgraph Z4["4 · ACTION GATE — deterministic code, NOT an AI agent · local"]
+  subgraph CLOUD["GOOGLE CLOUD SOURCE ACQUISITION — separated locations and identities"]
     direction TB
-    BIND["exact action binding<br/>+ execution authority"]:::exec
-    PG[("PostgreSQL · LOCAL<br/>durable reservation<br/>idempotency + finality")]:::exec
-    LIFE["RESERVED → DISPATCHED →<br/><b>CONFIRMED</b> | FAILED | UNCERTAIN"]:::exec
-    DONE["<b>EXECUTED ONCE</b><br/>local sandbox executor<br/>no real funds transferred"]:::exec
-    BIND --> PG --> LIFE --> DONE
+    subgraph Z2["SOURCE DOMAINS — private · Cloud Run + Cloud Storage · asia-south1"]
+      direction TB
+      subgraph EMP["EMPLOYER-1 · authorized identity only"]
+        direction LR
+        EDATA["payroll-week.txt<br/>GCS · employer-1/ prefix"]:::src
+        EAG["Employer Agent · Cloud Run<br/>Google ADK · muster-employer-agent SA"]:::ai
+        EVAL["deterministic validation<br/>→ source signature<br/>Secret Manager key"]:::src
+        EDATA -->|"authorized read"| EAG
+        EAG --> EVAL
+      end
+      subgraph SITE["SITE-A · authorized identity only"]
+        direction LR
+        SDATA["attendance-board-sat.png<br/>gate-log-sat.txt<br/>GCS · site-a/ prefix"]:::src
+        SAG["Site Agent · Cloud Run<br/>Google ADK · muster-site-agent SA"]:::ai
+        SVAL["deterministic validation<br/>→ source signature<br/>Secret Manager key"]:::src
+        SDATA -->|"authorized read"| SAG
+        SAG --> SVAL
+      end
+    end
+
+    subgraph VTX["VERTEX AI · location: global"]
+      GEM["Gemini 3.7 Flash<br/>multimodal interpretation<br/>image + text → candidate facts"]:::ai
+    end
+    EAG <-->|"evidence content: text/plain<br/>→ candidate facts"| GEM
+    SAG <-->|"evidence content: raw PNG via<br/>ADK inline_data + gate-log text<br/>→ candidate facts"| GEM
+
+    DENY["GCP IAM — HTTP 403 DENIED<br/>storage.objects.get on site-a/<br/>mirrored in tracked cloud trace"]:::deny
+  end
+
+  subgraph Z3B["MUSTER DETERMINISTIC CONTROL PLANE — AUTHORITY + DECISION"]
+    direction LR
+    Q12["Q-12 source authority<br/>key · principal · tenant · class<br/>predicate · resource · validity · revocation"]:::det
+    KERN["Deterministic kernel<br/>pinned policy workforce-demo · 7c9925f5…<br/>bounded enumeration · Z3 differential check"]:::det
+    CERT["Reproducible certificate<br/>outcome INVARIANT<br/>on_site_duration stays UNRESOLVED"]:::det
+    Q12 --> KERN --> CERT
   end
 
   CLM -->|"inert · decides nothing"| PLAN
   CAT -. "asks only for what changes the action" .-> EAG
   CAT -. "asks only for what changes the action" .-> SAG
+  CPID -->|"raw Site-A object read"| DENY
+  DENY --x SDATA
   EVAL -->|"narrow attestation<br/>scheduled RAVI,SAT = true"| Q12
   SVAL -->|"narrow attestations<br/>present_on_site = true<br/>on_site_duration >= 508 min"| Q12
-  CERT -->|"proposed PAY RAVI INR 5,100<br/><b>= corrected weekly total</b>"| BIND
+
+  subgraph Z4["ACTION GATE — deterministic code, NOT an AI agent · local"]
+    direction LR
+    BIND["exact action binding<br/>+ execution authority"]:::exec
+    PG[("PostgreSQL · LOCAL<br/>durable reservation<br/>idempotency + finality")]:::exec
+    LIFE["RESERVED → DISPATCHED →<br/>CONFIRMED | FAILED | UNCERTAIN"]:::exec
+    DONE["EXECUTED ONCE<br/>local sandbox executor<br/>no real funds transferred"]:::exec
+    BIND --> PG --> LIFE --> DONE
+  end
+
+  CERT -->|"proposed PAY RAVI INR 5,100<br/>= corrected weekly total"| BIND
 
   subgraph SIDE["SAME KERNEL · DIFFERENT DOMAIN · local deterministic proof"]
-    direction TB
+    direction LR
     PO["Procurement PO-4821<br/>97 <= quantity <= 100"]:::det
-    FIX["Fixed-price → <b>INVARIANT</b><br/>no extra evidence"]:::det
-    PU["Per-unit → <b>DIVERGENT</b><br/>exact quantity required"]:::det
+    FIX["Fixed-price → INVARIANT<br/>no extra evidence"]:::det
+    PU["Per-unit → DIVERGENT<br/>exact quantity required"]:::det
     PO --> FIX
     PO --> PU
   end
@@ -219,9 +227,11 @@ Site-A's evidence is a photograph of an attendance board and a comma-separated
 gate log — a picture and a table, about the same shift, in two different shapes.
 Gemini reads both together in a single turn and returns structured candidate
 facts. Without a multimodal interpretation layer, this application would need
-format-specific OCR, layout heuristics, and a bespoke parser per evidence type,
-and a new source would mean new extraction code. Gemini is what makes a new
-source a configuration change instead.
+format-specific OCR, layout heuristics, and a bespoke parser per evidence type.
+Gemini makes support for new evidence formats largely a configuration and
+integration task rather than requiring bespoke extraction code for every
+format. New source domains may still require adapters, permissions, schemas,
+deterministic validation, and institutional authority setup.
 
 > The authorized source-local agent invokes Gemini 3.7 Flash on Vertex AI
 > (location: global) to interpret source material into candidate facts;
@@ -295,8 +305,11 @@ employer-1/    payroll-week.txt, manifest.json
 
 Access is granted by **IAM-conditioned bindings**, one prefix per service
 account, using `resource.name.startsWith(...)` on the object path. The
-consequences, all verified against the live project and recorded in
-`infra/evidence/iam-verification.txt`:
+consequences below were verified against the live project. The reproducible
+public verification path is [`infra/scripts/70-verify-iam.sh`](infra/scripts/70-verify-iam.sh),
+and the tracked sanitized cloud case artifact at
+[`packages/muster-ui/public/cases/ravi-cloud-execution.json`](packages/muster-ui/public/cases/ravi-cloud-execution.json)
+mirrors the observed Control Plane HTTP 403 without publishing raw evidence:
 
 | Principal | `site-a/gate-log-sat.txt` | Site signing key |
 |---|---|---|
@@ -561,8 +574,9 @@ bundle. No model and no cloud execution is used for it.
 
 ## 11. Verified Cloud Execution vs Local Demo
 
-Verified execution: `muster-control-plane-hero-htkpt`, captured in
-`infra/evidence/case-traces/`.
+Verified execution: `muster-control-plane-hero-htkpt`, captured in the tracked
+sanitized artifact
+[`packages/muster-ui/public/cases/ravi-cloud-execution.json`](packages/muster-ui/public/cases/ravi-cloud-execution.json).
 
 | Component | Verified Stage-90 cloud execution | Local demo / replay | Notes |
 |---|---|---|---|
@@ -698,11 +712,13 @@ execute through a separately controlled boundary, exactly once
 
 Each stage contributes something the others cannot. Hinge analysis narrows the
 question to what is consequential. Source-local acquisition keeps material with
-its owner and satisfies real IAM. Gemini reads the material in whatever shape it
-arrives — a photograph, a log, an export — which is what makes onboarding a new
-source a configuration change. Q-12 supplies institutional authority. The
-deterministic kernel makes the consequence reproducible under pinned policy. The
-Action Gate makes execution auditable and exactly once.
+its owner and satisfies real IAM. Gemini makes support for new evidence formats
+largely a configuration and integration task rather than requiring bespoke
+extraction code for every format. New source domains may still require adapters,
+permissions, schemas, deterministic validation, and institutional authority
+setup. Q-12 supplies that institutional authority. The deterministic kernel
+makes the consequence reproducible under pinned policy. The Action Gate makes
+execution auditable and exactly once.
 
 The Ravi case is the whole argument in one line: Gemini read a photograph of an
 attendance board and a badge log and produced structured facts; a sandbox

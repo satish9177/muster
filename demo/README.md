@@ -31,12 +31,16 @@ Terminal 3 — start the unchanged Vite UI:
 
 ```powershell
 Set-Location packages\muster-ui
+npm.cmd install
 npm.cmd run dev
 ```
 
 Open `http://127.0.0.1:5173`. The API applies the repository's migrations and
 restores the authoritative Ravi fixture idempotently on startup. If PostgreSQL
 or the DSN is unavailable, the API exits instead of falling back to memory.
+Vite proxies `/api/demo` to the API's default `127.0.0.1:8765`; if that port is
+already occupied, free it before starting the API or configure both endpoints
+consistently.
 
 Before recording, stop the API and reset only the synthetic Ravi execution row:
 
@@ -51,34 +55,43 @@ does not wipe the execution table, touch another case, drop PostgreSQL, or reset
 migrations. Restart the API after the reset; the browser then shows the
 proposal as `PROPOSED` and the Action Gate as `NOT EXECUTED`.
 
-```
-python demo/hero.py
+```powershell
+.\.venv\Scripts\python.exe demo\hero.py
 ```
 
 One case, three agents, one deterministic answer:
 
-```
+```text
 WORKER AGENT
   claim      present_on_site(RAVI, SAT) = true
   by         RAVI as WORKER
   effect     none: a claim is not a justification variant
 
 ANALYSIS BEFORE ACQUISITION
-  needs      scheduled(RAVI, SAT)         from HR_PAYROLL_SYSTEM
-  needs      present_on_site(RAVI, SAT)   from SITE_ACCESS_CONTROL
-  needs      on_site_duration(RAVI, SAT)  from SITE_ACCESS_CONTROL
+  request    <digest prefix>
+  needs      scheduled(RAVI, SAT) from HR_PAYROLL_SYSTEM
+  needs      present_on_site(RAVI, SAT) from SITE_ACCESS_CONTROL
+  needs      on_site_duration(RAVI, SAT) from SITE_ACCESS_CONTROL
 
 FLEET
-  agent      agent-hr-payroll   attested scheduled(RAVI, SAT)
-  agent      agent-site-a       attested present_on_site(RAVI, SAT)
-                                attested on_site_duration(RAVI, SAT)
+  agent      agent-hr-payroll  at local://agent-hr-payroll
+  attested   scheduled(RAVI, SAT)  admitted through Q-12
+  agent      agent-site-a  at local://agent-site-a
+  attested   present_on_site(RAVI, SAT)  admitted through Q-12
+  attested   on_site_duration(RAVI, SAT)  admitted through Q-12
 
 RESULT
   status     PROPOSED
   outcome    INVARIANT
-  action     PAY  recipient=RAVI  amount=INR 5100.00
+  action     PAY  recipient=RAVI  amount=INR 5,100.00
   unresolved on_site_duration(RAVI, SAT), shift_payable_under_policy(RAVI, SAT)
+
+  MUSTER has not decided that Ravi worked.  It has decided that his
+  Saturday shift is payable under the pinned policy, on attested grounds.
 ```
+
+The request digest prefix is printed on every run and is abbreviated above
+because it is an artifact identifier rather than part of the product result.
 
 The last line is the product claim. The case reaches an invariant answer **while
 the duration is still unresolved** — the site said "at least four hours", the
@@ -129,8 +142,9 @@ is `gemini-3.7-flash` at `GOOGLE_CLOUD_LOCATION=global`, while the Cloud Run
 services and the evidence bucket stay in `asia-south1` — the model location and
 the deployment region are separate values, and only the source agent reads the
 material. Without it, the run uses the deterministic interpreters and reaches
-the same answer, which is the point: **what a model produced never decided
-anything.**
+the same answer. **The consequential result remains reproducible because
+candidate interpretations pass through deterministic validation, authority,
+and pinned policy.**
 
 ## What the three agents are given
 

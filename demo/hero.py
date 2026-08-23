@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -63,6 +64,7 @@ from muster.core.evidence.delivery import AcquisitionTransport  # noqa: E402
 from muster.core.evidence.requests import EvidenceRequest  # noqa: E402
 from muster.core.evidence.transcript import Statement, StatementRecord  # noqa: E402
 from muster.core.results import Err, Ok  # noqa: E402
+from muster.core.values.scalars import render  # noqa: E402
 from muster.core.values.times import Instant  # noqa: E402
 from muster.platform.casework.advance import Casework  # noqa: E402
 from muster.platform.casework.commands import (  # noqa: E402
@@ -183,12 +185,31 @@ def _require(outcome: object, what: str) -> None:
 #  ---- narration -----------------------------------------------------------
 
 
+_ADK_METRICS_LOGGER = "google_adk.google.adk.telemetry._metrics"
+
+
+class _ScriptedInterpreterTelemetryFilter(logging.Filter):
+    """Hide only the expected no-token-metadata warning from scripted models."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not (
+            record.levelno == logging.WARNING
+            and record.msg
+            == "Skipping missing token usage metadata for agent %s and model %s"
+        )
+
+
+def _configure_scripted_demo_logging() -> None:
+    """Keep deterministic demo telemetry noise out without muting other logs."""
+    logging.getLogger(_ADK_METRICS_LOGGER).addFilter(_ScriptedInterpreterTelemetryFilter())
+
+
 def narrate(run: HeroRun, write: Callable[[str], None] = print) -> None:
     """What happened, in the order it happened, with no adjectives."""
     write("")
     write("WORKER AGENT")
     for statement in run.claims:
-        write(f"  claim      {statement.proposition} = {statement.asserted_value}")
+        write(f"  claim      {statement.proposition} = {render(statement.asserted_value)}")
         write(f"  by         {statement.claimant} as {statement.role_in_case}")
         write("  effect     none: a claim is not a justification variant")
 
@@ -226,7 +247,9 @@ def narrate(run: HeroRun, write: Callable[[str], None] = print) -> None:
     write(f"  outcome    {outcome_class(analysis.kernel.outcome)}")
     action = getattr(analysis.kernel.outcome, "action", None)
     if action is not None:
-        fields = "  ".join(f"{field.name}={field.value}" for field in action.consequential_fields)
+        fields = "  ".join(
+            f"{field.name}={render(field.value)}" for field in action.consequential_fields
+        )
         write(f"  action     {action.kind}  {fields}")
     unresolved = sorted(str(reference) for reference in analysis.projected.unresolved())
     write(f"  unresolved {', '.join(unresolved) if unresolved else 'nothing'}")
@@ -251,6 +274,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--tenant", default="DEMO", help="tenant identifier")
     parser.add_argument("--case", default="CASE-RAVI-SAT-DEMO", help="case identifier")
     arguments = parser.parse_args(argv)
+
+    if not arguments.live:
+        _configure_scripted_demo_logging()
 
     if arguments.postgres:
         from muster.platform.adapters.sql.database import SqlDatabase
