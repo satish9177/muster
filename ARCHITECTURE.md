@@ -2,13 +2,15 @@
 
 > **When records disagree, MUSTER proves only what matters — and acts only on what can be proved.**
 
-The trust rule the whole system is built around:
+MUSTER pairs Gemini's ability to interpret messy, multimodal enterprise
+evidence with the deterministic authority, policy, and execution controls that
+consequential enterprise actions require. The separation of responsibilities:
 
 ```
-Models may interpret.
-Sources may attest.
-Policy may entail.
-Only deterministic code may decide and authorize.
+Gemini interprets.
+Sources attest.
+Policy determines consequences.
+Deterministic controls authorize execution.
 ```
 
 This document describes the system as implemented in this repository. Where a
@@ -22,24 +24,33 @@ Where a capability runs only locally, it says that too.
 An enterprise agent almost never owns the facts it needs. A payroll question
 needs the employer's roster, the site's access control, and sometimes the
 worker's own account of what happened. Those live in different departments,
-under different owners, with different rules about who may read them.
+under different owners, behind different security boundaries, with different
+rules about who may read them.
 
-Three things then go wrong in practice:
+Three properties make this hard:
 
-- **The records disagree, or one is simply missing.** Payroll says Saturday was
-  rostered and unpaid; the site's badge reader says someone came in; the worker
-  says he was there. None of these is a decision.
-- **Collecting everything is the default.** The usual fix is to copy all the
-  material into one place so a model can read it. That is the largest possible
-  privacy footprint for what is often a very small question.
-- **Model output gets treated as fact.** A model reads a photograph, produces a
-  number, and that number goes straight into a payment.
+- **The evidence is unstructured, and it disagrees.** Payroll is a text export
+  saying Saturday was rostered and unpaid. The site's record is a badge log and
+  a photograph of an attendance board. The worker has his own account. Reading
+  material in that many shapes is exactly what a multimodal model is good at.
+- **Ownership is real and it is enforced.** Copying everything into one place so
+  a single process can read it is the largest possible privacy footprint for
+  what is often a very small question — and in a real enterprise, IAM will
+  simply refuse.
+- **The action has consequences.** A payment must be authorized against
+  institutional authority, evaluated under a pinned policy, and reproducible
+  afterwards. Those are properties of a control plane, not of an interpreter.
 
-MUSTER inverts the order. It first asks *which uncertainty could actually change
-what we do*, and it collects evidence only for that. Frequently the answer is
-that a disagreement does not matter at all — every value consistent with the
-evidence produces the same action — and in that case MUSTER never asks anyone to
-resolve it.
+MUSTER joins the two capabilities. Gemini reads the messy material where it
+lives, under the identity authorized to see it, and turns it into structured
+candidate facts. Deterministic controls then establish source authority, apply
+pinned policy, and govern execution.
+
+It also inverts the usual collection order. MUSTER first asks *which uncertainty
+could actually change what we do*, and gathers evidence only for that.
+Frequently a disagreement turns out not to matter at all — every value
+consistent with the evidence produces the same action — and in that case MUSTER
+never asks anyone to resolve it.
 
 ---
 
@@ -83,7 +94,7 @@ flowchart LR
   end
 
   subgraph VTX["VERTEX AI · location: global"]
-    GEM["<b>Gemini 3.7 Flash</b><br/>interprets source material<br/>decides nothing · never replayed"]:::ai
+    GEM["<b>Gemini 3.7 Flash</b><br/>multimodal interpretation<br/>image + text → candidate facts"]:::ai
   end
   EAG <-->|"evidence content: text/plain<br/>→ candidate facts"| GEM
   SAG <-->|"evidence content: raw PNG via<br/>ADK inline_data + gate-log text<br/>→ candidate facts"| GEM
@@ -145,9 +156,9 @@ the deployment ships them as different values on purpose.
 
 | Colour | Meaning |
 |---|---|
-| Amber | AI / nondeterministic — Gemini via Google ADK |
+| Amber | Interpretation — Gemini via Google ADK |
 | Violet | Source authority — source-controlled material and signed attestations |
-| Blue | Deterministic — hinge, Q-12, kernel, policy, certificate |
+| Blue | Deterministic control — hinge, Q-12, kernel, policy, certificate |
 | Red | Google Cloud security boundary — enforced by GCP IAM |
 | Green | Execution boundary — the Action Gate |
 
@@ -202,11 +213,15 @@ correct, and it contributes nothing either way.
 
 ---
 
-## 4. Why Gemini Is Necessary — But Not Trusted
+## 4. Gemini for Interpretation, Deterministic Controls for Consequences
 
-The site's evidence is an attendance-board photograph and a comma-separated gate
-log. Nothing deterministic reads a photograph of a whiteboard. That is the work
-Gemini does, and it is real work.
+Site-A's evidence is a photograph of an attendance board and a comma-separated
+gate log — a picture and a table, about the same shift, in two different shapes.
+Gemini reads both together in a single turn and returns structured candidate
+facts. Without a multimodal interpretation layer, this application would need
+format-specific OCR, layout heuristics, and a bespoke parser per evidence type,
+and a new source would mean new extraction code. Gemini is what makes a new
+source a configuration change instead.
 
 > The authorized source-local agent invokes Gemini 3.7 Flash on Vertex AI
 > (location: global) to interpret source material into candidate facts;
@@ -221,8 +236,11 @@ What each agent sends:
 | Site Agent | `gate-log-sat.txt` | UTF-8 text, through the local read tool |
 
 Gemini returns **candidate facts** — a target label, a relation, a value, an
-observation timestamp, and a local basis reference. Deterministic code then
-checks every one of them:
+observation timestamp, and a local basis reference. That is a genuinely
+structured output over genuinely unstructured input, and it is the step nothing
+else in this system could perform.
+
+Candidate facts then enter a deterministic validation pipeline, which checks:
 
 - the target was actually offered to this turn, and appears at most once;
 - the relation is one the target permits;
@@ -230,18 +248,36 @@ checks every one of them:
 - the observation timestamp is parseable and inside the configured horizon;
 - the validity window contains the case instant.
 
-Only after all of that does the source sign a narrow attestation with a key held
-in Secret Manager, and only that signed attestation crosses into MUSTER.
+The source then signs a narrow attestation with a key held in Secret Manager,
+and that signed attestation is what crosses into MUSTER.
 
-Gemini does not sign. It does not decide policy. It does not run Q-12. It does
-not authorize execution. It does not compute the consequential action. A model
-version is telemetry — it records which model produced a candidate and decides
-nothing, because a candidate has to survive deterministic validation whatever
-produced it. Replay never replays a model call.
+**The division of responsibility**
 
-The same runtimes also run against scripted deterministic interpreters, with no
-branch anywhere between the two paths. Both reach the same answer, which is the
-point: what a model produced never decided anything.
+| Gemini owns | Deterministic controls own |
+|---|---|
+| Reading text and images together | Validating candidates against the pinned schema |
+| Turning unstructured material into candidate facts | Establishing institutional source authority (Q-12) |
+| Adapting to new evidence formats without new parsers | Evaluating pinned policy over established facts |
+| | Reproducing the result and its certificate |
+| | Governing execution at the Action Gate |
+
+Both halves are necessary. Interpretation without deterministic controls gives
+an answer with no account of the authority it rests on; deterministic controls
+without interpretation cannot read a photograph of a whiteboard at all.
+
+The boundary is drawn where responsibility changes hands. Signing is a source's
+act, authority is the registry's, policy is the bundle's, and execution is the
+Gate's — so a candidate fact becomes consequential only by passing through each
+of those in turn. A model version is recorded as telemetry: it says which model
+produced a candidate, and the candidate is judged the same way regardless.
+Replay never re-issues a model call, which is what lets a decided case be
+re-derived byte-for-byte at any later date.
+
+The same agent runtimes also run against scripted deterministic interpreters,
+with no branch anywhere between the two paths, and both reach the same answer.
+That is a property of the pipeline rather than a comment on the model: once a
+candidate has survived validation, authority, and pinned policy, the consequence
+is determined by the evidence and the policy.
 
 ---
 
@@ -302,6 +338,11 @@ A signature answers one question: *which key produced these octets.* That is
 authenticity, and authenticity is not authority. A perfectly valid signature
 from a real, unrevoked key can still be entirely inadmissible.
 
+This is an institutional question, not a question about how the fact was read.
+A payroll figure typed by a clerk, extracted by a regex, or interpreted by
+Gemini reaches Q-12 as the same kind of claim, and is judged by the same
+clauses: whether the source that signed it holds authority to say it.
+
 Check Q-12 answers the question that decides admissibility:
 
 > Was **this key**, as **this institutional principal**, in **this tenant**,
@@ -359,6 +400,10 @@ In the Ravi case this produced three requirements — `scheduled`,
 `present_on_site`, `on_site_duration` — each pinned to a permitted source class,
 which is what the Fleet Catalog then routed.
 
+This is what makes evidence collection consequence-sensitive: MUSTER asks a
+source for something only when the answer could move the outcome, which is both
+a privacy property and an efficiency one.
+
 The hero and procurement paths run the reference **bounded enumeration** backend
 (`BoundedEnumerationBackend`). A Z3 backend also exists and is used as a
 **differential test oracle**: the two backends are cross-checked against each
@@ -405,8 +450,9 @@ nondeterminism irrelevant to the answer.
 
 ## 9. Action Gate
 
-The Action Gate is deterministic code. It is not an AI agent, it holds no model
-client, and no model influences it.
+Interpretation and side-effect execution are separated on purpose. The Action
+Gate is deterministic code holding one responsibility: turning an authorized
+decision into exactly one act, and recording durably that it happened.
 
 Authorization is bound to an **exact action value**, never to an abstract action
 kind. The `ActionIntent` carries, in canonical form:
@@ -571,18 +617,23 @@ output is committed as evidence.
 
 ---
 
-## 13. Trust Boundaries
+## 13. Responsibility and Trust Boundaries
 
-| Boundary | What is trusted | What is not trusted | Enforcement |
+Each layer establishes something specific and passes the rest on. The middle
+columns say what a layer settles and what it deliberately leaves for the next
+one — which is how a candidate fact becomes a consequential action by degrees
+rather than in one step.
+
+| Boundary | What this layer establishes | What it leaves to the next layer | Enforcement |
 |---|---|---|---|
-| Worker claim | That Ravi said it | That it is true; that it justifies anything | `SelfServingClaimIsInert` — recorded non-effect, never a justification variant |
-| Gemini output | Nothing on its own | Candidate values, relations, timestamps | Deterministic validation against the closed target brief, pinned sort, domain, horizon, and validity window |
-| Source signature | Which key produced the octets | That the key was permitted to say it | ECDSA verification against the source keyring |
-| Q-12 | The pinned authority snapshot, resolved by digest and publisher-verified | The signer's own claim of source class | Clauses (a)–(f) in fixed order; refusal before storage |
-| Fleet Catalog | That an agent is a routing candidate | That the agent has any authority | Import contract: authority never consults the catalog |
-| Deterministic kernel | Pinned policy bundle, canonical inputs | Anything a model produced | Pure functions, canonical codec, reproducible certificate |
-| Action Gate | The exact bound `ActionIntent` and its digest | An action kind without its fields; a stale certificate | Durable compare-and-set on a 32-octet execution key; head hold; legal-transition table |
-| GCP IAM source boundary | The identity attached to the Cloud Run revision | The control plane's need to read raw evidence | Prefix-conditioned IAM bindings; real HTTP 403 |
+| Worker claim | That Ravi said it, and what he said | Whether it is true; whether anything follows from it | `SelfServingClaimIsInert` — recorded non-effect, never a justification variant |
+| Gemini interpretation | Structured candidate facts from text and images | Whether each candidate is well-formed and in scope | Multimodal reading via ADK; candidates carry target, relation, value, timestamp, basis |
+| Deterministic validation | That a candidate matches the offered target, pinned sort, domain, horizon, and validity window | Whether the source may say it at all | Closed target brief; pinned predicate schema |
+| Source signature | Which key produced the octets | Whether that key held authority | ECDSA (P-256) verification against the source keyring |
+| Q-12 | Institutional authority: key, principal, tenant, class, predicate, resource, validity, revocation | What the established facts imply | Clauses (a)–(f) in fixed order; refusal before storage |
+| Deterministic kernel | The consequence under pinned policy, and whether uncertainty could change it | Whether and how the action is carried out | Pure functions, canonical codec, reproducible certificate |
+| Action Gate | That the exact bound `ActionIntent` was executed at most once, and its durable outcome | — | Durable compare-and-set on a 32-octet execution key; head hold; legal-transition table |
+| GCP IAM source boundary | Which identity may read which source material | What the authorized reader does with it | Prefix-conditioned IAM bindings; real HTTP 403 |
 
 ---
 
@@ -597,8 +648,8 @@ MUSTER does **not**:
    under the pinned policy on authorized attested grounds;
 2. establish his exact working duration — `on_site_duration` remains
    permanently unresolved and undisclosed;
-3. treat Gemini as authoritative — no model output survives without
-   deterministic validation, and no model output is ever replayed;
+3. route authority through the interpretation layer — candidate facts are
+   validated and signed by the source before Q-12 evaluates authority;
 4. make a real payment — the executor is a synthetic sandbox and no payment rail
    exists in this repository;
 5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
@@ -619,41 +670,47 @@ represented as hardened for production use.
 
 ## 15. Why This Architecture Matters
 
-The conventional agent workflow is:
+The usual shape of an agent workflow is:
 
 ```
-gather everything → ask the model → trust the result
+gather everything → interpret it → act on the result
 ```
 
-Every step of that has a cost. Gathering everything maximises the privacy
-footprint for what is often a small question. Asking the model gives you an
-answer with no account of what it rests on. Trusting the result puts a
-nondeterministic system in the position of authorizing a consequence.
+That works until the action has consequences. Gathering everything maximises the
+privacy footprint for what is often a small question — and in an enterprise,
+least-privilege IAM will refuse it outright. And an answer arrives with no
+record of whose authority it rests on or whether it can be reproduced next
+quarter when someone asks why the payment was made.
 
-MUSTER runs the opposite order:
+MUSTER reorders it:
 
 ```
 determine which uncertainty could change the consequence
         ↓
 retrieve only that evidence, through authorized sources
         ↓
-use AI for interpretation, invoked by the source-local agent
+Gemini interprets it, invoked by the source-local agent
         ↓
-use deterministic authority and pinned policy for consequences
+deterministic authority and pinned policy establish the consequence
         ↓
 execute through a separately controlled boundary, exactly once
 ```
 
-Each step removes a reason to trust something. The hinge analysis removes the
-reason to collect. Source-local retrieval and interpretation remove the reason
-to centralise raw material. Q-12 removes the reason to trust a signature. The
-deterministic kernel removes the reason to trust the model's judgement. The
-Action Gate removes the reason to trust that a decision was acted on once.
+Each stage contributes something the others cannot. Hinge analysis narrows the
+question to what is consequential. Source-local acquisition keeps material with
+its owner and satisfies real IAM. Gemini reads the material in whatever shape it
+arrives — a photograph, a log, an export — which is what makes onboarding a new
+source a configuration change. Q-12 supplies institutional authority. The
+deterministic kernel makes the consequence reproducible under pinned policy. The
+Action Gate makes execution auditable and exactly once.
 
-The Ravi case is the whole argument in one line: a sandbox payment was
-authorized and executed exactly once on attested grounds, while the number at
-the centre of the dispute was never established, never disclosed, and never
-needed.
+The Ravi case is the whole argument in one line: Gemini read a photograph of an
+attendance board and a badge log and produced structured facts; a sandbox
+payment was then authorized and executed exactly once on attested grounds —
+while the number at the centre of the dispute was never established, never
+disclosed, and never needed.
 
-> **MUSTER does not make the model more trustworthy. It makes consequential
-> systems require less trust in the model.**
+> **MUSTER combines Gemini's ability to understand messy enterprise evidence
+> with deterministic authority, policy, and execution controls — so AI can
+> participate in consequential enterprise workflows that remain auditable and
+> reproducible.**
