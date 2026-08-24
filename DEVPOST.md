@@ -42,10 +42,14 @@ reachable.
 
 ## How We Built It
 
-The Python kernel and control plane integrate with Google ADK source agents and
-Gemini 3.7 Flash through Vertex AI. Cloud Run hosts the agents in
-`asia-south1`; Cloud Storage holds synthetic evidence; IAM isolates identities;
-and Secret Manager holds signing keys.
+The Python kernel and control plane integrate with Google ADK agents at two
+trust tiers. Gemma 4 (`gemma-4-26b-a4b-it`) handles low-trust Worker claim
+intake through Google's hosted Gemini Developer API in the optional local live
+path; the result is an unsigned, institutionally inert `StatementRecord`.
+Gemini 3.7 Flash interprets Employer and Site institutional evidence through
+Vertex AI. Cloud Run hosts those source agents in `asia-south1`; Cloud Storage
+holds synthetic evidence; IAM isolates identities; and Secret Manager holds
+their signing keys.
 
 A local PostgreSQL Action Gate provides durable reservation, idempotency, and
 finality. A React and TypeScript UI separates verified cloud replay from the
@@ -66,7 +70,15 @@ control semantics across retries and races.
 The hero decision path uses bounded enumeration. Z3 is a differential checking
 oracle, not the production decider.
 
-## Gemini / Google Cloud
+## Google AI Models / Google Cloud
+
+Model tier follows trust tier in this integration. Gemma 4 handles the
+unverified human narrative, but its candidate still passes deterministic claim
+validation and has no signature, source authority, Q-12 path, or decision
+power. Gemini 3.7 Flash handles institutional source material through Vertex
+AI; validated and signed source attestations then face Q-12. Deterministic
+MUSTER controls own authority, policy, consequence evaluation, and execution
+eligibility.
 
 Site-A demonstrates genuine multimodal interpretation. Its authorized agent
 retrieves `attendance-board-sat.png` and `gate-log-sat.txt`, sends raw PNG bytes
@@ -105,6 +117,10 @@ redispatches an uncertain outcome.
 
 - Deployed real Site and Employer agents on Google Cloud.
 - Interpreted a genuine PNG plus text with Gemini 3.7 Flash.
+- Integrated the additional Google AI model Gemma 4
+  (`gemma-4-26b-a4b-it`) for optional hosted Worker claim
+  intake through the Gemini Developer API while preserving an unsigned,
+  institutionally inert result.
 - Captured a real Control Plane IAM 403 against private Site-A evidence.
 - Admitted signed attestations through Q-12 institutional authority checks.
 - Reached and rebuilt a deterministic `INVARIANT` result while exact duration
@@ -112,8 +128,8 @@ redispatches an uncertain outcome.
 - Built a durable local PostgreSQL Action Gate with concurrency, idempotency,
   and finality controls; the sandbox transfers no real funds.
 - Demonstrated the same kernel across workforce and procurement policies.
-- Collected 2,351 tests; the latest verified full suite reports 2,068 passed,
-  283 environment-dependent skips, and 0 failures.
+- Collected 2,359 tests; the latest complete validation accounts for 2,075
+  passed, 284 environment-dependent skips, and 0 unresolved failures.
 
 ## What We Learned
 
@@ -140,6 +156,7 @@ deterministic boundary and reconciliation-first finality model.
 
 - Python
 - Google ADK
+- Gemma 4 (`gemma-4-26b-a4b-it`)
 - Gemini 3.7 Flash
 - Vertex AI
 - Cloud Run

@@ -204,13 +204,23 @@ def _configure_scripted_demo_logging() -> None:
     logging.getLogger(_ADK_METRICS_LOGGER).addFilter(_ScriptedInterpreterTelemetryFilter())
 
 
-def narrate(run: HeroRun, write: Callable[[str], None] = print) -> None:
+def narrate(
+    run: HeroRun,
+    write: Callable[[str], None] = print,
+    *,
+    worker_model_name: str | None = None,
+) -> None:
     """What happened, in the order it happened, with no adjectives."""
     write("")
     write("WORKER AGENT")
+    if worker_model_name is not None:
+        write(f"  model      {worker_model_name}")
+        write("  role       unverified claim intake")
     for statement in run.claims:
         write(f"  claim      {statement.proposition} = {render(statement.asserted_value)}")
         write(f"  by         {statement.claimant} as {statement.role_in_case}")
+        if worker_model_name is not None:
+            write("  authority  NONE · unsigned claim")
         write("  effect     none: a claim is not a justification variant")
 
     write("")
@@ -305,18 +315,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         case_id=arguments.case,
         worker_model=worker_model,
     )
-    narrate(run)
+    worker_model_name = worker_model.model if worker_model is not None else None
+    narrate(run, worker_model_name=worker_model_name)
     return 0
 
 
 def _live_models() -> tuple[BaseLlm, BaseLlm, BaseLlm]:
-    """Three Gemini models, from the same configuration a deployment reads.
+    """Institutional Vertex models plus the hosted Worker claim model.
 
     Built here rather than inside the fleet fixture so that ``--live`` is the
     only thing in this file that reaches a network, and so that a run without
     it cannot reach one by accident.
     """
-    from muster.agents.config import from_environment
+    from muster.agents.config import from_environment, worker_claim_model_configuration
     from muster.agents.google.models import build_model
 
     configuration = from_environment()
@@ -325,8 +336,13 @@ def _live_models() -> tuple[BaseLlm, BaseLlm, BaseLlm]:
             f"--live needs an agent configuration: {configuration.error.failure.value}: "
             f"{configuration.error.detail}"
         )
-    model = configuration.value.model
-    return (build_model(model), build_model(model), build_model(model))
+    institutional = configuration.value.model
+    worker_claim = worker_claim_model_configuration()
+    return (
+        build_model(institutional),
+        build_model(institutional),
+        build_model(worker_claim),
+    )
 
 
 if __name__ == "__main__":

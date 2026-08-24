@@ -178,7 +178,30 @@ before/after durable heads and transcript identity, and the final invariant
 result. This is a **local PostgreSQL durability proof**, not Cloud SQL or cloud
 execution; the gap is simulated and no elapsed production time is claimed.
 
-## Why Gemini Is Essential
+## Google AI Model Responsibilities
+
+In this integration, the model tier follows the trust tier:
+
+- **Additional Google AI model — Gemma 4 (`gemma-4-26b-a4b-it`):** handles
+  low-trust Worker claim intake in the optional local `demo/hero.py --live`
+  path. It is accessed through
+  Google's hosted Gemini Developer API. Its candidate must pass the existing
+  deterministic claim validator and becomes only an unsigned, institutionally
+  inert `StatementRecord`; Gemma does not attest it or decide payment.
+- **Gemini 3.7 Flash** runs through Vertex AI for Employer and Site
+  institutional evidence interpretation. Those source agents deterministically
+  validate candidates, sign narrow attestations, and submit them to Q-12.
+- **Deterministic MUSTER controls** remain responsible for authority, pinned
+  policy, consequence evaluation, certificate reproduction, and execution
+  eligibility.
+
+The default `python demo/hero.py` remains deterministic and offline. Only the
+explicit `--live` mode constructs hosted models; the Worker Developer backend
+reads its API key from the environment and no key is stored in MUSTER
+configuration. The verified Stage-90 cloud run remains the keyless Vertex AI
+Employer/Site path and did not rerun the Worker Agent.
+
+## Why Gemini Is Essential for Institutional Evidence
 
 The verified Site-A path combines two evidence formats:
 
@@ -267,7 +290,7 @@ No Cloud SQL instance is used.
 ```text
 packages/muster-kernel    deterministic decision kernel
 packages/muster-platform  control plane, Q-12, custody, and Action Gate
-packages/muster-agents    Google ADK source agents and Gemini integration
+packages/muster-agents    Google ADK agents and Google AI model integrations
 packages/muster-ui        local React/TypeScript case viewer
 demo                      deterministic hero and local browser API
 infra                     Google Cloud deployment and verification scripts
@@ -276,11 +299,11 @@ ARCHITECTURE.md            authoritative architecture and claim boundaries
 
 ## Testing
 
-The current tree collects **2,351 tests**. The latest verified full-suite
-result is **2,068 passed, 283 skipped, 0 failed**. The skipped cases are
-environment-dependent PostgreSQL, cloud, and live-model tests that require the
-appropriate DSN, credentials, or environment; they do not indicate broken or
-unfinished behavior.
+The current tree collects **2,359 tests**. The latest complete validation
+accounts for **2,075 passed, 284 skipped, 0 unresolved failures**. The skipped
+cases are environment-dependent PostgreSQL, cloud, and live-model tests that
+require the appropriate DSN, credentials, or environment; they do not indicate
+broken or unfinished behavior.
 
 Install the pinned developer tools once, then run the suite:
 

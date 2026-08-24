@@ -11,12 +11,14 @@ from __future__ import annotations
 import pytest
 
 from muster.agents.config import (
+    DEFAULT_CLAIM_MODEL,
     DEFAULT_MATERIAL_REGION,
     DEFAULT_MODEL,
     DEFAULT_MODEL_LOCATION,
     Backend,
     ConfigurationFailure,
     from_environment,
+    worker_claim_model_configuration,
 )
 from muster.agents.sources.local import parse_manifest
 from muster.agents.sources.ports import EvidenceStoreFailure
@@ -107,6 +109,15 @@ def test_the_model_and_the_location_are_overridden_independently() -> None:
     assert isinstance(outcome, Ok), outcome
     assert outcome.value.model.model == DEFAULT_MODEL
     assert outcome.value.model.location == "europe-west4"
+
+
+def test_worker_claim_intake_has_a_separate_developer_model_configuration() -> None:
+    configuration = worker_claim_model_configuration()
+
+    assert configuration.model == DEFAULT_CLAIM_MODEL == "gemma-4-26b-a4b-it"
+    assert configuration.backend is Backend.DEVELOPER
+    assert configuration.project is None
+    assert configuration.location == DEFAULT_MODEL_LOCATION
 
 
 @pytest.mark.parametrize("variable", sorted(MINIMUM.keys() - {"GOOGLE_CLOUD_PROJECT"}))

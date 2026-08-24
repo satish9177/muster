@@ -47,9 +47,9 @@
   <text class="node-title" x="200" y="164" text-anchor="middle">Ravi's own words</text>
   <text class="node-text" x="200" y="188" text-anchor="middle">ravi-account.txt</text>
   <rect class="node-ai" x="460" y="127" width="280" height="92" rx="8"/>
-  <text class="node-title" x="600" y="153" text-anchor="middle">Worker Agent · Google ADK + Gemini</text>
-  <text class="node-text" x="600" y="177" text-anchor="middle">committed path</text>
-  <text class="node-title" x="600" y="201" text-anchor="middle">NOT rerun in Stage-90</text>
+  <text class="node-title" x="600" y="153" text-anchor="middle">Worker Agent · Gemma 4</text>
+  <text class="node-small" x="600" y="177" text-anchor="middle">Google ADK · hosted Gemini Developer API</text>
+  <text class="node-small" x="600" y="201" text-anchor="middle">optional --live · NOT rerun in Stage-90</text>
   <rect class="node-inert" x="860" y="127" width="280" height="92" rx="8"/>
   <text class="node-title" x="1000" y="153" text-anchor="middle">UNSIGNED · CLAIM_ONLY</text>
   <text class="node-text" x="1000" y="177" text-anchor="middle">recorded non-effect · inert</text>

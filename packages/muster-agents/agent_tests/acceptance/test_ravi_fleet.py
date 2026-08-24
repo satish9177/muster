@@ -23,9 +23,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from demo.hero import HeroRun, run_hero
+from demo.hero import HeroRun, narrate, run_hero
 
 from agent_tests.support import fleet
+from muster.agents.config import DEFAULT_CLAIM_MODEL
 from muster.core.analysis.outcomes import Invariant
 from muster.core.results import Ok
 from muster.core.values.scalars import VScaled
@@ -74,6 +75,18 @@ def test_the_worker_claim_is_made_and_moves_nothing(worked_run: HeroRun) -> None
 
     asked = {target.proposition.predicate_id for target in worked_run.solicited.targets}
     assert "present_on_site" in asked
+
+
+def test_live_narration_attributes_worker_claim_intake_without_granting_authority(
+    worked_run: HeroRun,
+) -> None:
+    lines: list[str] = []
+
+    narrate(worked_run, lines.append, worker_model_name=DEFAULT_CLAIM_MODEL)
+
+    assert f"  model      {DEFAULT_CLAIM_MODEL}" in lines
+    assert "  role       unverified claim intake" in lines
+    assert "  authority  NONE · unsigned claim" in lines
 
 
 def test_the_plan_names_exactly_what_nobody_has_attested(worked_run: HeroRun) -> None:

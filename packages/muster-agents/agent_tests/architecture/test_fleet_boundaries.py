@@ -239,10 +239,10 @@ def test_the_signing_primitive_appears_in_exactly_one_module() -> None:
     assert reached == {SIGNING_MODULE}
 
 
-#  ---- WORKER_GEMINI_CANNOT_CREATE_SITE_FACT -------------------------------
+#  ---- WORKER_MODEL_CANNOT_CREATE_SITE_FACT --------------------------------
 
 
-def test_the_worker_runtime_cannot_reach_an_attestation() -> None:
+def test_the_worker_runtime_cannot_reach_evidence_authority_or_consequence_paths() -> None:
     """The property the worker agent exists to have, as an absence.
 
     Not a flag on a shared builder: a single ``build_agent`` with a
@@ -258,10 +258,13 @@ def test_the_worker_runtime_cannot_reach_an_attestation() -> None:
     forbidden = (
         "muster.agents.runtime.receipts",
         "muster.agents.runtime.agent",
+        "muster.agents.sources",
         "muster.agents.keys",
         "muster.core.authority.check",
         "muster.core.authority.signing",
         "muster.core.evidence.signing",
+        "muster.hinge",
+        "muster.platform",
     )
     for name in ("runtime/claims.py", "runtime/claimant.py"):
         for imported in _imports(AGENTS / name):

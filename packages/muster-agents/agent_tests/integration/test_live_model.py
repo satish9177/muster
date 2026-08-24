@@ -32,15 +32,23 @@ import pytest
 
 from agent_tests.eval.cases import CASES, Case
 from agent_tests.support import assignments, fleet
-from muster.agents.config import from_environment
+from muster.agents.config import (
+    DEFAULT_CLAIM_MODEL,
+    Backend,
+    from_environment,
+    worker_claim_model_configuration,
+)
 from muster.agents.google.models import build_model
 from muster.agents.runtime.agent import AcquisitionAgent
+from muster.agents.runtime.claims import UNVERIFIED
 from muster.core.evidence.acquisition import (
     AcquiredEvidence,
     AcquisitionAbstention,
     AcquisitionResponse,
 )
+from muster.core.evidence.transcript import StatementRecord
 from muster.core.results import Err
+from muster.core.values.scalars import VBool
 
 pytestmark = pytest.mark.model
 
@@ -105,6 +113,37 @@ def test_the_live_model_never_leaks_the_material_it_read(
     octets = encode(_ask(live_site_agent).to_node())
     for needle in RAW_NEEDLES:
         assert needle not in octets, f"{needle!r} crossed the source boundary"
+
+
+def test_live_gemma_worker_emits_one_validated_unsigned_claim(
+    live_model_enabled: bool,
+) -> None:
+    """One opt-in call over the synthetic Ravi account and no source material."""
+    assert live_model_enabled
+    configuration = worker_claim_model_configuration()
+    assert configuration.backend is Backend.DEVELOPER
+    assert configuration.model == DEFAULT_CLAIM_MODEL
+    model = build_model(configuration)
+    assert model.client_kwargs == {"vertexai": False}
+
+    outcome = asyncio.run(
+        fleet.worker(model=model).interpret(
+            fleet.worker_brief(TENANT, CASE),
+            fleet.WORKER_ACCOUNT,
+        )
+    )
+
+    # A StatementRecord can only be reached after record_claim populated the
+    # recorder and the existing validate_claims gate accepted its arguments.
+    assert isinstance(outcome, tuple), outcome
+    assert len(outcome) == 1
+    statement = outcome[0]
+    assert type(statement) is StatementRecord
+    assert statement.asserted_value == VBool(True)
+    assert statement.signature == UNVERIFIED
+    assert statement.signature.algorithm == "UNSIGNED-LOCAL-DEVELOPMENT"
+    assert statement.signature.octets == b""
+    assert "source_class" not in StatementRecord.__dataclass_fields__
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)

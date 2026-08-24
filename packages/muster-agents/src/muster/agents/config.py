@@ -29,12 +29,12 @@ from muster.core.authority.scope import ResourceScope
 from muster.core.results import Err, InvariantViolation, Ok, Result
 from muster.core.values.times import Duration
 
-#: The default runtime model.  A current Gemini Flash: multimodal, fast enough
-#: for a live demo, and strong enough on structured tool calls that abstention
-#: stays a decision rather than an accident.  Overridden per deployment with
-#: ``MUSTER_AGENT_MODEL`` -- and the override is the expected case, because a
-#: default that outlives its model family is a default that stops working
-#: silently.
+#: The default institutional-source runtime model.  A current Gemini Flash:
+#: multimodal, fast enough for a live demo, and strong enough on structured tool
+#: calls that abstention stays a decision rather than an accident.  Overridden
+#: per deployment with ``MUSTER_AGENT_MODEL`` -- and the override is the
+#: expected case, because a default that outlives its model family is a default
+#: that stops working silently.
 #:
 #: **It is chosen with :data:`DEFAULT_MODEL_LOCATION`, never separately.**  A
 #: model is served in some locations and not others, and the pairing is the
@@ -45,6 +45,12 @@ from muster.core.values.times import Duration
 #: ``infra/scripts/50-deploy.sh`` -- because availability moves and a stale
 #: default here fails silently otherwise.
 DEFAULT_MODEL = "gemini-3.7-flash"
+
+#: The optional local Worker claim-intake model.  Unlike the institutional
+#: source agents above, this model runs through the Gemini Developer API and
+#: produces only candidates for the unsigned, inert claim path.  It is never a
+#: Cloud Run default and never receives source authority or signing capability.
+DEFAULT_CLAIM_MODEL = "gemma-4-26b-a4b-it"
 
 #: Where the model is called, and **only** that.  Read from
 #: ``GOOGLE_CLOUD_LOCATION``, which is the variable the Vertex client itself
@@ -138,6 +144,24 @@ class ModelConfiguration:
             raise InvariantViolation("an agent names the model it calls")
         if self.backend is Backend.VERTEX and not self.project:
             raise InvariantViolation("a Vertex-backed agent names its project")
+
+
+def worker_claim_model_configuration() -> ModelConfiguration:
+    """The hosted Developer-API model for optional live Worker claim intake.
+
+    The API key is deliberately absent from this value.  ``google-genai`` reads
+    its supported Developer-backend environment variable, while the model
+    record remains safe to log and compare.  Employer and Site configuration
+    continues to come from :func:`from_environment` and defaults to Vertex AI.
+    """
+    return ModelConfiguration(
+        backend=Backend.DEVELOPER,
+        model=DEFAULT_CLAIM_MODEL,
+        project=None,
+        location=DEFAULT_MODEL_LOCATION,
+        max_model_calls=DEFAULT_MODEL_CALLS,
+        timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+    )
 
 
 @dataclass(frozen=True, slots=True)

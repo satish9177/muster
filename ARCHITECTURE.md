@@ -68,7 +68,7 @@ flowchart TB
   subgraph Z1["WORKER / CLAIM"]
     direction LR
     RAVI["Ravi's own words<br/>ravi-account.txt"]:::inert
-    WKR["Worker Agent<br/>Google ADK + Gemini<br/>committed path · NOT rerun in Stage-90"]:::ai
+    WKR["Worker Agent<br/>Google ADK + Gemma 4<br/>hosted Gemini Developer API<br/>optional --live · NOT Stage-90"]:::ai
     CLM["Statement · UNSIGNED · CLAIM_ONLY<br/>inert: recorded non-effect<br/>no Q-12 authority"]:::inert
     RAVI --> WKR --> CLM
   end
@@ -164,7 +164,7 @@ the deployment ships them as different values on purpose.
 
 | Colour | Meaning |
 |---|---|
-| Amber | Interpretation — Gemini via Google ADK |
+| Amber | Interpretation — Gemma or Gemini via Google ADK |
 | Violet | Source authority — source-controlled material and signed attestations |
 | Blue | Deterministic control — hinge, Q-12, kernel, policy, certificate |
 | Red | Google Cloud security boundary — enforced by GCP IAM |
@@ -221,7 +221,30 @@ correct, and it contributes nothing either way.
 
 ---
 
-## 4. Gemini for Interpretation, Deterministic Controls for Consequences
+## 4. Google AI Models for Interpretation, Deterministic Controls for Consequences
+
+### Model responsibilities
+
+In this integration, **model tier follows trust tier** as a composition choice,
+not as a general security theorem:
+
+- **Worker claim intake:** Gemma 4 (`gemma-4-26b-a4b-it`) through Google's
+  hosted Gemini Developer API, only in the optional local `--live` hero. The
+  model sees the synthetic human narrative and may call `record_claim`; the
+  existing validator can produce only an unsigned `StatementRecord` with no
+  institutional authority, attestation, signing capability, Q-12 path, or
+  decision power.
+- **Institutional evidence:** Gemini 3.7 Flash through Vertex AI for Employer
+  and Site source agents. Candidates are validated, signed by the source, and
+  judged by Q-12.
+- **Consequences and execution:** no model. Deterministic MUSTER controls own
+  authority, pinned policy, consequence evaluation, certificate reproduction,
+  and execution eligibility.
+
+The default local hero remains deterministic and offline. The Worker Gemma
+integration does not change the verified Stage-90 cloud execution: Stage-90
+used Gemini 3.7 Flash on Vertex AI for Employer and Site and replayed, rather
+than reran, the Worker claim.
 
 Site-A's evidence is a photograph of an attendance board and a comma-separated
 gate log — a picture and a table, about the same shift, in two different shapes.
@@ -237,10 +260,11 @@ deterministic validation, and institutional authority setup.
 > (location: global) to interpret source material into candidate facts;
 > deterministic code validates them and the source signs the attestation.
 
-What each agent sends:
+What each live agent sends to its configured hosted model:
 
-| Agent | Material sent to Gemini | Delivery |
+| Agent | Material sent | Model delivery |
 |---|---|---|
+| Worker Agent | synthetic `ravi-account.txt` narrative | Gemma 4 through the Gemini Developer API, optional local `--live` only |
 | Employer Agent | `payroll-week.txt` | `text/plain`, through the local read tool |
 | Site Agent | `attendance-board-sat.png` | raw PNG bytes via ADK `inline_data` |
 | Site Agent | `gate-log-sat.txt` | UTF-8 text, through the local read tool |
@@ -263,8 +287,9 @@ and that signed attestation is what crosses into MUSTER.
 
 **The division of responsibility**
 
-| Gemini owns | Deterministic controls own |
+| Model interpretation owns | Deterministic controls own |
 |---|---|
+| Turning the Worker narrative into a candidate claim label and value | Validating it into an unsigned, inert statement or rejecting it |
 | Reading text and images together | Validating candidates against the pinned schema |
 | Turning unstructured material into candidate facts | Establishing institutional source authority (Q-12) |
 | Adapting to new evidence formats without new parsers | Evaluating pinned policy over established facts |
@@ -582,7 +607,8 @@ sanitized artifact
 |---|---|---|---|
 | Employer Agent | Yes — Cloud Run, real Gemini call | Yes | Attested `scheduled(RAVI,SAT)`, key `key-hr-payroll-cloud-1` |
 | Site Agent | Yes — Cloud Run, real Gemini call | Yes | Attested `present_on_site` + `on_site_duration`, key `key-site-a-cloud-1` |
-| Worker Agent | **No — not rerun** | Yes | Committed ADK path exists; not deployed. The cloud run replays the claim from the fixture |
+| Worker Agent | **No — not rerun** | Yes | Deterministic by default; optional `--live` uses hosted Gemma 4 through the Gemini Developer API. No deployment or authority |
+| Gemma inference | **No** | Optional (`--live`) | `gemma-4-26b-a4b-it`, Developer backend, unsigned claim intake only |
 | Gemini inference | Yes — Employer + Site | Optional (`--live`) | `gemini-3.7-flash`, Vertex AI, location `global` |
 | GCP IAM 403 | Yes — real denial recorded | — | `muster-control-plane` denied `storage.objects.get` on `site-a/` |
 | Q-12 | Yes — passed on all three attestations | Yes | Same admission function on both paths |
@@ -640,8 +666,9 @@ rather than in one step.
 
 | Boundary | What this layer establishes | What it leaves to the next layer | Enforcement |
 |---|---|---|---|
+| Worker claim interpretation (Gemma, optional live) | A candidate label and value from Ravi's narrative | Whether the candidate validates; whether it is true; whether anything follows | Closed Worker brief and `record_claim`; output is unsigned and never a justification variant |
 | Worker claim | That Ravi said it, and what he said | Whether it is true; whether anything follows from it | `SelfServingClaimIsInert` — recorded non-effect, never a justification variant |
-| Gemini interpretation | Structured candidate facts from text and images | Whether each candidate is well-formed and in scope | Multimodal reading via ADK; candidates carry target, relation, value, timestamp, basis |
+| Institutional interpretation (Gemini) | Structured candidate facts from source text and images | Whether each candidate is well-formed and in scope | Multimodal reading via ADK; candidates carry target, relation, value, timestamp, basis |
 | Deterministic validation | That a candidate matches the offered target, pinned sort, domain, horizon, and validity window | Whether the source may say it at all | Closed target brief; pinned predicate schema |
 | Source signature | Which key produced the octets | Whether that key held authority | ECDSA (P-256) verification against the source keyring |
 | Q-12 | Institutional authority: key, principal, tenant, class, predicate, resource, validity, revocation | What the established facts imply | Clauses (a)–(f) in fixed order; refusal before storage |

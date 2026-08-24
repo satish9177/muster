@@ -41,7 +41,7 @@ export function CaseHeader({ model, gate, executing, onExecute }: CaseHeaderProp
           </div>
           <div className="result-action">
             <div>
-              <span className="result-label">PROPOSED PAYMENT</span>
+              <span className="result-label">PROPOSED PAYMENT · CORRECTED WEEKLY TOTAL</span>
               <strong>{model.action.amount}</strong>
             </div>
             <div className="result-recipient">
