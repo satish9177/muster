@@ -42,6 +42,33 @@ Vite proxies `/api/demo` to the API's default `127.0.0.1:8765`; if that port is
 already occupied, free it before starting the API or configure both endpoints
 consistently.
 
+The Ravi views deliberately keep provenance separate. **Decision** projects the
+stored verified cloud execution into a generated Evidence Plan. **Durable
+case** reads `ravi-async-durability.json`, a separate **LOCAL POSTGRESQL
+DURABILITY PROOF / SYNTHETIC DEMO / NOT CLOUD EXECUTION** artifact.
+
+## Separate-process durable case proof
+
+With the same local PostgreSQL container running, generate the async proof from
+the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe demo\async_ravi.py `
+  --dsn postgresql://muster:muster@127.0.0.1:55432/muster `
+  --tenant MUSTER-ASYNC-DEMO `
+  --case CASE-RAVI-ASYNC-DEMO `
+  prove `
+  --confirm-demo-only-reset MUSTER-ASYNC-DEMO/CASE-RAVI-ASYNC-DEMO `
+  --output packages\muster-ui\public\cases\ravi-async-durability.json
+```
+
+`prove` launches `employer` and `resume-site` as different Python processes.
+The second phase loads the first phase's durable head and transcript before it
+appends Site evidence and advances the same case. The required reset confirmation
+deletes rows only for that exact synthetic tenant/case; it does not truncate
+shared tables, drop migrations, touch the Action Gate demo case, or erase other
+tenants. The proof simulates an asynchronous gap and claims no real elapsed time.
+
 Before recording, stop the API and reset only the synthetic Ravi execution row:
 
 ```powershell

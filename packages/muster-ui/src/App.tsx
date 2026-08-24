@@ -6,6 +6,8 @@ import { CaseControlLanding } from "./components/CaseControlLanding";
 import { CaseSelector, type CaseKind } from "./components/CaseSelector";
 import { CaseHeader } from "./components/CaseHeader";
 import { CaseTrace } from "./components/CaseTrace";
+import { DurableCaseHistory } from "./components/DurableCaseHistory";
+import { EvidencePlanner } from "./components/EvidencePlanner";
 import { Inspector } from "./components/Inspector";
 import { ProcurementCase } from "./components/ProcurementCase";
 import { RaviEvidence } from "./components/RaviEvidence";
@@ -42,7 +44,7 @@ function WorkforceCase() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [executing, setExecuting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  const [view, setView] = useState<"overview" | "evidence">("overview");
+  const [view, setView] = useState<"overview" | "evidence" | "planner" | "durability">("overview");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -124,20 +126,27 @@ function WorkforceCase() {
 
   return (
     <div className="app-shell">
-      <CaseHeader
-        model={model}
-        gate={gate}
-        executing={executing}
-        onExecute={() => void executeProposal()}
-      />
+      {view !== "durability" && (
+        <CaseHeader
+          model={model}
+          gate={gate}
+          executing={executing}
+          onExecute={() => void executeProposal()}
+        />
+      )}
       <nav className="case-view-nav" aria-label="Ravi case views">
-        <button type="button" className={view === "overview" && !["rebuild", "action"].includes(activeEvent.id) ? "active" : ""} onClick={() => setView("overview")}>Overview</button>
+        <button type="button" className={view === "overview" && activeEvent.id !== "action" ? "active" : ""} onClick={() => setView("overview")}>Overview</button>
         <button type="button" className={view === "evidence" ? "active" : ""} onClick={() => setView("evidence")}>Evidence</button>
-        <button type="button" className={view === "overview" && activeEvent.id === "rebuild" ? "active" : ""} onClick={() => { setView("overview"); setActiveId("rebuild"); }}>Decision</button>
+        <button type="button" className={view === "planner" ? "active" : ""} onClick={() => setView("planner")}>Decision</button>
+        <button type="button" className={view === "durability" ? "active" : ""} onClick={() => setView("durability")}>Durable case</button>
         <button type="button" className={view === "overview" && activeEvent.id === "action" ? "active" : ""} onClick={() => { setView("overview"); setActiveId("action"); }}>Action</button>
       </nav>
       {view === "evidence" ? (
         <RaviEvidence />
+      ) : view === "planner" ? (
+        <EvidencePlanner />
+      ) : view === "durability" ? (
+        <DurableCaseHistory />
       ) : (
         <div className="workforce-overview">
           <ActionGatePanel gate={gate} unavailableReason={gateError} />
@@ -147,10 +156,12 @@ function WorkforceCase() {
           </main>
         </div>
       )}
-      <footer className="app-footer">
-        <span>{model.provenance.description}</span>
-        <span>{model.provenance.basis}</span>
-      </footer>
+      {view !== "durability" && (
+        <footer className="app-footer">
+          <span>{model.provenance.description}</span>
+          <span>{model.provenance.basis}</span>
+        </footer>
+      )}
     </div>
   );
 }

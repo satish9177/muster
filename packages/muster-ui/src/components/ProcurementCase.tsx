@@ -143,15 +143,23 @@ export function ProcurementCase() {
               <code>{model.policy.policy_id} · {model.policy.version}</code>
             </div>
           </div>
-          <div className="alternative-list">
-            {model.alternatives.map((alternative) => (
-              <div key={alternative.quantity}>
-                <span>{alternative.quantity} units</span>
-                <ArrowRight size={15} aria-hidden="true" />
-                <strong>{alternative.amount}</strong>
-              </div>
-            ))}
-          </div>
+          {invariant ? (
+            <div className="invariant-alternative">
+              <span>{model.uncertainty.admissible_min}–{model.uncertainty.admissible_max} units</span>
+              <ArrowRight size={16} aria-hidden="true" />
+              <strong>{model.result.proposedAmount}</strong>
+            </div>
+          ) : (
+            <div className="alternative-list">
+              {model.alternatives.map((alternative) => (
+                <div key={alternative.quantity}>
+                  <span>{alternative.quantity} units</span>
+                  <ArrowRight size={15} aria-hidden="true" />
+                  <strong>{alternative.amount}</strong>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="contract-note">
             {model.policy.display_note}
           </p>
@@ -170,29 +178,33 @@ export function ProcurementCase() {
             <span>RESULT</span>
             <strong>{model.result.outcome}</strong>
           </div>
+          <div className="reachable-result">
+            <span>REACHABLE CONSEQUENTIAL ACTIONS</span>
+            <strong>{model.result.reachable_action_count}</strong>
+          </div>
           <div className="evidence-result">
-            <span>ADDITIONAL EVIDENCE</span>
+            <span>NEXT EVIDENCE REQUEST</span>
             <strong>{model.result.additional_evidence.display_status}</strong>
           </div>
           {model.result.additional_evidence.hinge && (
             <div className="hinge-result">
               <span>HINGE</span>
               <strong>{model.result.additional_evidence.hinge.label}</strong>
-              <small>{model.result.additional_evidence.hinge.permitted_source_classes.join(" · ")}</small>
+              <small>NEXT AUTHORIZED SOURCE · {model.result.additional_evidence.hinge.permitted_source_classes.join(" · ")}</small>
             </div>
           )}
           <div className="quantity-result">
-            <span>EXACT QUANTITY</span>
-            <strong>{model.uncertainty.status}</strong>
-            <small>{model.result.exact_quantity_relevance}</small>
+            <span>EXACT DELIVERED QUANTITY</span>
+            <strong>{model.result.exact_quantity_relevance}</strong>
+            <small>Current value remains {model.uncertainty.status}</small>
           </div>
           <p className="stop-rule">{model.result.explanation}</p>
         </section>
       </main>
 
       <footer className="procurement-footer">
-        <span>{model.provenance.description}</span>
-        <strong>Same machinery · different domain and policy</strong>
+        <span>{model.provenance.label}</span>
+        <strong>SAME UNCERTAINTY · SAME KERNEL · DIFFERENT POLICY · DIFFERENT EVIDENCE REQUIREMENT</strong>
       </footer>
     </div>
   );

@@ -1,12 +1,20 @@
 """The same PO-4821 evidence changes significance when only policy changes."""
 
 import json
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 
-from demo.procurement_case import analysis, build_read_model
+import pytest
+from demo.procurement_case import _reachable_action_count, analysis, build_read_model
 
-from muster.core.analysis.outcomes import Divergent, ExactReachable, Invariant
+from muster.core.analysis.outcomes import (
+    Divergent,
+    ExactReachable,
+    Invariant,
+    NotComputed,
+    NotComputedReason,
+    TruncatedReachable,
+)
 from muster.core.analysis.planning import EvidenceRequested, NoActionReason, NoActionRequired
 from muster.core.case.constraints import AttestedRelationDeriv
 from muster.core.expr.ir import Binary, BinaryOp, Leaf, freevars
@@ -181,6 +189,19 @@ def test_per_unit_policy_is_divergent_and_requests_exact_quantity() -> None:
     assert tuple(target.proposition for target in plan.request.targets) == (delivered_quantity(),)
     assert plan.request.targets[0].permitted_source_classes == (SOURCE_WAREHOUSE,)
     assert result.planning.necessary == (delivered_quantity(),)
+
+
+def test_procurement_read_model_refuses_inexact_reachable_counts() -> None:
+    outcome = analysis(ProcurementPolicy.PER_UNIT).kernel.outcome
+    assert isinstance(outcome, Divergent)
+    assert isinstance(outcome.reachable, ExactReachable)
+
+    for reachable in (
+        TruncatedReachable(outcome.reachable.actions[:1], 1),
+        NotComputed(NotComputedReason.BUDGET_EXHAUSTED),
+    ):
+        with pytest.raises(RuntimeError, match="requires an exact reachable-action set"):
+            _reachable_action_count(replace(outcome, reachable=reachable))
 
 
 def test_exact_authoritative_warehouse_97_resolves_per_unit_payment() -> None:

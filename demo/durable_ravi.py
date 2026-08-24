@@ -28,10 +28,13 @@ from muster.core.authority.signing import (
     PublisherPreimage,
     PublisherRole,
 )
+from muster.core.evidence.relations import ClosedLowerBound
 from muster.core.evidence.signing import attestation_preimage, case_construction_preimage
 from muster.core.evidence.transcript import Attestation, TranscriptEntry
 from muster.core.results import Err, InvariantViolation
+from muster.core.values.scalars import VInt
 from muster.core.wire.signature import Signature
+from muster.domains.workforce.bundle import on_site_duration
 from muster.platform.adapters.crypto import (
     ECDSA_P256_SHA256,
     LocalEcdsaOfficerVerifier,
@@ -47,7 +50,7 @@ from muster.platform.casework.advance import Casework
 from muster.platform.casework.commands import open_case
 from muster.platform.casework.ports import CaseworkDatabase
 from support import ravi
-from support.authority import AUTHORITY_PUBLISHER_KEY, OFFICER_KEY, SOURCE_KEYS
+from support.authority import AUTHORITY_PUBLISHER_KEY, OFFICER_KEY, SOURCE_KEYS, WORKER
 from support.ravi import RaviCase
 
 _P256_ORDER = int("FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16)
@@ -101,7 +104,12 @@ def durable_casework(database: CaseworkDatabase) -> Casework:
     )
 
 
-def durable_case(tenant_id: str, case_id: str) -> RaviCase:
+def durable_case(
+    tenant_id: str,
+    case_id: str,
+    *,
+    duration_floor_minutes: int | None = None,
+) -> RaviCase:
     """Rebind the authoritative fixture and give it process-stable signatures."""
     case = ravi.ravi(tenant_id, case_id, attested=True)
     construction = case.construction
@@ -113,7 +121,31 @@ def durable_case(tenant_id: str, case_id: str) -> RaviCase:
     return replace(
         case,
         construction=signed_construction,
-        entries=tuple(_signed_entry(entry) for entry in case.entries),
+        entries=tuple(
+            _signed_entry(
+                _with_duration_floor(entry, duration_floor_minutes)
+                if duration_floor_minutes is not None
+                else entry
+            )
+            for entry in case.entries
+        ),
+    )
+
+
+def _with_duration_floor(entry: TranscriptEntry, minutes: int) -> TranscriptEntry:
+    """Shape the synthetic Site observation before applying its stable signature."""
+    if minutes < 0:
+        raise ValueError("duration floor must be non-negative")
+    if not isinstance(entry, Attestation):
+        return entry
+    payload = entry.receipt.payload
+    if payload.proposition != on_site_duration(WORKER, ravi.SATURDAY):
+        return entry
+    return Attestation(
+        replace(
+            entry.receipt,
+            payload=replace(payload, relation=ClosedLowerBound(VInt(minutes))),
+        )
     )
 
 

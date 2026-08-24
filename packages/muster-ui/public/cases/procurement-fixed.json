@@ -41,13 +41,15 @@
     "key": "FIXED_TOLERANCE",
     "display_name": "Fixed contract",
     "display_rule": "Acceptable if quantity \u2265 97",
-    "display_note": "Fixed payment \u20b963,000",
+    "display_note": "Fixed payment INR 63,000",
     "policy_id": "procurement-fixed-tolerance",
     "version": "1.0.0",
     "manifest_digest": "c6dc2bba34bbd8381f601c3e754a445b0fb6364681211d36cc22eccfc5f62adf",
     "acceptance_minimum": 97,
     "fixed_amount_minor": 6300000,
+    "fixed_amount_display": "INR 63,000",
     "per_unit_rate_minor": 63000,
+    "per_unit_rate_display": "INR 630",
     "currency": "INR"
   },
   "alternatives": [
@@ -57,7 +59,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6300000
+        "amount_minor": 6300000,
+        "amount_display": "INR 63,000"
       }
     },
     {
@@ -66,7 +69,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6300000
+        "amount_minor": 6300000,
+        "amount_display": "INR 63,000"
       }
     },
     {
@@ -75,7 +79,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6300000
+        "amount_minor": 6300000,
+        "amount_display": "INR 63,000"
       }
     },
     {
@@ -84,7 +89,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6300000
+        "amount_minor": 6300000,
+        "amount_display": "INR 63,000"
       }
     }
   ],
@@ -94,20 +100,22 @@
       "kind": "PAY",
       "recipient": "SUPPLIER-ORION",
       "currency": "INR",
-      "amount_minor": 6300000
+      "amount_minor": 6300000,
+      "amount_display": "INR 63,000"
     },
     "additional_evidence": {
       "status": "NONE_REQUIRED",
-      "display_status": "NONE REQUIRED",
+      "display_status": "NONE",
       "reason": "ACTION_INVARIANT",
       "hinge": null
     },
-    "exact_quantity_relevance": "IRRELEVANT TO THIS ACTION",
-    "explanation": "MUSTER stops here because resolving 97 vs 100 cannot change the action.",
+    "exact_quantity_relevance": "NOT REQUIRED",
+    "explanation": "Every admissible quantity produces INR 63,000.",
     "reachable_action_count": 1
   },
   "provenance": {
     "mode": "deterministic-local-replay",
+    "label": "LOCAL DETERMINISTIC PROOF",
     "description": "Derived from the pinned procurement bundle by the MUSTER kernel.",
     "basis": "No model or cloud execution is used for this procurement proof."
   }

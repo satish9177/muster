@@ -40,14 +40,16 @@
   "policy": {
     "key": "PER_UNIT",
     "display_name": "Per-unit contract",
-    "display_rule": "\u20b9630 / unit",
-    "display_note": "Rate pinned at \u20b9630 per unit",
+    "display_rule": "INR 630 / unit",
+    "display_note": "Rate pinned at INR 630 per unit",
     "policy_id": "procurement-per-unit",
     "version": "1.0.0",
     "manifest_digest": "50934dc045dda48ddf3f55a092d46d54e9cfdd5b34f5e3bf1b5cb149a7c60253",
     "acceptance_minimum": 97,
     "fixed_amount_minor": 6300000,
+    "fixed_amount_display": "INR 63,000",
     "per_unit_rate_minor": 63000,
+    "per_unit_rate_display": "INR 630",
     "currency": "INR"
   },
   "alternatives": [
@@ -57,7 +59,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6111000
+        "amount_minor": 6111000,
+        "amount_display": "INR 61,110"
       }
     },
     {
@@ -66,7 +69,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6174000
+        "amount_minor": 6174000,
+        "amount_display": "INR 61,740"
       }
     },
     {
@@ -75,7 +79,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6237000
+        "amount_minor": 6237000,
+        "amount_display": "INR 62,370"
       }
     },
     {
@@ -84,7 +89,8 @@
         "kind": "PAY",
         "recipient": "SUPPLIER-ORION",
         "currency": "INR",
-        "amount_minor": 6300000
+        "amount_minor": 6300000,
+        "amount_display": "INR 63,000"
       }
     }
   ],
@@ -103,12 +109,13 @@
         ]
       }
     },
-    "exact_quantity_relevance": "ACTION-SENSITIVE",
-    "explanation": "The same uncertainty now changes the action, so MUSTER asks for proof.",
+    "exact_quantity_relevance": "REQUIRED",
+    "explanation": "Different admissible quantities produce different payments.",
     "reachable_action_count": 4
   },
   "provenance": {
     "mode": "deterministic-local-replay",
+    "label": "LOCAL DETERMINISTIC PROOF",
     "description": "Derived from the pinned procurement bundle by the MUSTER kernel.",
     "basis": "No model or cloud execution is used for this procurement proof."
   }

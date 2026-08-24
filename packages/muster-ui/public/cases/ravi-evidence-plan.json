@@ -1,0 +1,101 @@
+{
+  "schema_version": "muster.evidence-plan/v1",
+  "case": {
+    "tenant_id": "ALPHA",
+    "case_id": "CASE-RAVI-SAT-CLOUD"
+  },
+  "required_resolved": [
+    {
+      "label": "Scheduled for Saturday",
+      "proposition": {
+        "predicate": "scheduled",
+        "args": [
+          "RAVI",
+          "SAT"
+        ],
+        "display": "scheduled(RAVI, SAT)"
+      },
+      "status": "RESOLVED",
+      "requirement": "Required by the deterministic evidence plan.",
+      "established": "Authorized evidence establishes = true.",
+      "reason": "Schedule eligibility can change the consequential action."
+    },
+    {
+      "label": "Present on site",
+      "proposition": {
+        "predicate": "present_on_site",
+        "args": [
+          "RAVI",
+          "SAT"
+        ],
+        "display": "present_on_site(RAVI, SAT)"
+      },
+      "status": "RESOLVED",
+      "requirement": "Required by the deterministic evidence plan.",
+      "established": "Authorized evidence establishes = true.",
+      "reason": "Site presence can change the consequential action."
+    },
+    {
+      "label": "On-site duration — threshold only",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "SAT"
+        ],
+        "display": "on_site_duration(RAVI, SAT)"
+      },
+      "status": "RESOLVED",
+      "requirement": "At least 240 minutes under pinned policy.",
+      "established": "Authorized evidence establishes at least 508 minutes.",
+      "reason": "The pinned policy's qualifying-duration threshold can change the action."
+    }
+  ],
+  "not_required": [
+    {
+      "label": "Exact minute count — never established",
+      "proposition": {
+        "predicate": "on_site_duration",
+        "args": [
+          "RAVI",
+          "SAT"
+        ],
+        "display": "on_site_duration(RAVI, SAT)"
+      },
+      "status": "NOT_REQUIRED",
+      "unresolved": true,
+      "reason": "Every currently admissible exact duration produces the same consequential action."
+    }
+  ],
+  "summary": {
+    "reachable_action_count": 1,
+    "outcome": "INVARIANT",
+    "exact_duration_status": "UNRESOLVED",
+    "action": {
+      "kind": "PAY",
+      "fields": {
+        "recipient": {
+          "type": "enum",
+          "enum_id": "party_id",
+          "value": "RAVI",
+          "display": "RAVI"
+        },
+        "amount": {
+          "type": "scaled",
+          "unit": "INR",
+          "scale": 2,
+          "minor": 510000,
+          "display": "INR 5,100.00"
+        }
+      },
+      "display": "PAY(recipient=RAVI, amount=INR 5,100.00)"
+    },
+    "explanation": "Exact duration remains unresolved because resolving it cannot change the action."
+  },
+  "provenance": {
+    "mode": "verified-cloud-execution-projection",
+    "label": "VERIFIED CLOUD EXECUTION",
+    "description": "Projected from the stored verified Ravi execution and checked against the existing deterministic Hinge plan and kernel result.",
+    "basis": "This projection performed no new model call or cloud execution."
+  }
+}

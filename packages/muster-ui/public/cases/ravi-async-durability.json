@@ -1,0 +1,171 @@
+{
+  "schema_version": "muster.async-durability/v1",
+  "provenance": {
+    "source": "local-postgresql-durability-proof",
+    "label": "LOCAL POSTGRESQL DURABILITY PROOF",
+    "environment": "SYNTHETIC_DEMO",
+    "cloud_execution": false,
+    "note": "The two evidence events ran in separate Python processes against the same local PostgreSQL case. No elapsed production time is claimed."
+  },
+  "case": {
+    "tenant_id": "MUSTER-ASYNC-DEMO",
+    "case_id": "CASE-RAVI-ASYNC-DEMO"
+  },
+  "events": [
+    {
+      "phase": "EMPLOYER",
+      "label": "T0",
+      "process_id": 27104,
+      "case": {
+        "tenant_id": "MUSTER-ASYNC-DEMO",
+        "case_id": "CASE-RAVI-ASYNC-DEMO"
+      },
+      "authored_entries_created": 18,
+      "delivered": [
+        {
+          "entry_digest": "5626bfe976df857271e86d30bf2fa1575ce511afe437be6de13424242db14b76",
+          "proposition": {
+            "predicate": "scheduled",
+            "args": [
+              "RAVI",
+              "SAT"
+            ],
+            "display": "scheduled(RAVI, SAT)"
+          },
+          "source_class": "HR_PAYROLL_SYSTEM",
+          "authorization": "Q-12",
+          "relation": {
+            "kind": "EXACT",
+            "display": "= true"
+          }
+        }
+      ],
+      "employer_entry_present": true,
+      "state": {
+        "status": "AWAITING_EVIDENCE",
+        "outcome": "DIVERGENT",
+        "head": {
+          "revision_number": 3,
+          "revision_digest": "2de0e15df2c4ecfedb9719c80a80dba2da1100d8ee1293506b162766e87d1194",
+          "certificate_digest": "64364e8d7ba6cd9d86c397cbf805d79d2bbc8f09a27708e55e2fb3660d426c17",
+          "transcript_prefix_digest": "6119cd05a7690f805ed879470c6c8fb2198d24196199a707e5212a00c7d67ac6"
+        },
+        "transcript_entry_count": 18,
+        "outstanding_request_count": 1
+      }
+    },
+    {
+      "phase": "RESUME_SITE",
+      "label": "LATER_EVENT",
+      "process_id": 21024,
+      "case": {
+        "tenant_id": "MUSTER-ASYNC-DEMO",
+        "case_id": "CASE-RAVI-ASYNC-DEMO"
+      },
+      "loaded_state": {
+        "status": "AWAITING_EVIDENCE",
+        "outcome": "DIVERGENT",
+        "head": {
+          "revision_number": 3,
+          "revision_digest": "2de0e15df2c4ecfedb9719c80a80dba2da1100d8ee1293506b162766e87d1194",
+          "certificate_digest": "64364e8d7ba6cd9d86c397cbf805d79d2bbc8f09a27708e55e2fb3660d426c17",
+          "transcript_prefix_digest": "6119cd05a7690f805ed879470c6c8fb2198d24196199a707e5212a00c7d67ac6"
+        },
+        "transcript_entry_count": 18,
+        "outstanding_request_count": 1
+      },
+      "authored_entries_created": 2,
+      "delivered": [
+        {
+          "entry_digest": "b07e926eae1af7af8f8798bfedc6eccbcc8fce348e333727aa9e82166b8de752",
+          "proposition": {
+            "predicate": "present_on_site",
+            "args": [
+              "RAVI",
+              "SAT"
+            ],
+            "display": "present_on_site(RAVI, SAT)"
+          },
+          "source_class": "SITE_ACCESS_CONTROL",
+          "authorization": "Q-12",
+          "relation": {
+            "kind": "EXACT",
+            "display": "= true"
+          }
+        },
+        {
+          "entry_digest": "def76dd29ca45d117331f0ed9a730cc8ce7ada7fad7a885ae26331e0f9dc17d5",
+          "proposition": {
+            "predicate": "on_site_duration",
+            "args": [
+              "RAVI",
+              "SAT"
+            ],
+            "display": "on_site_duration(RAVI, SAT)"
+          },
+          "source_class": "SITE_ACCESS_CONTROL",
+          "authorization": "Q-12",
+          "relation": {
+            "kind": "CLOSED_LOWER_BOUND",
+            "display": ">= 508 minutes"
+          }
+        }
+      ],
+      "prior_employer_entry_preserved": true,
+      "state": {
+        "status": "PROPOSED",
+        "outcome": "INVARIANT",
+        "head": {
+          "revision_number": 5,
+          "revision_digest": "361603e62fc4598833cf6efc1a479e4da9ca8d9b8b7e467b93d7a7c2ee3f0c1d",
+          "certificate_digest": "61bd2e94001289c59d9aef9bea384269ed2ae23dadd62c6f2735fa81a9ea55db",
+          "transcript_prefix_digest": "fe8aa599adb425d8c8766f9191b97b0ca7f2e4c41cd15b6815c6e2f024a94fd4"
+        },
+        "transcript_entry_count": 20,
+        "outstanding_request_count": 0
+      },
+      "result": {
+        "status": "PROPOSED",
+        "outcome": "INVARIANT",
+        "exact_duration_status": "UNRESOLVED",
+        "action": {
+          "kind": "PAY",
+          "recipient": "RAVI",
+          "amount": {
+            "unit": "INR",
+            "scale": 2,
+            "minor": 510000,
+            "display": "INR 5,100.00"
+          },
+          "display": "PAY(recipient=RAVI, amount=INR 5,100.00)"
+        },
+        "execution": "NOT_EXECUTED"
+      }
+    }
+  ],
+  "continuity": {
+    "same_tenant_case": true,
+    "different_processes": true,
+    "loaded_phase_one_head": true,
+    "loaded_phase_one_transcript": true,
+    "prior_employer_evidence_preserved": true,
+    "revision_progressed": true
+  },
+  "result": {
+    "status": "PROPOSED",
+    "outcome": "INVARIANT",
+    "exact_duration_status": "UNRESOLVED",
+    "action": {
+      "kind": "PAY",
+      "recipient": "RAVI",
+      "amount": {
+        "unit": "INR",
+        "scale": 2,
+        "minor": 510000,
+        "display": "INR 5,100.00"
+      },
+      "display": "PAY(recipient=RAVI, amount=INR 5,100.00)"
+    },
+    "execution": "NOT_EXECUTED"
+  }
+}

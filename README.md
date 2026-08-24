@@ -49,6 +49,11 @@ Action Gate
 This is **consequence-sensitive evidence acquisition**: MUSTER asks for more
 evidence only when its value could change the action.
 
+The Ravi Decision view now exposes that plan directly: it distinguishes facts
+that were required and resolved from the exact duration that remains unresolved
+but can no longer change the one reachable action. The procurement policy
+switch applies the same test to one fixed-price and four per-unit outcomes.
+
 ## 60-Second Local Proof
 
 From the repository root:
@@ -163,6 +168,16 @@ different totals, so the result is `DIVERGENT` and exact quantity now matters.
 This local deterministic proof shows that the kernel is consequence-sensitive
 and domain-independent. Procurement was not run in the verified cloud hero.
 
+### Durable asynchronous continuation
+
+Institutional evidence does not have to arrive in one synchronous prompt.
+`demo/async_ravi.py` persists the synthetic Ravi case in local PostgreSQL,
+exits the employer phase, and resumes the same case in a separate process when
+the Site event arrives. Its versioned proof records both process IDs, the
+before/after durable heads and transcript identity, and the final invariant
+result. This is a **local PostgreSQL durability proof**, not Cloud SQL or cloud
+execution; the gap is simulated and no elapsed production time is claimed.
+
 ## Why Gemini Is Essential
 
 The verified Site-A path combines two evidence formats:
@@ -261,8 +276,8 @@ ARCHITECTURE.md            authoritative architecture and claim boundaries
 
 ## Testing
 
-The current tree collects **2,345 tests**. The latest verified full-suite
-result is **2,065 passed, 280 skipped, 0 failed**. The skipped cases are
+The current tree collects **2,351 tests**. The latest verified full-suite
+result is **2,068 passed, 283 skipped, 0 failed**. The skipped cases are
 environment-dependent PostgreSQL, cloud, and live-model tests that require the
 appropriate DSN, credentials, or environment; they do not indicate broken or
 unfinished behavior.

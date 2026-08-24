@@ -6,6 +6,7 @@ interface RawAction {
   recipient: string;
   currency: "INR";
   amount_minor: number;
+  amount_display: string;
 }
 
 interface RawSource {
@@ -55,7 +56,9 @@ export interface RawProcurementCase {
     manifest_digest: string;
     acceptance_minimum: number;
     fixed_amount_minor: number;
+    fixed_amount_display: string;
     per_unit_rate_minor: number;
+    per_unit_rate_display: string;
     currency: "INR";
   };
   alternatives: Array<{ quantity: number; action: RawAction }>;
@@ -74,6 +77,7 @@ export interface RawProcurementCase {
   };
   provenance: {
     mode: "deterministic-local-replay";
+    label: "LOCAL DETERMINISTIC PROOF";
     description: string;
     basis: string;
   };
@@ -96,32 +100,25 @@ export interface ProcurementCaseViewModel {
 
 export function transformProcurementCase(input: unknown): ProcurementCaseViewModel {
   assertProcurementCase(input);
-  const formatMoney = (minor: number) =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency: input.policy.currency,
-      maximumFractionDigits: 0,
-    }).format(minor / 100);
-
   return {
     case: { ...input.case },
     sources: input.sources.map((source) => ({ ...source })),
     uncertainty: { ...input.uncertainty },
     policy: {
       ...input.policy,
-      fixedAmount: formatMoney(input.policy.fixed_amount_minor),
-      perUnitRate: formatMoney(input.policy.per_unit_rate_minor),
+      fixedAmount: input.policy.fixed_amount_display,
+      perUnitRate: input.policy.per_unit_rate_display,
     },
     alternatives: input.alternatives.map(({ quantity, action }) => ({
       quantity,
-      amount: formatMoney(action.amount_minor),
+      amount: action.amount_display,
     })),
     result: {
       ...input.result,
       proposedAmount:
         input.result.proposed_action === null
           ? null
-          : formatMoney(input.result.proposed_action.amount_minor),
+          : input.result.proposed_action.amount_display,
     },
     provenance: { ...input.provenance },
   };
@@ -240,7 +237,8 @@ function isPolicy(value: unknown): value is RawProcurementCase["policy"] {
     typeof value.manifest_digest === "string" &&
     /^[0-9a-f]{64}$/.test(value.manifest_digest) &&
     value.currency === "INR" &&
-    allIntegers(value, "acceptance_minimum", "fixed_amount_minor", "per_unit_rate_minor")
+    allIntegers(value, "acceptance_minimum", "fixed_amount_minor", "per_unit_rate_minor") &&
+    allStrings(value, "fixed_amount_display", "per_unit_rate_display")
   );
 }
 
@@ -250,7 +248,8 @@ function isAction(value: unknown): value is RawAction {
     value.kind === "PAY" &&
     typeof value.recipient === "string" &&
     value.currency === "INR" &&
-    Number.isInteger(value.amount_minor)
+    Number.isInteger(value.amount_minor) &&
+    typeof value.amount_display === "string"
   );
 }
 
@@ -293,6 +292,7 @@ function isProvenance(value: unknown): value is RawProcurementCase["provenance"]
   return (
     isRecord(value) &&
     value.mode === "deterministic-local-replay" &&
+    value.label === "LOCAL DETERMINISTIC PROOF" &&
     allStrings(value, "description", "basis")
   );
 }

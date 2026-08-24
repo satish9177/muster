@@ -34,6 +34,12 @@ concludes that Saturday is payable under pinned policy on authorized attested
 grounds; it does not claim to prove objectively that Ravi worked. The proposal
 is `PAY RAVI INR 5,100`, the corrected weekly total.
 
+The judge-facing Evidence Plan makes the stopping rule visible: MUSTER
+determines which unresolved facts can still change the action before requesting
+more evidence. It shows the threshold evidence that mattered alongside the
+exact duration that remains unresolved because only one consequential action is
+reachable.
+
 ## How We Built It
 
 The Python kernel and control plane integrate with Google ADK source agents and
@@ -44,6 +50,12 @@ and Secret Manager holds signing keys.
 A local PostgreSQL Action Gate provides durable reservation, idempotency, and
 finality. A React and TypeScript UI separates verified cloud replay from the
 local execution sandbox.
+
+Institutional evidence also does not have to arrive in one synchronous prompt.
+The local durability demo persists a case, exits one Python process, and resumes
+the same PostgreSQL head and transcript in another when an authorized source
+responds later. The pause is simulated; this proof does not claim Cloud SQL,
+actual elapsed days, or browser persistence.
 
 This is a Fortified Enterprise Fleet: the Fleet Catalog discovers and routes
 source-owned institutional agents, but discovery grants no authority. Source
@@ -100,8 +112,8 @@ redispatches an uncertain outcome.
 - Built a durable local PostgreSQL Action Gate with concurrency, idempotency,
   and finality controls; the sandbox transfers no real funds.
 - Demonstrated the same kernel across workforce and procurement policies.
-- Collected 2,345 tests; the latest verified full suite reports 2,065 passed,
-  280 environment-dependent skips, and 0 failures.
+- Collected 2,351 tests; the latest verified full suite reports 2,068 passed,
+  283 environment-dependent skips, and 0 failures.
 
 ## What We Learned
 

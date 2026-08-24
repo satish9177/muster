@@ -9,7 +9,13 @@ from typing import Any
 
 from muster.application.pipeline import CaseAnalysis, analyse_revision
 from muster.core.actions import Action, ConsequentialAction
-from muster.core.analysis.outcomes import Divergent, ExactReachable, Invariant, outcome_class
+from muster.core.analysis.outcomes import (
+    AnalysisOutcome,
+    Divergent,
+    ExactReachable,
+    Invariant,
+    outcome_class,
+)
 from muster.core.analysis.planning import EvidenceRequested, NoActionRequired
 from muster.core.case.revision import CaseRevision
 from muster.core.results import Ok
@@ -71,6 +77,7 @@ def _action_model(action: Action | ConsequentialAction) -> dict[str, Any]:
         "recipient": recipient.member,
         "currency": amount.unit_tag,
         "amount_minor": amount.minor,
+        "amount_display": _display_inr(amount.minor),
     }
 
 
@@ -85,7 +92,17 @@ def _alternative(policy: ProcurementPolicy, quantity: int) -> dict[str, Any]:
 
 
 def _display_inr(minor: int) -> str:
-    return f"₹{minor // 100:,}"
+    return f"INR {minor // 100:,}"
+
+
+def _reachable_action_count(outcome: AnalysisOutcome) -> int:
+    if isinstance(outcome, Invariant):
+        return 1
+    if isinstance(outcome, Divergent):
+        if isinstance(outcome.reachable, ExactReachable):
+            return len(outcome.reachable.actions)
+        raise RuntimeError("the procurement read model requires an exact reachable-action set")
+    raise RuntimeError("the procurement read model requires an invariant or divergent outcome")
 
 
 def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
@@ -98,16 +115,13 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
     if isinstance(outcome, Invariant):
         proposed_action: dict[str, Any] | None = _action_model(outcome.action)
         result_explanation = (
-            f"MUSTER stops here because resolving {WAREHOUSE_QUANTITY} vs "
-            f"{ORDERED_QUANTITY} cannot change the action."
+            f"Every admissible quantity produces {_display_inr(FIXED_AMOUNT_MINOR)}."
         )
-        exact_quantity_relevance = "IRRELEVANT TO THIS ACTION"
+        exact_quantity_relevance = "NOT REQUIRED"
     else:
         proposed_action = None
-        result_explanation = (
-            "The same uncertainty now changes the action, so MUSTER asks for proof."
-        )
-        exact_quantity_relevance = "ACTION-SENSITIVE"
+        result_explanation = "Different admissible quantities produce different payments."
+        exact_quantity_relevance = "REQUIRED"
 
     if isinstance(planning, EvidenceRequested):
         target = planning.request.targets[0]
@@ -124,7 +138,7 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
     elif isinstance(planning, NoActionRequired):
         evidence = {
             "status": "NONE_REQUIRED",
-            "display_status": "NONE REQUIRED",
+            "display_status": "NONE",
             "reason": planning.reason.value,
             "hinge": None,
         }
@@ -195,7 +209,9 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
             "manifest_digest": bundle.digest().hex,
             "acceptance_minimum": ACCEPTANCE_THRESHOLD,
             "fixed_amount_minor": FIXED_AMOUNT_MINOR,
+            "fixed_amount_display": _display_inr(FIXED_AMOUNT_MINOR),
             "per_unit_rate_minor": PER_UNIT_RATE_MINOR,
+            "per_unit_rate_display": _display_inr(PER_UNIT_RATE_MINOR),
             "currency": CURRENCY,
         },
         "alternatives": [
@@ -208,14 +224,11 @@ def build_read_model(policy: ProcurementPolicy) -> dict[str, Any]:
             "additional_evidence": evidence,
             "exact_quantity_relevance": exact_quantity_relevance,
             "explanation": result_explanation,
-            "reachable_action_count": (
-                len(outcome.reachable.actions)
-                if isinstance(outcome, Divergent) and isinstance(outcome.reachable, ExactReachable)
-                else 1
-            ),
+            "reachable_action_count": _reachable_action_count(outcome),
         },
         "provenance": {
             "mode": "deterministic-local-replay",
+            "label": "LOCAL DETERMINISTIC PROOF",
             "description": "Derived from the pinned procurement bundle by the MUSTER kernel.",
             "basis": "No model or cloud execution is used for this procurement proof.",
         },

@@ -32,23 +32,30 @@ describe("transformProcurementCase", () => {
     const perUnit = transformProcurementCase(perUnitPayload);
 
     expect(fixed.alternatives.map(({ amount }) => amount)).toEqual([
-      "₹63,000",
-      "₹63,000",
-      "₹63,000",
-      "₹63,000",
+      "INR 63,000",
+      "INR 63,000",
+      "INR 63,000",
+      "INR 63,000",
     ]);
     expect(perUnit.alternatives.map(({ amount }) => amount)).toEqual([
-      "₹61,110",
-      "₹61,740",
-      "₹62,370",
-      "₹63,000",
+      "INR 61,110",
+      "INR 61,740",
+      "INR 62,370",
+      "INR 63,000",
     ]);
     expect(fixed.result.outcome).toBe("INVARIANT");
     expect(perUnit.result.outcome).toBe("DIVERGENT");
-    expect(fixed.result.additional_evidence.display_status).toBe("NONE REQUIRED");
+    expect(fixed.result.additional_evidence.display_status).toBe("NONE");
     expect(perUnit.result.additional_evidence.display_status).toBe("REQUIRED");
-    expect(fixed.result.explanation).toContain("resolving 97 vs 100");
-    expect(perUnit.result.explanation).toContain("asks for proof");
+    expect(fixed.result.explanation).toBe("Every admissible quantity produces INR 63,000.");
+    expect(perUnit.result.explanation).toBe(
+      "Different admissible quantities produce different payments.",
+    );
+    expect(fixed.result.reachable_action_count).toBe(1);
+    expect(perUnit.result.reachable_action_count).toBe(4);
+    expect(fixed.result.exact_quantity_relevance).toBe("NOT REQUIRED");
+    expect(perUnit.result.exact_quantity_relevance).toBe("REQUIRED");
+    expect(fixed.provenance.label).toBe("LOCAL DETERMINISTIC PROOF");
   });
 
   it("keeps procurement decision values and kernel arithmetic out of React", () => {
