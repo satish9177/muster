@@ -36,23 +36,23 @@ export function DurableCaseHistory() {
         <article className="durable-event">
           <span className="event-time">{employer.label}</span>
           <div className="event-icon"><Database size={19} aria-hidden="true" /></div>
-          <div><span>EMPLOYER EVENT</span><h3>{evidenceDisplay(employer.delivered[0])}</h3><p><Check size={14} /> Q-12 passed · durable revision stored · waiting for evidence</p></div>
+          <div><span>EMPLOYER EVIDENCE ARRIVES</span><h3>{evidenceDisplay(employer.delivered[0])}</h3><p><Check size={14} /> Q-12 passed · durable revision stored · waiting for evidence</p></div>
           <dl><div><dt>Process</dt><dd>{employer.process_id}</dd></div><div><dt>Revision</dt><dd>{employer.state.head.revision_number}</dd></div><div><dt>Head</dt><dd>{shortDigest(employer.state.head.revision_digest)}</dd></div></dl>
         </article>
 
-        <div className="async-gap"><Pause size={15} aria-hidden="true" /><span>SIMULATED ASYNC GAP</span><strong>Process stops · durable state remains</strong></div>
+        <div className="async-gap"><Pause size={15} aria-hidden="true" /><span>DIFFERENT PROCESS / RESTART</span><strong>SIMULATED ASYNC GAP · revision {employer.state.head.revision_number} → {resumed.state.head.revision_number}</strong></div>
 
         <article className="durable-event resumed-event">
           <span className="event-time">LATER</span>
           <div className="event-icon"><RefreshCw size={19} aria-hidden="true" /></div>
-          <div><span>SITE EVENT · SAME CASE LOADED</span><h3>{resumed.delivered.map(evidenceDisplay).join(" · ")}</h3><p><Check size={14} /> Q-12 passed · prior employer evidence preserved</p></div>
+          <div><span>SITE EVIDENCE ARRIVES · SAME CASE RESUMED</span><h3>{resumed.delivered.map(evidenceDisplay).join(" · ")}</h3><p><Check size={14} /> Q-12 passed · prior employer evidence preserved</p></div>
           <dl><div><dt>Process</dt><dd>{resumed.process_id}</dd></div><div><dt>Revision</dt><dd>{resumed.state.head.revision_number}</dd></div><div><dt>Transcript</dt><dd>{shortDigest(resumed.state.head.transcript_prefix_digest)}</dd></div></dl>
         </article>
       </section>
 
       <section className="durable-result">
-        <div><span>CONTINUITY PROOF</span><strong>SAME TENANT + CASE</strong><small>{model.case.tenant_id} / {model.case.case_id}</small></div>
-        <div><span>FINAL RESULT</span><strong>{model.result.outcome}</strong><small>Exact duration {model.result.exact_duration_status}</small></div>
+        <div><span>CONTINUITY PROOF</span><strong>SAME CASE</strong><small>{model.case.tenant_id} / {model.case.case_id}</small></div>
+        <div><span>FINAL RESULT</span><strong>{employer.state.outcome} → {model.result.outcome}</strong><small>Exact duration {model.result.exact_duration_status}</small></div>
         <div><span>CORRECTED TOTAL</span><strong>{model.result.action.amount.display}</strong><small>{model.result.execution.replace("_", " ")}</small></div>
       </section>
     </main>

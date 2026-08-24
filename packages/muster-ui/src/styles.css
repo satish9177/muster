@@ -93,7 +93,7 @@ button:focus-visible {
 .product-brand small {
   margin-top: 1px;
   color: #8794a9;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
@@ -120,7 +120,7 @@ button:focus-visible {
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 750;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -262,7 +262,7 @@ button:focus-visible {
   align-items: center;
   gap: 6px;
   color: #728096;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 750;
   letter-spacing: 0.05em;
 }
@@ -281,7 +281,7 @@ button:focus-visible {
   gap: 8px;
   color: #788295;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -317,7 +317,7 @@ button:focus-visible {
 }
 
 .policy-label {
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.1em;
 }
@@ -335,7 +335,7 @@ button:focus-visible {
   padding-left: 7px;
   border-left: 1px solid #d7dce2;
   color: #8a93a0;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -355,7 +355,7 @@ button:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.075em;
   text-transform: uppercase;
@@ -388,7 +388,7 @@ button:focus-visible {
   display: block;
   margin-bottom: -2px;
   color: #768195;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.09em;
 }
@@ -407,7 +407,7 @@ button:focus-visible {
 
 .result-recipient span {
   color: #8a93a1;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -420,7 +420,7 @@ button:focus-visible {
   gap: 6px;
   margin-top: 5px;
   color: #777f8d;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .gate-indicator {
@@ -440,7 +440,7 @@ button:focus-visible {
   color: #fff;
   background: var(--blue);
   border: 1px solid #174fc4;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.045em;
   text-transform: uppercase;
@@ -459,10 +459,10 @@ button:focus-visible {
 }
 
 .action-gate-panel {
-  min-height: 72px;
+  min-height: 78px;
   padding: 9px 28px;
   display: grid;
-  grid-template-columns: 270px minmax(420px, 1fr) minmax(260px, 370px);
+  grid-template-columns: 300px minmax(420px, 1fr) minmax(280px, 370px);
   align-items: center;
   gap: 20px;
   background: #f9fafb;
@@ -478,13 +478,13 @@ button:focus-visible {
 
 .gate-provenance strong {
   color: var(--navy);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.035em;
 }
 
 .gate-provenance > span:last-child {
   color: #727c8d;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .gate-lifecycle {
@@ -499,7 +499,7 @@ button:focus-visible {
   position: relative;
   gap: 4px;
   color: #687386;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.055em;
 }
@@ -543,13 +543,13 @@ button:focus-visible {
   min-width: 0;
   display: grid;
   gap: 1px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .gate-outcome strong,
 .gate-unavailable strong {
   color: var(--navy);
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -557,14 +557,14 @@ button:focus-visible {
   overflow: hidden;
   color: #35516d;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .gate-outcome em {
   color: var(--green);
-  font-size: 8px;
+  font-size: 11px;
   font-style: normal;
   font-weight: 700;
 }
@@ -624,7 +624,7 @@ button:focus-visible {
 .mini-heading {
   display: block;
   color: #858e9d;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.11em;
 }
@@ -967,7 +967,7 @@ button:focus-visible {
 .inspector-event > span:first-child {
   color: #7e8796;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -979,6 +979,22 @@ button:focus-visible {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 12px;
   line-height: 1.35;
+}
+
+.rebuild-proof {
+  padding: 9px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-bottom: 1px solid #c4d3f2;
+}
+
+.rebuild-proof strong {
+  color: #263d6e;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
 }
 
 .inspector-result {
@@ -1010,13 +1026,13 @@ button:focus-visible {
 }
 
 .boundary-callout strong {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .boundary-callout span {
   margin-top: 1px;
   color: #875357;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .boundary-callout b {
@@ -1206,7 +1222,7 @@ button:focus-visible {
   color: #818a98;
   background: #eceeef;
   border-top: 1px solid #dde1e5;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .app-footer span:last-child {
@@ -1265,7 +1281,7 @@ button:focus-visible {
 .kernel-note span {
   display: grid;
   color: #657087;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .kernel-note strong {
@@ -1327,7 +1343,7 @@ button:focus-visible {
 
 .source-card span {
   color: #737e90;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .source-card strong {
@@ -1343,7 +1359,7 @@ button:focus-visible {
   bottom: 7px;
   color: #9aa2ae;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .disagreement-callout {
@@ -1362,13 +1378,13 @@ button:focus-visible {
 }
 
 .disagreement-callout strong {
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.07em;
 }
 
 .disagreement-callout span {
   color: #76653c;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .source-facts {
@@ -1386,7 +1402,7 @@ button:focus-visible {
 .source-facts dt,
 .source-facts dd {
   margin: 0;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .source-facts dt {
@@ -1415,7 +1431,7 @@ button:focus-visible {
   background: #f7f8f9;
   border: 0;
   border-right: 1px solid #cfd5dd;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
   cursor: pointer;
 }
@@ -1447,7 +1463,7 @@ button:focus-visible {
 
 .policy-definition span {
   color: #76839a;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.09em;
 }
@@ -1462,7 +1478,7 @@ button:focus-visible {
 .manifest-pin {
   overflow: hidden;
   color: #74809a;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1487,7 +1503,7 @@ button:focus-visible {
 
 .alternative-list span {
   color: #697486;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .alternative-list svg {
@@ -1526,7 +1542,7 @@ button:focus-visible {
 .contract-note {
   margin: 10px 0 7px;
   color: #59667b;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -1576,7 +1592,7 @@ button:focus-visible {
 .hinge-result span,
 .quantity-result span {
   color: #8b94a1;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.09em;
 }
@@ -1624,7 +1640,7 @@ button:focus-visible {
 .quantity-result strong {
   margin-top: 3px;
   color: var(--navy);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .evidence-result strong {
@@ -1640,7 +1656,7 @@ button:focus-visible {
   margin-top: 2px;
   color: #778193;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .stop-rule {
@@ -1649,7 +1665,7 @@ button:focus-visible {
   color: #396d5c;
   background: var(--green-soft);
   border-left: 3px solid var(--green);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -1667,11 +1683,12 @@ button:focus-visible {
   color: #7e8795;
   background: #e9ebed;
   border-top: 1px solid #d9dde2;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .procurement-footer strong {
   color: #566177;
+  font-size: 11px;
   letter-spacing: 0.04em;
 }
 
@@ -1961,7 +1978,7 @@ button:focus-visible {
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2011,7 +2028,7 @@ button:focus-visible {
   color: #2450a5;
   background: var(--blue-soft);
   border: 1px solid #bed0f4;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 850;
   letter-spacing: 0.08em;
 }
@@ -2052,7 +2069,7 @@ button:focus-visible {
 .durable-event > div > span,
 .durable-result span {
   color: #8a94a3;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 850;
   letter-spacing: 0.1em;
 }
@@ -2097,7 +2114,7 @@ button:focus-visible {
 .plan-list span,
 .plan-list small {
   color: #667387;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .plan-list small {
@@ -2130,14 +2147,14 @@ button:focus-visible {
 .not-required-row span {
   margin-top: 3px;
   color: var(--blue);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 850;
 }
 
 .not-required-row p,
 .stop-explanation {
   color: #5e6c83;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -2189,7 +2206,7 @@ button:focus-visible {
 
 .planner-summary dt {
   color: #9099a5;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -2217,7 +2234,7 @@ button:focus-visible {
 .durable-heading p {
   margin: 3px 0 0;
   color: #747f90;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .durable-proof-label {
@@ -2232,14 +2249,14 @@ button:focus-visible {
 
 .durable-proof-label span {
   display: grid;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 850;
 }
 
 .durable-proof-label small {
   margin-top: 2px;
   color: #786c8d;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .durable-flow {
@@ -2285,7 +2302,7 @@ button:focus-visible {
   align-items: center;
   gap: 5px;
   color: #657186;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .durable-event p svg {
@@ -2327,21 +2344,21 @@ button:focus-visible {
   margin-left: 39px;
   padding-left: 28px;
   display: grid;
-  grid-template-columns: 25px 180px 1fr;
+  grid-template-columns: 25px 210px 1fr;
   align-items: center;
   color: var(--purple);
   border-left: 2px dashed #b8a4d5;
 }
 
 .async-gap span {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.1em;
 }
 
 .async-gap strong {
   color: #777083;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .resumed-event {
@@ -2377,7 +2394,7 @@ button:focus-visible {
 .planner-heading .section-label,
 .durable-heading .section-label,
 .reachable-result span {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .workforce-overview {
@@ -2396,7 +2413,7 @@ button:focus-visible {
   flex: 1;
   padding: 11px 28px 7px;
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr) 76px 17px;
+  grid-template-rows: 68px minmax(0, 1fr) 86px 20px;
   gap: 9px;
   overflow: hidden;
   background: #f2f3f4;
@@ -2429,7 +2446,7 @@ button:focus-visible {
 .evidence-agent-card header small,
 .role-icon + div small {
   color: #7f8998;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 850;
   letter-spacing: 0.08em;
 }
@@ -2438,7 +2455,7 @@ button:focus-visible {
   overflow: hidden;
   color: var(--navy);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2463,7 +2480,7 @@ button:focus-visible {
 
 .evidence-provenance dt {
   color: #8a93a0;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -2472,7 +2489,7 @@ button:focus-visible {
   margin-top: 2px;
   overflow: hidden;
   color: #31405a;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2535,7 +2552,7 @@ button:focus-visible {
   padding: 3px 5px;
   color: var(--purple);
   background: var(--purple-soft);
-  font-size: 7px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 850;
   letter-spacing: 0.06em;
@@ -2544,7 +2561,7 @@ button:focus-visible {
 .capture-note {
   margin-top: 4px;
   color: #5f6d82;
-  font-size: 7.5px;
+  font-size: 10px;
   font-weight: 850;
   letter-spacing: 0.045em;
   line-height: 1.3;
@@ -2559,7 +2576,7 @@ button:focus-visible {
   color: #6b7687;
   background: #fff8f5;
   border: 1px solid #efc7bd;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .iam-proof span {
@@ -2572,7 +2589,7 @@ button:focus-visible {
   grid-column: 2;
   grid-row: 1;
   color: var(--red);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .iam-proof span:last-child {
@@ -2583,7 +2600,7 @@ button:focus-visible {
 .evidence-mini-label {
   display: block;
   color: #8b94a1;
-  font-size: 7.5px;
+  font-size: 10px;
   font-weight: 850;
   letter-spacing: 0.1em;
 }
@@ -2597,7 +2614,7 @@ button:focus-visible {
   margin: 5px 0 0;
   overflow: hidden;
   color: #566177;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -2625,12 +2642,12 @@ button:focus-visible {
 .material-list strong {
   color: #30405a;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .material-list small {
   overflow: hidden;
-  font-size: 6px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2643,7 +2660,7 @@ button:focus-visible {
   flex-wrap: wrap;
   gap: 3px 5px;
   color: #707b8d;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 750;
 }
 
@@ -2672,14 +2689,14 @@ button:focus-visible {
   color: #20477f;
   background: var(--blue-soft);
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .claim-only {
   color: #697386;
-  font-size: 7px;
+  font-size: 10px;
   letter-spacing: 0.08em;
 }
 
@@ -2689,7 +2706,7 @@ button:focus-visible {
   flex-wrap: wrap;
   gap: 3px 5px;
   color: var(--green);
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 850;
   letter-spacing: 0.045em;
 }
@@ -2714,14 +2731,14 @@ button:focus-visible {
 .evidence-agent-card summary {
   padding: 6px 0 0;
   color: #657187;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 800;
   cursor: pointer;
 }
 
 .evidence-details {
   color: #687386;
-  font-size: 7px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -2785,7 +2802,7 @@ button:focus-visible {
 
 .role-icon + div strong {
   color: var(--navy);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.25;
 }
 
@@ -2794,7 +2811,7 @@ button:focus-visible {
   color: var(--purple);
   background: #fff;
   border: 1px solid #d7c8e9;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.08em;
 }
@@ -2813,7 +2830,7 @@ button:focus-visible {
   justify-items: end;
   color: #667287;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 7px;
+  font-size: 10px;
   text-align: right;
 }
 
@@ -2827,7 +2844,7 @@ button:focus-visible {
   overflow: hidden;
   color: #818b99;
   font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 7.5px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

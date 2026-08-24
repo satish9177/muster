@@ -57,7 +57,7 @@ export function EvidencePlanner() {
               <div><strong>{item.label}</strong><span>{item.status.replace("_", " ")}</span><p>{item.reason}</p></div>
             </article>
           ))}
-          <p className="stop-explanation">{model.summary.explanation}</p>
+          <p className="stop-explanation">{model.summary.explanation} Threshold evidence was acquired; only the exact count was unnecessary.</p>
         </section>
 
         <aside className="planner-summary">

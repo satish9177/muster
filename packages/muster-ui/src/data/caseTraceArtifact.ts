@@ -321,7 +321,7 @@ function rebuildEvent(artifact: CaseTraceArtifact): RawTraceEvent {
       disclosure: "The artifact carries the outcome and unresolved references, not source material.",
       q12_result: `PASSED on all ${artifact.attestations.length} admitted attestations`,
       model_interpretation: "No — models cannot decide or authorize",
-      deterministic_decision: `Yes — ${artifact.result.rebuild.processor}; certificate reproduced: ${artifact.result.rebuild.certificate_reproduced}`,
+      deterministic_decision: `processor: ${artifact.result.rebuild.processor}; certificate_reproduced: ${artifact.result.rebuild.certificate_reproduced}`,
       provenance_note: "The UI receives the rebuilt result and does not recompute policy semantics.",
     },
   });

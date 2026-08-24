@@ -37,6 +37,13 @@ export function Inspector({ event, model }: InspectorProps) {
         <span className={`inspector-result ${event.resultTone}`}>{event.result}</span>
       </div>
 
+      {event.kind === "rebuild" && (
+        <div className="rebuild-proof">
+          <Binary size={15} aria-hidden="true" />
+          <strong>{detail.deterministicDecision}</strong>
+        </div>
+      )}
+
       {event.kind === "boundary" && (
         <div className="boundary-callout">
           <LockKeyhole size={18} aria-hidden="true" />

@@ -104,8 +104,8 @@ export function ProcurementCase() {
           <div className="disagreement-callout">
             <AlertTriangle size={17} aria-hidden="true" />
             <div>
-              <strong>AUTHORITATIVE RANGE · {model.uncertainty.lower_bound.quantity}–{model.uncertainty.upper_bound.quantity} UNITS</strong>
-              <span>{model.uncertainty.lower_bound.quantity} confirmed is a closed lower bound; exact delivered quantity remains unresolved</span>
+              <strong>KNOWN QUANTITY RANGE · {model.uncertainty.lower_bound.quantity}–{model.uncertainty.upper_bound.quantity} UNITS</strong>
+              <span>Warehouse-authorized lower bound; exact delivered quantity remains unresolved</span>
             </div>
           </div>
           <dl className="source-facts">
