@@ -31,6 +31,20 @@ PROJECT_ID=your-project ./infra/scripts/80-smoke.sh        # from inside the pro
 PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys   # the worked run
 ```
 
+That order runs the hero with `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`, the default:
+in-memory custody for the length of one execution, which is the shape of the run
+already verified in this project and needs no database. Durable custody is an
+extra provisioning step and an extra stage, and both are set out under
+[Cloud SQL readiness](#cloud-sql-readiness-and-the-order-it-has-to-be-provisioned-in):
+
+```
+export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+export DATABASE_DSN_SECRET_VERSION=<pinned>  DATABASE_MIGRATION_DSN_SECRET_VERSION=<pinned>
+export DATABASE_SERVER_CA_SECRET_VERSION=<pinned>
+PROJECT_ID=your-project ./infra/scripts/85-database-bootstrap.sh   # DDL, as the migrator
+PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
 ## The worked run, in the project
 
 `90-hero-job.sh` deploys the control plane as a **Cloud Run job** under
@@ -409,6 +423,24 @@ neither an agent nor a script can put itself in either publication.
 The last row is the one to check. `70-verify-iam.sh` fails if it ever stops
 being true.
 
+**If — and only if — Cloud SQL is provisioned**, two more grants exist, both per
+secret and neither at the project:
+
+| principal | role | resource | why |
+|---|---|---|---|
+| `muster-control-plane` | `roles/secretmanager.secretAccessor` | the **runtime** DSN secret | opens a connection as a role that cannot alter the schema |
+| `muster-database-migrator` | `roles/secretmanager.secretAccessor` | the **migration** DSN secret | the only identity that performs DDL |
+| both | `roles/secretmanager.secretAccessor` | the server CA secret | verifies the instance rather than trusting it |
+| `muster-database-migrator` | *(nothing else, anywhere)* | — | no evidence, no signing key, and not the runtime's credential |
+
+The control plane's row above becomes "nothing else except one database
+credential", and the credential it gets is deliberately the one that **cannot**
+create, drop or truncate anything. The split is the point: if the control plane
+could read the migration DSN, "may write rows" and "may rewrite the schema"
+would be a naming convention rather than a boundary. `70-verify-iam.sh` asserts
+each direction of that as a refusal, and reports `SKIP` by name — never a pass —
+while the secrets do not exist.
+
 **The build identity is on this list for a reason.** Without one,
 `gcloud builds submit` runs as the project's default build or compute service
 account — and in most projects the compute default carries `roles/editor`,
@@ -443,9 +475,10 @@ the condition narrows it.
 
 Billable, and small at demo scale:
 
-* **Cloud Run** — two services and two jobs (the IAM probe and the worked run),
-  scale to zero, `--max-instances=2`. Nothing runs between requests, and a job
-  bills only while it executes.
+* **Cloud Run** — two services and up to three jobs (the IAM probe, the worked
+  run, and the database bootstrap if Cloud SQL is provisioned), scale to zero,
+  `--max-instances=2`. Nothing runs between requests, and a job bills only while
+  it executes.
 * **Cloud Storage** — one bucket holding a few kilobytes of synthetic material.
 * **Direct VPC egress** — no charge and no resource. It attaches the hero job
   to an existing subnet rather than creating a Serverless VPC Access
@@ -455,13 +488,23 @@ Billable, and small at demo scale:
   and the control plane. They are built from one submission so they cannot
   disagree about the wire contract.
 * **Vertex AI** — per model call, and only when an agent is asked for evidence.
-* **Secret Manager** — two secrets, two versions.
+* **Secret Manager** — two secrets and two versions for the signing keys, plus
+  three more if Cloud SQL is provisioned: the runtime DSN, the migration DSN and
+  the server CA.
 * **Cloud Build** — per build, plus the staging bucket `gcloud builds submit`
   creates for the project. That bucket holds the uploaded build context, which
   is source; `99-teardown.sh` names it and deliberately does not delete it,
   because it belongs to the project rather than to this deployment.
 
-`99-teardown.sh` removes all of it, and exits non-zero if anything survived.
+* **Cloud SQL** — **not created by anything here**, and the one item on this
+  page that would dominate the bill if it were. An instance bills continuously
+  rather than per request, whether or not a job runs, and Private Services
+  Access reserves an address range on the VPC that outlives the instance.
+  Deletion protection is recommended above, which also means an instance cannot
+  be removed by accident — or by `99-teardown.sh`, which does not try.
+
+`99-teardown.sh` removes all of it **except a Cloud SQL deployment**, and exits
+non-zero if anything else survived.
 
 ## What is deliberately absent
 
@@ -476,8 +519,13 @@ Billable, and small at demo scale:
   `--ingress=internal`, so `80-smoke.sh` must be run from inside the project and
   the hero job reaches them over Direct VPC egress rather than by having the
   perimeter relaxed for it.
-* **No Cloud SQL.** The control plane's database is not part of this slice; it
-  is unchanged from the milestone that built it.
+* **No Cloud SQL instance is provisioned by any script here, and none has been
+  run against.** The control-plane image, Stage 85 and Stage 90 are
+  Cloud-SQL-ready; the instance, its private address, its database roles and its
+  secrets are operator-provisioned, in the order set out below. Stage 90's
+  default custody is in-memory and needs none of it.
+* **No client certificate.** Cloud SQL is reached with a password and a verified
+  server CA. See the reasoning below; it is a subtraction, not an omission.
 * **No control plane service.** The control plane calls the agents outbound and
   needs no ingress of its own for this slice. The two things deployed under its
   identity are jobs: the probe, which exists to prove a negative, and the hero
@@ -490,6 +538,274 @@ Billable, and small at demo scale:
   can be read line by line before anything is — which is what an approval step
   is for.
 
+## Cloud SQL readiness, and the order it has to be provisioned in
+
+**Nothing here creates a Cloud SQL deployment, and nothing in this repository
+has run against one.** U1 prepares one direct PostgreSQL path over the same
+Direct VPC network the hero job already has, and Stage 90 refuses to start
+durable custody it cannot prove is migrated. Provisioning is the operator step
+below.
+
+There is no Firestore, no ORM, no Cloud SQL connector, no proxy sidecar and no
+Google SDK in the control-plane image. `psycopg` opens an ordinary libpq
+connection to a private address, and the secret-backed DSN carries TLS, a
+bounded connection timeout and an application name.
+
+### Two custodies, and Stage 90 names one
+
+```
+HERO_DATABASE_DEPLOYMENT=EPHEMERAL    (the default)
+    in-memory, for the length of one execution.  No database, no secrets,
+    nothing to provision -- and nothing kept.  This is the shape of the run
+    already verified in the cloud, and it stays runnable.
+
+HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+    durable PostgreSQL on a private Cloud SQL address.  Requires everything
+    below.  Every way it can be unavailable ends the run: absent configuration,
+    an unmigrated database, a ledger that disagrees with the build, or an
+    instance that cannot be reached.  None of them falls back to memory.
+```
+
+`env.sh` refuses a value that is neither. There is no promotion and no fallback
+in either direction, because "the database was unreachable" and "this run kept
+nothing" are different facts and a deployment that conflated them would report
+the second as the first.
+
+### A password and a verified server, and nothing else
+
+Cloud SQL is reached the way any PostgreSQL is: a password, carried inside the
+DSN, and the instance's server CA so the server is *verified* rather than
+trusted. There is no client certificate.
+
+That is a deliberate subtraction. Cloud SQL client certificates are an optional
+instance feature, and on a private address with no public IPv4, reachable only
+through this project's own VPC, mutual TLS would add a second private key to
+mint, mount at a mode libpq will accept, pin, and rotate — in exchange for
+nothing the password and the private route do not already give. It would also
+require a second secret *file*, and a Cloud Run secret volume maps to exactly
+one secret and supports no subpaths, so two files under one mount directory is
+not a tighter layout but a deploy-time refusal:
+
+```text
+Cannot update secret at [...] because a different secret is already mounted
+in the same directory.
+```
+
+So the DSN names `sslrootcert` and must not name `sslcert` or `sslkey`;
+`configuration_from_environment` refuses those rather than merely not requiring
+them, because a DSN naming a client certificate would name a path Stage 90 does
+not mount and would fail later, opaquely, at connect time.
+
+### `sslmode`
+
+`verify-ca` is the normal U1 configuration and what the DSN below uses. It
+authenticates the server against the instance's own CA, which — because that CA
+is specific to the instance — effectively pins the connection to it, while the
+private VPC route fixes the destination.
+
+`verify-full` is accepted but is **not** simply an upgrade you can switch on. It
+additionally requires that the certificate the instance presents actually carry
+the name being connected to, and a DNS name you create yourself is never in a
+Cloud SQL certificate. It is reachable only when the instance is provisioned
+with a CA mode that issues a hostname — `GOOGLE_MANAGED_CAS_CA`, or a
+customer-managed CAS CA — and you connect to the name Cloud SQL issued for it
+(`<uid>.<region>.sql.goog`), resolved through the private DNS zone that
+accompanies the private address. With the legacy per-instance CA the subject is
+`project:instance`, there are no DNS or IP subject-alternative names, and
+`verify-full` against either a private IP or a custom name will fail the
+handshake. Use `verify-ca` unless you have deliberately arranged otherwise.
+
+### The order
+
+Each step depends on the one before it. In particular the runtime grants come
+**after** the migrator has created the schema, because until then there are no
+tables to grant on and `GRANT ... ON casework.transcript_entry` errors with
+`UndefinedTable`.
+
+**1 — APIs and network prerequisites.** `00-enable-apis.sh` enables
+`sqladmin.googleapis.com` and `servicenetworking.googleapis.com` along with the
+rest. `10-identities.sh` creates `${MIGRATOR_SA_ID}` with no project role, like
+every other identity here.
+
+**2 — The instance.** A regional Cloud SQL for PostgreSQL instance in
+`${REGION}`, PostgreSQL 16 or another version the PostgreSQL suites are run
+against, with:
+
+* private IP and **no public IPv4**;
+* Private Services Access on `${HERO_VPC_NETWORK}`, reachable from
+  `${HERO_VPC_SUBNET}`. Stage 90 and Stage 85 both use Direct VPC egress, so no
+  Serverless VPC Access connector is needed; the peering exports subnet routes
+  by default, which is what the Cloud Run instance addresses come from;
+* deletion protection, backups and point-in-time recovery;
+* `ssl_mode` requiring encryption. Client certificates are not required.
+
+**3 — Database and PostgreSQL identities.** A `muster` database and two roles:
+
+```sql
+CREATE ROLE muster_migrator LOGIN PASSWORD '...';
+CREATE ROLE muster_runtime  LOGIN PASSWORD '...';
+CREATE DATABASE muster OWNER muster_migrator;
+
+-- CONNECT is granted to PUBLIC by default, which would make the grant to
+-- muster_runtime below decorative.  Take it away first, so that the list of
+-- principals that may open a connection is the list written here.
+REVOKE ALL ON DATABASE muster FROM PUBLIC;
+GRANT CONNECT ON DATABASE muster TO muster_migrator, muster_runtime;
+```
+
+The migrator owns the database, which is what gives it `CREATE` for
+`CREATE SCHEMA`; if it is not the owner, grant `CREATE ON DATABASE muster` to it
+explicitly. The runtime role gets no ownership, `CREATE`, `DROP`, `TRUNCATE`,
+role administration or database administration — ever.
+
+**4 — Secrets, each pinned.** Four values, three secrets, and no `latest`
+anywhere: `env.sh` refuses an unpinned version before anything is deployed.
+
+| secret | contains | readable by | Stage |
+|---|---|---|---|
+| `${DATABASE_DSN_SECRET}` | the **runtime** DSN | `${CONTROL_PLANE_SA_ID}` | 90 |
+| `${DATABASE_MIGRATION_DSN_SECRET}` | the **migration** DSN | `${MIGRATOR_SA_ID}` | 85 |
+| `${DATABASE_SERVER_CA_SECRET}` | the instance's server CA | both | 85, 90 |
+
+Grant `roles/secretmanager.secretAccessor` **per secret**, never at the project.
+The control plane must not be able to read the migration DSN: that separation is
+the only thing standing between "may write rows" and "may rewrite the schema",
+and `70-verify-iam.sh` asserts it as a refusal.
+
+Then export the pinned versions:
+
+```bash
+export DATABASE_DSN_SECRET_VERSION=1
+export DATABASE_MIGRATION_DSN_SECRET_VERSION=1
+export DATABASE_SERVER_CA_SECRET_VERSION=1
+```
+
+Both DSNs are ordinary libpq strings. U1 validates that a Cloud SQL DSN names
+one non-loopback host, a database, a user, a password, an `application_name`, a
+1–60 second `connect_timeout`, an absolute `sslrootcert`, and
+`sslmode=verify-ca` or `verify-full`; and that it names neither `sslcert` nor
+`sslkey`. A representative shape — not a credential — is:
+
+```text
+postgresql://ROLE:PASSWORD@PRIVATE_ADDRESS:5432/muster?sslmode=verify-ca&sslrootcert=/var/run/muster/cloud-sql/server-ca.pem&connect_timeout=10&application_name=muster-control-plane
+```
+
+**5 — Migrate, as the migrator.**
+
+```bash
+./infra/scripts/85-database-bootstrap.sh
+```
+
+A one-shot Cloud Run job under `${MIGRATOR_SA_ID}`, on the same network and
+subnet, `--max-retries=0`, running
+`python /app/demo/database_bootstrap.py --cloud-sql` from the existing
+control-plane image. It applies whatever versions are missing and then re-reads
+the complete ledger to prove it is current, so it is repeatable: a second run
+applies nothing and still proves it. Re-run it after any image that adds a
+migration, and before Stage 90.
+
+**6 — Grant the runtime role, now that there is a schema to grant on.**
+
+```sql
+GRANT USAGE ON SCHEMA store, casework, authority, catalog, action_gate, platform
+  TO muster_runtime;
+GRANT SELECT, INSERT ON store.content,
+  casework.transcript_entry, casework.evidence_request,
+  casework.case_commitment, authority.registry_snapshot,
+  authority.revocation_snapshot, catalog.agent_snapshot TO muster_runtime;
+GRANT SELECT, INSERT, UPDATE ON casework.case_head,
+  authority.publication_state, action_gate.execution TO muster_runtime;
+GRANT SELECT ON platform.schema_migration TO muster_runtime;
+```
+
+That list is exact: it is every statement the repositories issue and no other.
+`casework.case_head` needs `UPDATE` for its compare-and-set and for
+`SELECT ... FOR UPDATE`; `authority.publication_state` and
+`action_gate.execution` need it for `ON CONFLICT ... DO UPDATE`; everything else
+inserts with `ON CONFLICT DO NOTHING` and never updates.
+
+**A migration that adds a table does not grant on it.** The grants are
+enumerated rather than defaulted, deliberately — a `GRANT ... ON ALL TABLES`
+would silently widen with the schema — so **step 6 is part of applying any
+future migration, not a one-time step.** Either re-run the block above after
+each Stage 85, or, if you would rather it be automatic, have the migrator set
+default privileges once:
+
+```sql
+ALTER DEFAULT PRIVILEGES FOR ROLE muster_migrator IN SCHEMA
+  store, casework, authority, catalog, action_gate
+  GRANT SELECT, INSERT, UPDATE ON TABLES TO muster_runtime;
+```
+
+That trades exactness for not forgetting. Pick one and write down which.
+
+**7 — Prove the runtime cannot do DDL.** As `muster_runtime`, against the
+provisioned database:
+
+```sql
+CREATE TABLE casework.should_be_refused (x int);   -- must fail: permission denied
+DROP TABLE casework.transcript_entry;              -- must fail: must be owner
+TRUNCATE casework.case_head;                       -- must fail: permission denied
+```
+
+Three refusals, or the separation in step 3 did not take.
+
+**8 — Verify the IAM boundaries.**
+
+```bash
+./infra/scripts/70-verify-iam.sh
+```
+
+It asserts the existing evidence boundary and, once these secrets exist, the
+database one: which identities may read the runtime DSN, which may read the
+migration DSN, and that the migrator can reach neither the evidence bucket nor a
+signing key. Before the secrets exist those checks report `SKIP` by name rather
+than passing — a denial from a principal that cannot reach a secret nobody
+created establishes nothing.
+
+**9 — Deploy Stage 90 with durable custody.**
+
+```bash
+export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
+**10 — Read the run.** The job prints its custody in its configuration line and
+refuses before doing any casework if the schema is not current.
+
+### Rotation
+
+Everything is pinned, so nothing rotates by itself and nothing rotates
+silently — which also means a rotation that is not followed by a redeploy is a
+deployment that keeps using the old version.
+
+* **A password.** Change it in PostgreSQL, add a new secret version, raise
+  `DATABASE_DSN_SECRET_VERSION` (or `DATABASE_MIGRATION_DSN_SECRET_VERSION`),
+  re-run the stage that uses it.
+* **The server CA.** Cloud SQL rotates instance CAs, and the rotation has two
+  halves: the new CA is available before it is in use. Add the new certificate
+  as a new secret version and raise `DATABASE_SERVER_CA_SECRET_VERSION`
+  *before* completing the rotation on the instance. A pinned CA that no longer
+  matches the server is a connection failure, reported as
+  `DATABASE CONNECTION REFUSED: OperationalError`, on every run.
+
+### Local PostgreSQL is unchanged
+
+No deployment label and no cloud resource:
+
+```powershell
+$env:MUSTER_DATABASE_URL = 'postgresql://muster:muster@127.0.0.1:55432/muster'
+.\.venv\Scripts\python.exe demo\database_bootstrap.py
+```
+
+The local Action Gate API keeps its existing startup migration behaviour, and
+now refuses to start at all if `MUSTER_DATABASE_DEPLOYMENT=CLOUD_SQL` is set:
+the two share the `MUSTER_DATABASE_URL` name, and a local tool that migrates on
+startup must not be one exported variable away from doing that to the control
+plane's database.
+
+The cloud hero does not migrate. It calls the read-only current-schema check and
+refuses to start if bootstrap has not been run.
 ## Teardown
 
 ```
@@ -501,10 +817,29 @@ anything — the bucket is the irreversible one and is overridable from the
 environment, so a stale export in a shell must not be enough. `FORCE=1` skips
 the prompt.
 
-It removes both services, **both jobs**, both secrets, the repository with both
-images in it, the bucket and all four service accounts — and it describes each
-resource before deleting it, so "never created" and "would not delete" are told
-apart rather than both reported as success. A resource it could not remove makes
-it exit non-zero. `test_the_teardown_removes_every_resource_the_other_scripts_create`
-derives the list from the creating scripts, so a script that creates something
-new fails that test until this one removes it.
+It removes both services, **all three jobs** (probe, hero, database bootstrap),
+both signing-key secrets, the repository with both images in it, the bucket and
+all five service accounts — and it describes each resource before deleting it,
+so "never created" and "would not delete" are told apart rather than both
+reported as success. A resource it could not remove makes it exit non-zero.
+`test_the_teardown_removes_every_resource_the_other_scripts_create` derives the
+list from the creating scripts, so a script that creates something new fails
+that test until this one removes it.
+
+**It does not touch a Cloud SQL deployment**, and says so in the prompt. The
+instance, its private-services-access range and the three database secrets are
+left alone deliberately: nothing here created them, they hold the only durable
+state in this deployment, and `EVIDENCE_BUCKET` has already established that a
+teardown reading overridable variables can be pointed at the wrong resource by a
+stale export in a shell. A database is not something to delete on that basis.
+Remove it by hand, after deciding you mean it:
+
+```
+gcloud sql instances delete INSTANCE --project=PROJECT_ID
+gcloud secrets delete muster-control-plane-database-url --project=PROJECT_ID
+gcloud secrets delete muster-database-migration-url     --project=PROJECT_ID
+gcloud secrets delete muster-cloud-sql-server-ca        --project=PROJECT_ID
+```
+
+Deletion protection is recommended when the instance is created, so the first of
+those refuses until it is turned off — which is the point of it.

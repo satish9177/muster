@@ -168,6 +168,36 @@ def test_demo_dsn_prefers_database_url_and_accepts_the_existing_test_convention(
     ) == "postgresql://test"
 
 
+def test_the_local_demo_refuses_the_deployed_control_planes_database() -> None:
+    """A local tool that migrates on startup, one export away from production.
+
+    This module and the cloud hero read the same ``MUSTER_DATABASE_URL``, and
+    this one calls ``migrate`` and writes Ravi's rows before it serves anything.
+    An operator with the deployed DSN exported would point it at Cloud SQL.
+    PostgreSQL would refuse the DDL -- the runtime role holds no ``CREATE`` --
+    but that is a grant saving us, and it would still have opened a connection
+    and attempted it.  The label is checked first, before the DSN is resolved.
+    """
+    environment = {
+        "MUSTER_DATABASE_DEPLOYMENT": "CLOUD_SQL",
+        "MUSTER_DATABASE_URL": "postgresql://runtime@10.20.0.3/muster",
+    }
+
+    with pytest.raises(DemoStartupError, match="CLOUD_SQL"):
+        action_gate_api.resolve_dsn(environment=environment)
+    #  Including when a DSN is passed explicitly rather than read.
+    with pytest.raises(DemoStartupError, match="CLOUD_SQL"):
+        action_gate_api.resolve_dsn("postgresql://local", environment=environment)
+
+
+def test_the_local_demo_is_unaffected_by_an_ephemeral_or_absent_label() -> None:
+    """The deployed run's other custody says nothing about a developer's database."""
+    for label in ({}, {"MUSTER_DATABASE_DEPLOYMENT": "EPHEMERAL"}):
+        assert action_gate_api.resolve_dsn(
+            environment={**label, "MUSTER_DATABASE_URL": "postgresql://demo"}
+        ) == "postgresql://demo"
+
+
 def test_real_postgresql_repository_is_composed(application: DemoActionGate) -> None:
     database = application.gate.casework.database
     assert isinstance(database, SqlDatabase)

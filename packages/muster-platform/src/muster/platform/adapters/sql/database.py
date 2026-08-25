@@ -19,9 +19,12 @@ Nothing analytical happens inside either.  The rebuild, the solver and the
 planner run between them, with no transaction open, because a transaction held
 across a solver call is a lock held for as long as the hardest query takes.
 
-A connection per transaction, and no pool.  A pool is a property of a process
-that serves requests, and this milestone has no such process; adding one now
-would be tuning something nobody runs.
+A connection per transaction, and no pool. The Cloud-SQL-ready composition is
+a single bounded Cloud Run job, not a concurrent request service: opening only
+for each short transaction keeps no connection alive across fleet or solver
+work and puts a hard, visible bound on database concurrency. If U2 introduces a
+long-lived concurrent service, pooling is an adapter-composition decision and
+must not change these transaction scopes or isolation levels.
 """
 
 from __future__ import annotations

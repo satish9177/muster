@@ -615,7 +615,7 @@ sanitized artifact
 | Kernel result | Yes — `INVARIANT` | Yes — `INVARIANT` | Identical outcome, identical unresolved set |
 | Certificate rebuild | Yes — `certificate_reproduced: true` | Yes | Determinism class `REPRODUCIBLE` |
 | Action Gate | **No — not executed** | Yes | Cloud trace records `NOT_EXECUTED`. The Gate is local only |
-| PostgreSQL | **No — in-memory store used** | Yes — local Docker | No Cloud SQL exists in this project |
+| PostgreSQL | **No — the run's custody is in-memory** | Yes — local Docker | Cloud SQL support is implemented and unprovisioned: no instance deployed or verified |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
 | Payment | — | Sandbox only | No payment rail. No real funds transferred |
@@ -647,9 +647,12 @@ the model is called at the `global` endpoint because that is where the shipped
 model is served. Setting the Vertex location to `asia-south1` restores full
 co-location and is correct for any model served regionally there.
 
-**PostgreSQL is not a Google Cloud resource in this project.** It runs in a
-local Docker container behind the browser demo. No Cloud SQL instance is
-provisioned by any script in `infra/`.
+**PostgreSQL is not a verified Google Cloud resource in this project.** It runs
+in a local Docker container behind the browser demo. U1 added an explicit
+deployment label, strict Cloud SQL connection-string validation, a separate
+migrator identity with a repeatable bootstrap job, and a secret-backed Stage-85
+and Stage-90 deployment surface — but no Cloud SQL instance has been provisioned
+or executed, and the cloud run's default custody remains in-memory.
 
 Deployment is scripted end to end in `infra/scripts/` (`00-enable-apis` through
 `99-teardown`), and the IAM posture is verified by `70-verify-iam.sh`, whose
@@ -695,7 +698,9 @@ MUSTER does **not**:
    exists in this repository;
 5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
    at the analysis;
-6. use Cloud SQL — PostgreSQL is local to the browser demo;
+6. claim Cloud SQL is deployed — the support exists and nothing has been
+   provisioned or run against it, and the cloud run's custody is in-memory by
+   default and reports itself as not durable;
 7. claim procurement ran in the cloud — it is a local deterministic proof;
 8. claim the Worker Agent reran during Stage-90 — the committed ADK path exists
    but was not deployed, and the claim was replayed from the fixture;

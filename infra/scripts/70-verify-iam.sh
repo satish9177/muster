@@ -8,6 +8,24 @@
 #      control plane -> the site's signing key  MUST be denied
 #      site agent    -> the site's signing key  MUST succeed
 #
+#  And, once a Cloud SQL deployment exists to assert them against:
+#
+#      control plane -> the runtime DSN         MUST succeed
+#      site agent    -> the runtime DSN         MUST be denied
+#      employer agent-> the runtime DSN         MUST be denied
+#      control plane -> the migration DSN       MUST be denied
+#      site agent    -> the migration DSN       MUST be denied
+#      employer agent-> the migration DSN       MUST be denied
+#      migrator      -> the migration DSN       MUST succeed
+#      migrator      -> the runtime DSN         MUST be denied
+#      migrator      -> the site's gate log     MUST be denied
+#      migrator      -> either signing key      MUST be denied
+#
+#  Those are skipped, loudly and by name, until the secrets exist: a denial
+#  from a principal that cannot reach a secret nobody created establishes
+#  nothing, and counting it would be the same mistake as counting the control
+#  plane's denial without the site agent's success beside it.
+#
 #  The third and fifth are what make the others mean something.  A denial
 #  proves nothing on its own -- a principal that does not exist is denied, a
 #  bucket that does not exist is denied, an object nobody uploaded is denied --
@@ -40,6 +58,11 @@ LOG="${EVIDENCE_DIR}/iam-verification.txt"
 
 SITE_OBJECT="gs://${EVIDENCE_BUCKET}/${SITE_PREFIX}/gate-log-sat.txt"
 FAILURES=0
+#  Counted separately from failures and never folded into them.  A check that
+#  could not be made is not a check that held, and the closing line has to be
+#  able to say which -- otherwise a run before Cloud SQL exists reads exactly
+#  like a run that verified the database boundary.
+SKIPPED=0
 
 #  What a *storage or secret* refusal looks like, as opposed to a failure to
 #  mint a token.  Narrow on purpose: the generic word "permission" appears in
@@ -163,10 +186,103 @@ muster::expect_denied "${CONTROL_PLANE_SA}" "secret ${SITE_SECRET}" \
 muster::expect_allowed "${SITE_SA}" "secret ${SITE_SECRET}" \
   gcloud secrets versions access latest --secret="${SITE_SECRET}" --project="${PROJECT_ID}"
 
+#  ---- the database credentials --------------------------------------------
+#
+#  Conditional, and visibly so.  U1 provisions no Cloud SQL deployment, so these
+#  secrets do not exist yet and a run before provisioning must not report their
+#  absence as a boundary holding -- a denial from a principal that cannot reach
+#  a secret nobody created is the emptiest kind of pass.  When they do exist,
+#  every one of these is asserted, and the paired *allows* are what make the
+#  denials mean something: the same argument the employer check makes above.
+#
+#  Two credentials and two identities, and the asymmetry is the whole point.
+#  The control plane can read the runtime DSN and not the migration DSN, so a
+#  compromised control plane cannot obtain DDL.  The migrator can read the
+#  migration DSN and neither evidence nor a signing key, so a compromised
+#  migrator cannot obtain anything a source holds.  Neither agent can read
+#  either: agents interpret their own material and hold no database at all.
+muster::secret_exists() {
+  gcloud secrets describe "$1" --project="${PROJECT_ID}" >/dev/null 2>&1
+}
+
+muster::not_verified() {
+  echo "  SKIP  $1"
+  printf '\n=== NOT VERIFIED: %s\n' "$1" >>"${LOG}"
+}
+
+muster::banner "the control plane's database credential"
+if muster::secret_exists "${DATABASE_DSN_SECRET}"; then
+  muster::expect_allowed "${CONTROL_PLANE_SA}" "secret ${DATABASE_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_DSN_SECRET}" --project="${PROJECT_ID}"
+  #  No agent holds a database credential, because no agent holds a database.
+  muster::expect_denied "${SITE_SA}" "secret ${DATABASE_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_DSN_SECRET}" --project="${PROJECT_ID}"
+  muster::expect_denied "${EMPLOYER_SA}" "secret ${DATABASE_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_DSN_SECRET}" --project="${PROJECT_ID}"
+else
+  muster::not_verified "secret ${DATABASE_DSN_SECRET} does not exist; Cloud SQL is not provisioned"
+fi
+
+muster::banner "the migration credential, and who may not hold it"
+if muster::secret_exists "${DATABASE_MIGRATION_DSN_SECRET}"; then
+  #  The one that matters most.  The control plane runs the casework; if it
+  #  could also read this, the separation between "may write rows" and "may
+  #  rewrite the schema" would be a naming convention rather than a boundary.
+  muster::expect_denied "${CONTROL_PLANE_SA}" "secret ${DATABASE_MIGRATION_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_MIGRATION_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_MIGRATION_DSN_SECRET}" --project="${PROJECT_ID}"
+  muster::expect_denied "${SITE_SA}" "secret ${DATABASE_MIGRATION_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_MIGRATION_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_MIGRATION_DSN_SECRET}" --project="${PROJECT_ID}"
+  muster::expect_denied "${EMPLOYER_SA}" "secret ${DATABASE_MIGRATION_DSN_SECRET}" \
+    gcloud secrets versions access "${DATABASE_MIGRATION_DSN_SECRET_VERSION:-latest}" \
+      --secret="${DATABASE_MIGRATION_DSN_SECRET}" --project="${PROJECT_ID}"
+else
+  muster::not_verified \
+    "secret ${DATABASE_MIGRATION_DSN_SECRET} does not exist; Cloud SQL is not provisioned"
+fi
+
+muster::banner "what the migrator may not reach"
+if gcloud iam service-accounts describe "${MIGRATOR_SA}" --project="${PROJECT_ID}" >/dev/null 2>&1
+then
+  muster::require_impersonation "${MIGRATOR_SA}"
+  #  A database identity, and only that.  It performs DDL against one database
+  #  and has no standing anywhere else in this deployment: not in the evidence
+  #  bucket, not over a source's signing key, and not over the credential the
+  #  control plane runs with.
+  muster::expect_denied "${MIGRATOR_SA}" "${SITE_OBJECT}" \
+    gcloud storage cat "${SITE_OBJECT}" --project="${PROJECT_ID}"
+  muster::expect_denied "${MIGRATOR_SA}" "secret ${SITE_SECRET}" \
+    gcloud secrets versions access latest --secret="${SITE_SECRET}" --project="${PROJECT_ID}"
+  muster::expect_denied "${MIGRATOR_SA}" "secret ${EMPLOYER_SECRET}" \
+    gcloud secrets versions access latest --secret="${EMPLOYER_SECRET}" --project="${PROJECT_ID}"
+  if muster::secret_exists "${DATABASE_DSN_SECRET}"; then
+    muster::expect_denied "${MIGRATOR_SA}" "secret ${DATABASE_DSN_SECRET}" \
+      gcloud secrets versions access "${DATABASE_DSN_SECRET_VERSION:-latest}" \
+        --secret="${DATABASE_DSN_SECRET}" --project="${PROJECT_ID}"
+  fi
+  if muster::secret_exists "${DATABASE_MIGRATION_DSN_SECRET}"; then
+    muster::expect_allowed "${MIGRATOR_SA}" "secret ${DATABASE_MIGRATION_DSN_SECRET}" \
+      gcloud secrets versions access "${DATABASE_MIGRATION_DSN_SECRET_VERSION:-latest}" \
+        --secret="${DATABASE_MIGRATION_DSN_SECRET}" --project="${PROJECT_ID}"
+  fi
+else
+  muster::not_verified "${MIGRATOR_SA} does not exist; run 10-identities.sh"
+fi
+
 echo
 echo "  evidence written to ${LOG}"
 if [[ ${FAILURES} -ne 0 ]]; then
   echo "  ${FAILURES} check(s) did not hold; this is not the deployment the architecture describes" >&2
   exit 1
+fi
+if [[ ${SKIPPED} -ne 0 ]]; then
+  echo "  every check that could be made held, and ${SKIPPED} could not be made."
+  echo "  Those are listed as SKIP above and as NOT VERIFIED in ${LOG}.  They are"
+  echo "  not passes: re-run this after the resources they name exist."
+  exit 0
 fi
 echo "  every check held"

@@ -263,12 +263,123 @@ muster::require_signing_key_version() {
 #  the result.
 : "${RUN_INGRESS:=internal}"
 
+#  ---- control-plane custody ----------------------------------------------
+#
+#  Stage 90 runs one of two custodies, and it says which out loud:
+#
+#      EPHEMERAL   in-memory, for the length of one execution.  The shape the
+#                  verified Stage-90 run had.  No database, no secrets, nothing
+#                  to provision -- and nothing kept afterwards.
+#      CLOUD_SQL   durable PostgreSQL on a private Cloud SQL address, reached
+#                  over the Direct VPC egress the job already has.
+#
+#  EPHEMERAL is the default because it is what is provisionable today: U1 makes
+#  Cloud SQL *possible* and must not make the run that already worked
+#  impossible.  There is no automatic promotion and no automatic fallback in
+#  either direction -- the control plane refuses to start if CLOUD_SQL is named
+#  and its configuration is absent, rather than quietly keeping nothing.
+: "${HERO_DATABASE_DEPLOYMENT:=EPHEMERAL}"
+case "${HERO_DATABASE_DEPLOYMENT}" in
+  EPHEMERAL|CLOUD_SQL) ;;
+  *)
+    echo "HERO_DATABASE_DEPLOYMENT is '${HERO_DATABASE_DEPLOYMENT}';" >&2
+    echo "expected EPHEMERAL or CLOUD_SQL." >&2
+    exit 2
+    ;;
+esac
+
+#  ---- durable control-plane PostgreSQL -----------------------------------
+#
+#  **Two secrets, and one of them is a public certificate.**  Cloud SQL is
+#  reached as ordinary PostgreSQL: a password, carried inside the DSN, and the
+#  instance's server CA so the server is verified rather than trusted.  There is
+#  no client certificate.  Cloud SQL client certificates are optional, and on a
+#  private address behind this project's own VPC they would add a second private
+#  key to mint, mount at a mode libpq accepts, and rotate, in exchange for
+#  nothing this deployment does not already have.
+#
+#  The DSN never enters this file or an env-vars file.  Cloud Run resolves the
+#  pinned Secret Manager version directly into MUSTER_DATABASE_URL.  The server
+#  CA is a file, mounted read-only, and 0444 is correct for a certificate.
+#
+#  A separate migration credential exists and is consumed only by
+#  85-database-bootstrap.sh, under a separate identity.  The control plane
+#  cannot read it; the migrator cannot read the runtime's.
+: "${DATABASE_DSN_SECRET:=muster-control-plane-database-url}"
+: "${DATABASE_DSN_SECRET_VERSION:=}"
+: "${DATABASE_SERVER_CA_SECRET:=muster-cloud-sql-server-ca}"
+: "${DATABASE_SERVER_CA_SECRET_VERSION:=}"
+: "${DATABASE_MIGRATION_DSN_SECRET:=muster-database-migration-url}"
+: "${DATABASE_MIGRATION_DSN_SECRET_VERSION:=}"
+
+#  One secret per mounted directory.  Cloud Run maps a secret volume to exactly
+#  one secret and supports no subpaths, so two secrets sharing a mount directory
+#  is not a tighter layout -- it is a deploy-time refusal:
+#
+#      Cannot update secret at [...] because a different secret is already
+#      mounted in the same directory.
+#
+#  One file is mounted, so one directory is enough.  A second mounted secret
+#  gets its own directory, never a second file in this one.
+: "${DATABASE_CA_MOUNT:=/var/run/muster/cloud-sql}"
+DATABASE_CA_FILE="${DATABASE_CA_MOUNT}/server-ca.pem"
+
+#  The migrator: a database identity, and nothing else.  It performs DDL and it
+#  is the only thing that does.  It has no evidence authority, no signing key,
+#  and no access to the runtime's credential -- see 70-verify-iam.sh, which
+#  asserts each of those as a refusal rather than trusting this comment.
+: "${MIGRATOR_SA_ID:=muster-database-migrator}"
+MIGRATOR_SA="${MIGRATOR_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
+: "${BOOTSTRAP_JOB:=muster-database-bootstrap}"
+
+#  Fail closed on the mount, exactly as muster::require_signing_key_version
+#  does, and for the same reason: 'latest' resolves at every cold start, so a
+#  rotation nobody reviewed would reach a deployment that was reviewed.  Takes
+#  the names to check, because the hero job and the bootstrap job pin different
+#  secrets and neither should be made to demand the other's.
+muster::require_pinned_secret_version() {
+  local name version
+  for name in "$@"; do
+    version="${!name:-}"
+    if [[ "${version}" =~ ^[1-9][0-9]*$ ]]; then
+      continue
+    fi
+    {
+      if [[ -z "${version}" ]]; then
+        echo "${name} is not set, and there is no default."
+      else
+        echo "${name} is '${version}', which is not a pinned version."
+      fi
+      echo
+      echo "  It must be a Secret Manager version number: a positive decimal"
+      echo "  integer.  'latest' is refused deliberately: database credentials"
+      echo "  and the server CA must not change after a deployment was read."
+      echo
+      echo "      export ${name}=1"
+      echo
+    } >&2
+    exit 2
+  done
+}
+
+#  What Stage 90 needs, which depends on the custody it was told to run.
+muster::require_database_secret_version() {
+  if [[ "${HERO_DATABASE_DEPLOYMENT}" != "CLOUD_SQL" ]]; then
+    return 0
+  fi
+  muster::require_pinned_secret_version \
+    DATABASE_DSN_SECRET_VERSION \
+    DATABASE_SERVER_CA_SECRET_VERSION
+}
+
 #  ---- the worked case, as the hero job runs it ----------------------------
 #
-#  The case identifier is a label rather than a key here, because the hero job's
-#  store is in-memory and lives as long as the execution does.  It is named
-#  anyway: it appears inside every signed payload the run produces, so a second
-#  run under a second name is a genuinely different set of receipts.
+#  The case identifier appears inside every signed payload the run produces, so
+#  a second run under a second name is a genuinely different set of receipts.
+#  Under CLOUD_SQL it is also a key rather than a label: the rows outlive the
+#  execution, and re-running under the same name continues that case rather than
+#  starting one -- which is the point of durable custody and worth knowing before
+#  choosing a name.
 : "${HERO_CASE_ID:=CASE-RAVI-SAT-CLOUD}"
 
 #  The object the hero job attempts to read directly, under the control plane's
@@ -292,6 +403,12 @@ export SIGNING_KEY_MOUNT SIGNING_KEY_VERSION UNRESOLVED_AUDIENCE
 export TENANT_ID SITE_AGENT_ID SITE_PRINCIPAL SITE_KEY_REF
 export EMPLOYER_AGENT_ID EMPLOYER_PRINCIPAL EMPLOYER_KEY_REF AGENT_MODEL
 export RUN_CPU RUN_MEMORY RUN_TIMEOUT RUN_MAX_INSTANCES RUN_INGRESS
+export HERO_DATABASE_DEPLOYMENT
+export DATABASE_DSN_SECRET DATABASE_DSN_SECRET_VERSION
+export DATABASE_SERVER_CA_SECRET DATABASE_SERVER_CA_SECRET_VERSION
+export DATABASE_MIGRATION_DSN_SECRET DATABASE_MIGRATION_DSN_SECRET_VERSION
+export DATABASE_CA_MOUNT DATABASE_CA_FILE
+export MIGRATOR_SA_ID MIGRATOR_SA BOOTSTRAP_JOB
 export REPOSITORY_ROOT FIXTURES EVIDENCE_DIR MUSTER_PYTHON
 
 #  ---- how a Cloud Run resource is told what it is -------------------------

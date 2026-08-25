@@ -30,6 +30,13 @@ muster::create_sa "${CONTROL_PLANE_SA_ID}" "MUSTER control plane"
 muster::create_sa "${SITE_SA_ID}"          "MUSTER site agent (SITE-A)"
 muster::create_sa "${EMPLOYER_SA_ID}"      "MUSTER employer agent (EMPLOYER-1)"
 muster::create_sa "${BUILD_SA_ID}"         "MUSTER image builds"
+#  The database migrator, and it gets nothing here either.  It exists to hold
+#  one capability the control plane must not have -- DDL against the control
+#  plane's database -- and holding it is the whole reason it is a separate
+#  account.  Its only grants are per secret, written when those secrets are
+#  created, and 70-verify-iam.sh asserts the rest as refusals: it reads no
+#  evidence, no signing key, and not the runtime's credential.
+muster::create_sa "${MIGRATOR_SA_ID}"      "MUSTER database migrator"
 
 muster::banner "project-level grants"
 #  Vertex AI is a project-scoped API: there is no per-model or per-region role,
@@ -67,6 +74,10 @@ cat <<'TABLE'
   muster-control-plane   (nothing here)                   --         it interprets
                                                                      nothing and reads
                                                                      no source
+  muster-database-       (nothing here)                   --         DDL only, and
+  migrator                                                           only against the
+                                                                     control plane's
+                                                                     own database
 
   The last row is the one to check.  The control plane is granted exactly two
   things, both later and both per resource: run.invoker on each agent service

@@ -43,6 +43,10 @@ from muster.application.rebuild import transcript_prefix  # noqa: E402
 from muster.core.analysis.outcomes import Invariant  # noqa: E402
 from muster.core.evidence.transcript import entry_digest  # noqa: E402
 from muster.core.results import Err, InvariantViolation  # noqa: E402
+from muster.platform.adapters.sql.config import (  # noqa: E402
+    DATABASE_DEPLOYMENT,
+    DatabaseDeployment,
+)
 from muster.platform.adapters.sql.database import SqlDatabase  # noqa: E402
 from muster.platform.adapters.sql.schema import migrate  # noqa: E402
 from muster.platform.casework.advance import Casework  # noqa: E402
@@ -276,14 +280,32 @@ def resolve_dsn(
     *,
     environment: Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve one explicit PostgreSQL DSN, with no implicit local default."""
+    """Resolve one explicit PostgreSQL DSN, with no implicit local default.
+
+    **A CLOUD_SQL label stops this before it resolves anything.**  This module
+    is a local composition root: it migrates on startup, and it prepares Ravi by
+    writing rows.  Both are right for a database a developer owns and neither is
+    right for the control plane's.  The two now share a variable name --
+    ``MUSTER_DATABASE_URL`` -- so an exported cloud DSN on a workstation would
+    otherwise point this at production and have it run DDL there.  The runtime
+    role holds no CREATE, so PostgreSQL would refuse it; that is a grant saving
+    us, and a grant is not where this decision belongs.
+    """
+    source = os.environ if environment is None else environment
+    deployment = (source.get(DATABASE_DEPLOYMENT) or "").strip()
+    if deployment == DatabaseDeployment.CLOUD_SQL.value:
+        raise DemoStartupError(
+            f"{DATABASE_DEPLOYMENT}={deployment} names the deployed control plane's"
+            " database; this local demo migrates on startup and will not do that"
+            " to it.  Unset it, or point it at a local PostgreSQL."
+        )
+
     if configured is not None:
         explicit = configured.strip()
         if explicit:
             return explicit
         raise DemoStartupError("the explicit PostgreSQL DSN is empty")
 
-    source = os.environ if environment is None else environment
     for variable in DSN_ENVIRONMENT_VARIABLES:
         value = source.get(variable, "").strip()
         if value:

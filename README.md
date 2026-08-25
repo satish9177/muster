@@ -283,7 +283,13 @@ run the Action Gate, local PostgreSQL, procurement proof, or local Vite UI. See
 - Artifact Registry
 - Cloud Build
 
-No Cloud SQL instance is used.
+No Cloud SQL instance has been deployed or verified. The cloud run's default
+custody is in-memory and says so. Cloud SQL *support* is implemented and
+unprovisioned: an explicit `EPHEMERAL`/`CLOUD_SQL` deployment label, strict
+connection-string validation, a separate migrator identity with its own
+repeatable bootstrap job, a read-only schema-readiness check that refuses to run
+against an unmigrated database, and pinned-secret deployment wiring. Provisioning
+it is an operator procedure, set out in `infra/README.md`.
 
 ## Repository Structure
 

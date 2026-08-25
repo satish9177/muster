@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -87,6 +88,15 @@ from muster.platform.adapters.http import (  # noqa: E402
     HttpAcquisitionTransport,
     MetadataServerTokens,
     direct_opener,
+)
+from muster.platform.adapters.sql.config import (  # noqa: E402
+    DatabaseConfigurationError,
+    DatabaseDeployment,
+    configuration_from_environment,
+)
+from muster.platform.adapters.sql.schema import (  # noqa: E402
+    SchemaNotCurrent,
+    require_current_schema,
 )
 from muster.platform.casework.advance import Casework  # noqa: E402
 from muster.platform.casework.commands import (  # noqa: E402
@@ -132,7 +142,10 @@ SITE_PUBLIC_KEY = "MUSTER_HERO_SITE_PUBLIC_KEY"
 EMPLOYER_PUBLIC_KEY = "MUSTER_HERO_EMPLOYER_PUBLIC_KEY"
 TIMEOUT = "MUSTER_HERO_TIMEOUT_SECONDS"
 RAW_OBJECT = "MUSTER_HERO_RAW_OBJECT"
-POSTGRES = "MUSTER_HERO_POSTGRES"
+#  The database is not read from a ``MUSTER_HERO_`` variable of its own.  Both
+#  the custody label and the connection string belong to the SQL adapter's
+#  configuration, which validates them, and a second name for the same value is
+#  the beginning of two deployments disagreeing about which one is authoritative.
 
 #: Where a workload on Google Cloud asks for an OAuth token naming itself.  A
 #: sibling of the identity endpoint the transport uses, and reached the same
@@ -178,6 +191,25 @@ class CloudFleet:
     #: ``gs://bucket/object`` -- the raw object this identity must not reach.
     raw_object: str | None
     postgres: str | None
+    #: Which custody this deployment *chose*.  Defaulted, because the suite's
+    #: fleet is an in-memory one and says so by carrying no DSN; a deployed run
+    #: never inherits this default, because ``from_environment`` refuses to
+    #: assemble a fleet without an explicit label.
+    deployment: DatabaseDeployment = DatabaseDeployment.EPHEMERAL
+
+    def __post_init__(self) -> None:
+        """Custody and connection string agree, however the fleet was built.
+
+        ``from_environment`` already establishes this.  Stating it here closes
+        the other door: a fleet constructed directly -- in a test, in a future
+        composition root -- cannot claim Cloud SQL custody with no DSN, nor
+        carry a DSN it has decided not to use.
+        """
+        durable = self.deployment is not DatabaseDeployment.EPHEMERAL
+        if durable and not self.postgres:
+            raise ValueError(f"{self.deployment.value} custody names no database")
+        if not durable and self.postgres:
+            raise ValueError("EPHEMERAL custody carries no database")
 
     @property
     def hosts(self) -> frozenset[str]:
@@ -199,6 +231,11 @@ class CloudFleet:
 def from_environment(environ: dict[str, str] | None = None) -> CloudFleet:
     """Read the deployment's configuration, or say which variable is wrong."""
     source = dict(os.environ) if environ is None else environ
+
+    try:
+        database = configuration_from_environment(source, require_deployed=True)
+    except DatabaseConfigurationError as error:
+        raise SystemExit(f"muster-cloud-hero: DATABASE CONFIGURATION REFUSED: {error}") from error
 
     def required(name: str) -> str:
         value = (source.get(name) or "").strip()
@@ -235,7 +272,8 @@ def from_environment(environ: dict[str, str] | None = None) -> CloudFleet:
         employer_public_key=pem(EMPLOYER_PUBLIC_KEY),
         timeout_seconds=seconds(TIMEOUT),
         raw_object=(source.get(RAW_OBJECT) or "").strip() or None,
-        postgres=(source.get(POSTGRES) or "").strip() or None,
+        postgres=database.dsn,
+        deployment=database.deployment,
     )
     for endpoint in (fleet.site_endpoint, fleet.employer_endpoint):
         if not endpoint.startswith("https://"):
@@ -666,6 +704,164 @@ def _reference(proposition: object) -> str:
     return f"{predicate}({', '.join(args)})"
 
 
+#  ---- custody -------------------------------------------------------------
+
+
+def open_database(fleet: CloudFleet) -> CaseworkDatabase:
+    """Exactly the custody the deployment named, or no run at all.
+
+    Two kinds, and the deployment chose which before this function was called.
+    ``EPHEMERAL`` is in-memory custody that lasts one execution -- the shape the
+    verified Stage-90 run had, kept deliberately runnable and deliberately
+    labelled, so a run that keeps nothing says so rather than looking like a
+    durable one that lost its rows.
+
+    ``CLOUD_SQL`` is durable custody, and every way it can fail ends the run.
+    There is no ``except`` here that reaches the branch above: a missing secret,
+    an unmigrated database, a stale ledger and an unreachable instance are four
+    different refusals and none of them is "carry on in memory".  That is the
+    whole point of the label being explicit -- falling back would silently
+    downgrade the one property the deployment was provisioned for.
+    """
+    if fleet.deployment is DatabaseDeployment.EPHEMERAL:
+        from muster.platform.adapters.memory import MemoryDatabase
+
+        return MemoryDatabase()
+
+    from muster.platform.adapters.sql.database import SqlDatabase
+
+    if fleet.postgres is None:
+        #  ``CloudFleet`` already refuses this, in ``__post_init__`` and again
+        #  in ``from_environment``.  Stated a third time because the cost of
+        #  being wrong here is a cloud run that quietly kept nothing.
+        raise SystemExit("muster-cloud-hero: DATABASE CONFIGURATION REFUSED")
+    try:
+        require_current_schema(fleet.postgres)
+    except SchemaNotCurrent as error:
+        raise SystemExit(f"muster-cloud-hero: DATABASE SCHEMA REFUSED: {error}") from error
+    except Exception as error:
+        #  A driver exception can quote connection fields.  Keep credentials out
+        #  of Cloud Run logs while retaining the actionable failure class.
+        raise SystemExit(
+            f"muster-cloud-hero: DATABASE CONNECTION REFUSED: {type(error).__name__}"
+        ) from error
+    return SqlDatabase(fleet.postgres)
+
+
+#  ---- reading a case a previous execution left behind ---------------------
+
+
+@dataclass(frozen=True, slots=True)
+class DurableCase:
+    """What a case looks like from a process that did not create it.
+
+    Identifiers, digests and counts.  No predicate values, no receipt bodies,
+    no source material -- the same closed vocabulary the narration keeps, and
+    for the same reason: this is printed into a job log.
+
+    **This is a persistence claim and only that.**  Two executions printing the
+    same nine lines establishes that the head, the transcript membership and
+    the certificate identity survived the first process ending.  It is *not* a
+    restart, not a resume, and not a re-validation: nothing here re-admits a
+    record, re-runs Q-12 or re-analyses anything.  Stable cross-process
+    re-verification needs trust material that does not live inside one process,
+    which the worked fixture's per-process officer key is not -- and that
+    belongs to the durable-async milestone rather than to this one.
+    """
+
+    tenant_id: str
+    case_id: str
+    revision_number: int
+    revision_digest: str
+    certificate_digest: str
+    construction_digest: str
+    authorization_context_digest: str
+    transcript_entries: int
+    transcript_digest: str
+
+    def lines(self) -> tuple[str, ...]:
+        return (
+            f"tenant                 {self.tenant_id}",
+            f"case                   {self.case_id}",
+            f"revision number        {self.revision_number}",
+            f"revision digest        {self.revision_digest}",
+            f"certificate digest     {self.certificate_digest}",
+            f"construction digest    {self.construction_digest}",
+            f"authorization context  {self.authorization_context_digest}",
+            f"transcript entries     {self.transcript_entries}",
+            f"transcript digest      {self.transcript_digest}",
+        )
+
+
+def read_durable_case(
+    database: CaseworkDatabase, *, tenant_id: str, case_id: str
+) -> DurableCase:
+    """Read a case this process did not open, and say what is durably there.
+
+    **Nothing here writes**, and nothing here re-verifies.  It takes a read
+    scope, reads the head and the transcript membership, and reports digests.
+    That is the whole of it, and each half of that is deliberate.
+
+    *No write*, because a verification step that created what it went looking
+    for would establish nothing at all.
+
+    *No re-verification*, because re-verification is a different claim from
+    persistence and this function is only making the second one.  Asking
+    ``case_status`` here would re-admit the stored construction record against
+    **this** process's officer verifier, and the worked fixture signs with a
+    key generated per process -- so a second execution is told
+    ``CaseConstructionRecord ... is not signed by a trusted officer`` about a
+    record that is durably present and was perfectly valid when it was written.
+    That refusal is the fixture's key discipline showing through, not a custody
+    failure, and reporting it as one would be exactly backwards.  What the
+    execution that *wrote* the case established -- admission, Q-12, the
+    analysis, the certificate -- it established then, and the certificate
+    digest below is the durable record of it.
+    """
+    with database.reading(tenant_id) as scope:
+        head = scope.heads.read(case_id)
+        if isinstance(head, Err):
+            raise SystemExit(
+                f"muster-cloud-hero: DURABLE CASE ABSENT: {head.error.failure.value}"
+            )
+        stored = head.value
+        if stored.revision_digest is None or stored.certificate_digest is None:
+            raise SystemExit("muster-cloud-hero: DURABLE CASE NOT ANALYSED")
+        members = scope.transcript.members(case_id)
+        if isinstance(members, Err):
+            raise SystemExit(
+                f"muster-cloud-hero: DURABLE TRANSCRIPT UNREADABLE: "
+                f"{members.error.failure.value}"
+            )
+
+    #  One digest over the membership, in the order the repository returns it,
+    #  so two executions can be compared on a single line without either of
+    #  them printing what any entry says.
+    rolling = hashlib.sha256()
+    for member in members.value:
+        rolling.update(member.octets)
+
+    return DurableCase(
+        tenant_id=tenant_id,
+        case_id=case_id,
+        revision_number=stored.revision_number,
+        revision_digest=stored.revision_digest.octets.hex(),
+        certificate_digest=stored.certificate_digest.octets.hex(),
+        construction_digest=stored.inputs.construction_digest.octets.hex(),
+        authorization_context_digest=stored.inputs.authorization_context_digest.octets.hex(),
+        transcript_entries=len(members.value),
+        transcript_digest=rolling.hexdigest(),
+    )
+
+
+def _print_durable_case(durable: DurableCase, *, heading: str) -> None:
+    print(heading)
+    print("")
+    for line in durable.lines():
+        print(f"  {line}")
+    print("")
+
+
 #  ---- entry point ---------------------------------------------------------
 
 
@@ -676,6 +872,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="report what this job would do, contact nobody, and exit",
     )
+    parser.add_argument(
+        "--verify-durable-case",
+        action="store_true",
+        help=(
+            "read the case a previous execution left in durable custody, print "
+            "its identity, and exit.  A persistence check only -- it opens "
+            "nothing, appends nothing, acquires nothing, re-verifies nothing, "
+            "and requires CLOUD_SQL"
+        ),
+    )
     arguments = parser.parse_args(argv)
 
     fleet = from_environment()
@@ -685,17 +891,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(line)
         return 0
 
-    database: CaseworkDatabase
-    if fleet.postgres:
-        from muster.platform.adapters.sql.database import SqlDatabase
-        from muster.platform.adapters.sql.schema import migrate
+    database = open_database(fleet)
 
-        migrate(fleet.postgres)
-        database = SqlDatabase(fleet.postgres)
-    else:
-        from muster.platform.adapters.memory import MemoryDatabase
-
-        database = MemoryDatabase()
+    if arguments.verify_durable_case:
+        #  A durability proof read out of memory would be a proof about this
+        #  process.  EPHEMERAL custody has nothing a previous execution could
+        #  have left, so asking is a configuration error rather than an empty
+        #  answer.
+        if fleet.deployment is DatabaseDeployment.EPHEMERAL:
+            raise SystemExit(
+                "muster-cloud-hero: DURABLE VERIFICATION REFUSED: "
+                "EPHEMERAL custody keeps nothing between executions"
+            )
+        _print_durable_case(
+            read_durable_case(database, tenant_id=fleet.tenant_id, case_id=fleet.case_id),
+            heading=(
+                "durable case, read by a process that did not create it\n"
+                "  (persistence only: nothing below was re-verified in this process)"
+            ),
+        )
+        return 0
 
     case = cloud_case(fleet)
     run = run_cloud_hero(
@@ -722,6 +937,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as error:
             raise SystemExit(f"muster-cloud-hero: ARTIFACT REFUSED: {error}") from error
         print(artifact.machine_record())
+    #  Under durable custody, print what the case now *is* in the database, in
+    #  exactly the form ``--verify-durable-case`` prints it.  A later execution
+    #  reading the same rows produces the same nine lines, and two job logs that
+    #  can be compared line for line is what makes "it persisted" checkable
+    #  rather than asserted.
+    if fleet.deployment is not DatabaseDeployment.EPHEMERAL and run.reached_invariant():
+        _print_durable_case(
+            read_durable_case(database, tenant_id=fleet.tenant_id, case_id=fleet.case_id),
+            heading="durable case, as this execution left it",
+        )
+
     #  The exit status is the claim.  A run that did not reach the invariant
     #  answer is a run that did not demonstrate anything, and an operator
     #  reading a job execution should not have to read the log to find out.
@@ -740,8 +966,27 @@ def _configuration_lines(fleet: CloudFleet, transport: HttpAcquisitionTransport)
         f"hosts      {', '.join(sorted(fleet.hosts))}",
         f"timeout    {transport.timeout_seconds:g}s",
         f"raw object {fleet.raw_object or 'not configured'}",
-        f"store      {'postgres' if fleet.postgres else 'in-memory'}",
+        f"store      {_custody(fleet.deployment)}",
     )
+
+
+#: What each custody is, in the words an operator needs to read it by.  The
+#: ephemeral line says what is *lost*, because a configuration report that made
+#: in-memory custody sound like a store is how a run that kept nothing gets
+#: described afterwards as a durable one.
+_CUSTODY: dict[DatabaseDeployment, str] = {
+    DatabaseDeployment.EPHEMERAL: (
+        "EPHEMERAL MEMORY -- custody lasts one execution and is not durable"
+    ),
+    DatabaseDeployment.CLOUD_SQL: (
+        "CLOUD SQL POSTGRESQL -- durable, and refuses to run before bootstrap"
+    ),
+    DatabaseDeployment.LOCAL: "LOCAL POSTGRESQL",
+}
+
+
+def _custody(deployment: DatabaseDeployment) -> str:
+    return _CUSTODY[deployment]
 
 
 if __name__ == "__main__":

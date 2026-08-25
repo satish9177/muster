@@ -62,6 +62,7 @@ COPY --from=build /install /usr/local
 WORKDIR /app
 COPY demo/cloud_hero.py /app/demo/cloud_hero.py
 COPY demo/case_trace_artifact.py /app/demo/case_trace_artifact.py
+COPY demo/database_bootstrap.py /app/demo/database_bootstrap.py
 COPY packages/muster-platform/tests/support /app/packages/muster-platform/tests/support
 COPY packages/muster-kernel/fixtures /app/packages/muster-kernel/fixtures
 

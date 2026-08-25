@@ -15,12 +15,19 @@ if [[ "${FORCE:-0}" != "1" ]]; then
 About to delete, from project ${PROJECT_ID}:
 
   Cloud Run     ${SITE_SERVICE}, ${EMPLOYER_SERVICE}          (region ${REGION})
-  Cloud Run     ${PROBE_JOB}, ${HERO_JOB}                     (jobs, region ${REGION})
+  Cloud Run     ${PROBE_JOB}, ${HERO_JOB}, ${BOOTSTRAP_JOB}   (jobs, region ${REGION})
   Secrets       ${SITE_SECRET}, ${EMPLOYER_SECRET}
   Bucket        gs://${EVIDENCE_BUCKET}  and everything in it
   Registry      ${REPO}                                        (region ${REGION})
                 and both images in it: muster-agent, muster-control-plane
-  Accounts      ${CONTROL_PLANE_SA_ID}, ${SITE_SA_ID}, ${EMPLOYER_SA_ID}, ${BUILD_SA_ID}
+  Accounts      ${CONTROL_PLANE_SA_ID}, ${SITE_SA_ID}, ${EMPLOYER_SA_ID}, ${BUILD_SA_ID},
+                ${MIGRATOR_SA_ID}
+
+  NOT deleted: any Cloud SQL instance, its private-services-access range, or the
+  database secrets.  Nothing here creates them, they hold the only durable state
+  in this deployment, and a teardown that removed a database it did not create
+  is a teardown that destroys somebody's data on a stale export.  Remove them
+  deliberately, and read 'Teardown' in infra/README.md first.
 
 PROMPT
   #  The bucket, not only the project: ``EVIDENCE_BUCKET`` is overridable
@@ -96,7 +103,7 @@ done
 #  -- and left the service accounts undeletable for a reason nobody would look
 #  for.
 muster::banner "Cloud Run jobs"
-for job in "${PROBE_JOB}" "${HERO_JOB}"; do
+for job in "${PROBE_JOB}" "${HERO_JOB}" "${BOOTSTRAP_JOB}"; do
   muster::remove_if_present "${job}" \
     gcloud run jobs VERB "${job}" \
       --project="${PROJECT_ID}" --region="${REGION}"
@@ -126,13 +133,15 @@ else
   echo "  absent  gs://${EVIDENCE_BUCKET}"
 fi
 
-#  **Four accounts, not three.**  10-identities.sh creates the build identity
-#  too, and an account left behind keeps its project-level role bindings live:
+#  **Five accounts, not three.**  10-identities.sh creates the build identity
+#  and the database migrator too, and an account left behind keeps its
+#  project-level role bindings live:
 #  ``muster-build`` holds artifactregistry.writer, and the two agent accounts
 #  hold aiplatform.user, so a teardown that skipped one would leave a principal
 #  able to push images into this project after everything it was for is gone.
 muster::banner "service accounts"
-for account in "${CONTROL_PLANE_SA}" "${SITE_SA}" "${EMPLOYER_SA}" "${BUILD_SA}"; do
+accounts=("${CONTROL_PLANE_SA}" "${SITE_SA}" "${EMPLOYER_SA}" "${BUILD_SA}" "${MIGRATOR_SA}")
+for account in "${accounts[@]}"; do
   muster::remove_if_present "${account}" \
     gcloud iam service-accounts VERB "${account}" --project="${PROJECT_ID}"
 done

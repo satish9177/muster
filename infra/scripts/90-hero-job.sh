@@ -38,6 +38,8 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
+muster::require_database_secret_version
+
 KEY_DIR="${1:-}"
 if [[ -z "${KEY_DIR}" || ! -d "${KEY_DIR}" ]]; then
   cat >&2 <<USAGE
@@ -100,7 +102,11 @@ echo "  site      ${SITE_URL}"
 echo "  employer  ${EMPLOYER_URL}"
 echo "  identity  ${CONTROL_PLANE_SA}"
 echo "  ingress   the agents are '--ingress=${RUN_INGRESS}'"
-echo "  store     in-memory, for the life of one execution"
+if [[ "${HERO_DATABASE_DEPLOYMENT}" == "CLOUD_SQL" ]]; then
+  echo "  store     CLOUD_SQL -- durable, via a pinned DSN secret and the pinned server CA"
+else
+  echo "  store     EPHEMERAL -- in memory, for the life of one execution, and not durable"
+fi
 
 #  Written to a file, by the same emitter 50-deploy.sh uses -- see
 #  muster::env_entry in env.sh.  The same defect was latent here: these values
@@ -119,6 +125,7 @@ env_file="${MUSTER_ENV_FILE}"
   muster::env_entry MUSTER_HERO_SITE_PUBLIC_KEY "${SITE_PUBLIC}"
   muster::env_entry MUSTER_HERO_EMPLOYER_PUBLIC_KEY "${EMPLOYER_PUBLIC}"
   muster::env_entry MUSTER_HERO_RAW_OBJECT "gs://${EVIDENCE_BUCKET}/${HERO_RAW_OBJECT}"
+  muster::env_entry MUSTER_DATABASE_DEPLOYMENT "${HERO_DATABASE_DEPLOYMENT}"
   muster::env_entry MUSTER_TRACE_PROJECT_ID "${PROJECT_ID}"
   muster::env_entry MUSTER_TRACE_JOB_NAME "${HERO_JOB}"
   muster::env_entry MUSTER_TRACE_CLOUD_RUN_REGION "${REGION}"
@@ -188,6 +195,35 @@ muster::require_private_google_access
 #  ``jobs deploy`` creates or updates, which is what makes this re-runnable.
 #  ``--max-retries=0``: a run that failed is a result, and retrying it would
 #  spend model calls to produce a second copy of the same answer.
+#  ---- what the run is given to reach a database with ----------------------
+#
+#  Two secrets under CLOUD_SQL and none under EPHEMERAL, expanded the same way
+#  ``egress`` is and for the same bash 3.2 reason.
+#
+#  **One secret per mounted directory.**  A Cloud Run secret volume maps to
+#  exactly one secret and supports no subpaths, so a second secret file under
+#  ${DATABASE_CA_MOUNT} would not be a tighter layout -- gcloud refuses it,
+#  client-side, before anything is created:
+#
+#      Cannot update secret at [...] because a different secret is already
+#      mounted in the same directory.
+#
+#  Only the server CA is a file, so one directory is enough.  The DSN, which
+#  carries the password, is a secret-backed *environment variable*: Cloud Run
+#  resolves the pinned version into MUSTER_DATABASE_URL directly, so the value
+#  never passes through this script, the env-vars file, or an argument list.
+secrets=()
+if [[ "${HERO_DATABASE_DEPLOYMENT}" == "CLOUD_SQL" ]]; then
+  secrets=(
+    --set-secrets="MUSTER_DATABASE_URL=${DATABASE_DSN_SECRET}:${DATABASE_DSN_SECRET_VERSION},${DATABASE_CA_FILE}=${DATABASE_SERVER_CA_SECRET}:${DATABASE_SERVER_CA_SECRET_VERSION}"
+  )
+else
+  #  Not "no flag".  An EPHEMERAL redeploy of a job that was CLOUD_SQL has to
+  #  take the old mount off, or the run would keep a credential its custody no
+  #  longer names -- and `jobs deploy` updates in place rather than replacing.
+  secrets=(--clear-secrets)
+fi
+
 gcloud run jobs deploy "${HERO_JOB}" \
   --project="${PROJECT_ID}" \
   --region="${REGION}" \
@@ -198,6 +234,7 @@ gcloud run jobs deploy "${HERO_JOB}" \
   --cpu="${RUN_CPU}" \
   --memory="${RUN_MEMORY}" \
   --env-vars-file="${env_file}" \
+  ${secrets[@]+"${secrets[@]}"} \
   ${egress[@]+"${egress[@]}"} \
   --quiet
 

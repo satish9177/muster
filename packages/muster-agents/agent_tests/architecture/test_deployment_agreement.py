@@ -184,7 +184,13 @@ def test_every_identity_the_deployment_creates_is_used_by_something() -> None:
     binding = ("--service-account", "--member", "muster::deploy")
     used = [
         line
-        for name in ("40-build.sh", "50-deploy.sh", "55-probe-job.sh", "60-invoker.sh")
+        for name in (
+            "40-build.sh",
+            "50-deploy.sh",
+            "55-probe-job.sh",
+            "60-invoker.sh",
+            "85-database-bootstrap.sh",
+        )
         for line in (scripts / name).read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("#") and any(mark in line for mark in binding)
     ]
@@ -1865,3 +1871,122 @@ def test_the_diagnostic_path_and_private_ranges_are_left_to_fail_their_own_way(
         assert done.returncode == 0, done.stderr
         assert "PROCEEDED" in done.stdout, overrides
     assert not (tmp_path / "calls").exists(), "a route that does not need the subnet read it"
+
+
+#  ---- what Cloud Run is actually asked for --------------------------------
+#
+#  Driven through bash and the real env.sh rather than read as text, because the
+#  thing that has to be right is the *expansion*.  A layout that reads correctly
+#  and expands to two secrets in one directory is refused by gcloud, client-side,
+#  after review and in front of a cloud:
+#
+#      Cannot update secret at [...] because a different secret is already
+#      mounted in the same directory.
+#
+#  A Cloud Run secret volume maps to exactly one secret and supports no
+#  subpaths, so "one directory, one secret" is the rule, and these expand each
+#  deployment's own line to check it holds.
+
+
+def _expanded_mappings(script: Path, tmp_path: Path, **overrides: str) -> list[tuple[str, str]]:
+    """Pull the script's own ``--set-secrets`` line and let bash expand it."""
+    body = "\n".join(
+        (
+            f"""line="$(grep -o -- '--set-secrets="[^"]*"' "{script.as_posix()}" | head -1)\"""",
+            'eval "printf %s ${line#--set-secrets=}"',
+            "",
+        )
+    )
+    done = _drive(body, tmp_path, **overrides)
+    assert done.returncode == 0, done.stderr
+    mappings: list[tuple[str, str]] = []
+    for entry in done.stdout.strip().split(","):
+        key, _, value = entry.partition("=")
+        mappings.append((key, value))
+    return mappings
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.parametrize("script", ("90-hero-job.sh", "85-database-bootstrap.sh"))
+def test_no_deployment_mounts_two_secrets_in_one_directory(script: str, tmp_path: Path) -> None:
+    """The expansion, grouped exactly the way gcloud groups it."""
+    mappings = _expanded_mappings(SCRIPTS / script, tmp_path)
+    assert mappings, f"{script} asks for no secrets"
+
+    directories: dict[str, set[str]] = {}
+    for key, value in mappings:
+        if key.startswith("/"):
+            directories.setdefault(key.rsplit("/", 1)[0], set()).add(value)
+    assert directories, f"{script} mounts no secret file"
+    for directory, secrets in directories.items():
+        assert len(secrets) == 1, f"{directory} would be handed {sorted(secrets)}"
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.parametrize("script", ("90-hero-job.sh", "85-database-bootstrap.sh"))
+def test_a_deployment_mounts_only_a_certificate_and_never_a_private_key(
+    script: str, tmp_path: Path
+) -> None:
+    """The DSN carries the password and is resolved into the environment.
+
+    What is mounted is a public certificate, which is why 0444 is the right mode
+    for it and why nothing has to copy it anywhere before libpq will read it.
+    """
+    for key, _ in _expanded_mappings(SCRIPTS / script, tmp_path):
+        if key.startswith("/"):
+            assert key.endswith("server-ca.pem"), key
+        else:
+            assert key.endswith("DATABASE_URL"), key
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_stage_ninety_demands_pinned_versions_only_for_the_custody_it_runs(
+    tmp_path: Path,
+) -> None:
+    """EPHEMERAL needs no database secret, and CLOUD_SQL needs a reviewed one.
+
+    Both halves matter.  Demanding the secrets unconditionally is what made the
+    in-memory run -- the one already verified in the cloud -- undeployable; not
+    demanding them under CLOUD_SQL would let 'latest' re-resolve a credential at
+    every cold start.
+    """
+    body = 'muster::require_database_secret_version\necho PROCEEDED\n'
+
+    ephemeral = _drive(body, tmp_path, HERO_DATABASE_DEPLOYMENT="EPHEMERAL")
+    assert ephemeral.returncode == 0, ephemeral.stderr
+    assert "PROCEEDED" in ephemeral.stdout
+
+    unpinned = _drive(body, tmp_path, HERO_DATABASE_DEPLOYMENT="CLOUD_SQL")
+    assert unpinned.returncode == 2
+    assert "PROCEEDED" not in unpinned.stdout
+    assert "DATABASE_DSN_SECRET_VERSION" in unpinned.stderr
+
+    latest = _drive(
+        body,
+        tmp_path,
+        HERO_DATABASE_DEPLOYMENT="CLOUD_SQL",
+        DATABASE_DSN_SECRET_VERSION="latest",  # noqa: S106 - a version, not a credential
+        DATABASE_SERVER_CA_SECRET_VERSION="1",  # noqa: S106 - a version, not a credential
+    )
+    assert latest.returncode == 2
+    assert "PROCEEDED" not in latest.stdout
+
+    pinned = _drive(
+        body,
+        tmp_path,
+        HERO_DATABASE_DEPLOYMENT="CLOUD_SQL",
+        DATABASE_DSN_SECRET_VERSION="3",  # noqa: S106 - a version, not a credential
+        DATABASE_SERVER_CA_SECRET_VERSION="1",  # noqa: S106 - a version, not a credential
+    )
+    assert pinned.returncode == 0, pinned.stderr
+    assert "PROCEEDED" in pinned.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_a_custody_that_is_neither_stops_the_deployment(tmp_path: Path) -> None:
+    """Two kinds, and a typo is not silently one of them."""
+    done = _drive("echo PROCEEDED", tmp_path, HERO_DATABASE_DEPLOYMENT="FIRESTORE")
+
+    assert done.returncode == 2
+    assert "PROCEEDED" not in done.stdout
+    assert "EPHEMERAL or CLOUD_SQL" in done.stderr

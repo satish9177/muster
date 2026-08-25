@@ -19,6 +19,8 @@ gcloud services enable \
   storage.googleapis.com \
   iamcredentials.googleapis.com \
   compute.googleapis.com \
+  sqladmin.googleapis.com \
+  servicenetworking.googleapis.com \
   --project="${PROJECT_ID}"
 
 #  compute, for one reason and no other: the hero job attaches Direct VPC egress
@@ -27,4 +29,4 @@ gcloud services enable \
 #  without this API has no ``default`` network for the job to name and
 #  90-hero-job.sh fails at deploy.  Nothing here creates or runs a VM.
 echo "enabled: run, artifactregistry, cloudbuild, aiplatform, secretmanager, storage,"
-echo "         iamcredentials, compute (for the hero job VPC egress)"
+echo "         iamcredentials, compute, sqladmin, servicenetworking"

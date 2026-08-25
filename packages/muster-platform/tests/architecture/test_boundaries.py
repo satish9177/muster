@@ -114,7 +114,9 @@ ALLOWED: dict[str, frozenset[str]] = {
     "catalog.route": frozenset({"casework.ports"}),
     #  The only layer allowed to know what a driver is.
     "adapters.sql.migrations": frozenset(),
+    "adapters.sql.config": frozenset(),
     "adapters.sql.schema": frozenset({"adapters.sql.migrations"}),
+    "adapters.sql.bootstrap": frozenset({"adapters.sql.schema"}),
     "adapters.sql.content": frozenset({"casework.ports"}),
     "adapters.sql.transcript": frozenset({"casework.ports"}),
     "adapters.sql.head": frozenset({"casework.ports"}),
@@ -429,6 +431,13 @@ def test_the_kernel_source_does_not_mention_the_platform_at_all() -> None:
     """Read over raw text, so a dynamic import or a path trick is caught too."""
     for path in _kernel_files():
         assert "muster.platform" not in path.read_text(encoding="utf-8"), path
+
+
+def test_cloud_sql_configuration_does_not_leak_into_the_kernel() -> None:
+    for path in _kernel_files():
+        text = path.read_text(encoding="utf-8").lower()
+        assert "cloud_sql" not in text, path
+        assert "muster_database_url" not in text, path
 
 
 def test_the_kernel_declares_no_database_dependency() -> None:

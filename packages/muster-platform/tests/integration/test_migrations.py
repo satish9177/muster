@@ -32,9 +32,16 @@ import pytest
 
 from muster.core.results import InvariantViolation, Ok
 from muster.platform.adapters.sql import schema
+from muster.platform.adapters.sql.bootstrap import bootstrap
 from muster.platform.adapters.sql.database import SqlDatabase
 from muster.platform.adapters.sql.migrations import MIGRATION_LOCK_ID, MIGRATIONS, Migration
-from muster.platform.adapters.sql.schema import applied_versions, migrate, revert
+from muster.platform.adapters.sql.schema import (
+    SchemaNotCurrent,
+    applied_versions,
+    migrate,
+    require_current_schema,
+    revert,
+)
 from support import ravi
 from support.fixtures import open_ravi
 from support.paths import PACKAGE_ROOT
@@ -118,6 +125,41 @@ def test_migrating_twice_applies_each_version_once(scratch_database: str) -> Non
 
     with psycopg.connect(scratch_database) as connection:
         assert applied_versions(connection) == first
+
+
+@pytest.mark.postgres
+def test_explicit_bootstrap_is_repeatable_and_proves_the_schema_current(
+    scratch_database: str,
+) -> None:
+    first = bootstrap(scratch_database)
+    second = bootstrap(scratch_database)
+
+    versions = tuple(migration.version for migration in MIGRATIONS)
+    assert first.applied == versions
+    assert first.current == versions
+    assert second.applied == ()
+    assert second.current == versions
+
+
+@pytest.mark.postgres
+def test_runtime_readiness_refuses_an_unmigrated_database(scratch_database: str) -> None:
+    with pytest.raises(SchemaNotCurrent, match="ledger is absent"):
+        require_current_schema(scratch_database)
+
+
+@pytest.mark.postgres
+def test_runtime_readiness_refuses_a_migration_identity_mismatch(
+    scratch_database: str,
+) -> None:
+    migrate(scratch_database)
+    with psycopg.connect(scratch_database) as connection:
+        connection.execute(
+            "UPDATE platform.schema_migration SET name = %s WHERE version = %s",
+            ("same-version-different-build", MIGRATIONS[-1].version),
+        )
+
+    with pytest.raises(SchemaNotCurrent, match=f"version {MIGRATIONS[-1].version}"):
+        require_current_schema(scratch_database)
 
 
 @pytest.mark.postgres

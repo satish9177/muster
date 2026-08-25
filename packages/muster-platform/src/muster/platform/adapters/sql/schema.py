@@ -63,6 +63,10 @@ from muster.platform.adapters.sql.migrations import (
 )
 
 
+class SchemaNotCurrent(RuntimeError):
+    """The database ledger is absent or disagrees with this build."""
+
+
 def applied_versions(connection: psycopg.Connection[tuple[object, ...]]) -> tuple[int, ...]:
     rows = connection.execute(
         "SELECT version FROM platform.schema_migration ORDER BY version"
@@ -76,6 +80,12 @@ def _version(value: object) -> int:
     return value
 
 
+def _identity(value: object) -> str:
+    if not isinstance(value, str):
+        raise SchemaNotCurrent("schema_migration.name is not text")
+    return value
+
+
 def migrate(dsn: str) -> tuple[int, ...]:
     """Apply every migration this build knows and the database does not."""
     applied: list[int] = []
@@ -84,6 +94,47 @@ def migrate(dsn: str) -> tuple[int, ...]:
             if _apply(connection, migration):
                 applied.append(migration.version)
     return tuple(applied)
+
+
+def require_current_schema(dsn: str) -> tuple[int, ...]:
+    """Read the migration ledger and refuse an absent or mismatched schema.
+
+    Runtime composition roots call this instead of migrating. It is a
+    read-only readiness check: normal handling never creates schema, and an
+    older build cannot run against migrations it does not understand.
+    """
+    try:
+        with psycopg.connect(dsn) as connection:
+            connection.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+            connection.read_only = True
+            with connection.transaction():
+                rows = connection.execute(
+                    "SELECT version, name FROM platform.schema_migration ORDER BY version"
+                ).fetchall()
+    except (psycopg.errors.InvalidSchemaName, psycopg.errors.UndefinedTable) as error:
+        raise SchemaNotCurrent("the migration ledger is absent") from error
+
+    expected = tuple((migration.version, migration.identity()) for migration in MIGRATIONS)
+    recorded = tuple((_version(row[0]), _identity(row[1])) for row in rows)
+    if recorded != expected:
+        expected_versions = tuple(version for version, _ in expected)
+        recorded_versions = tuple(version for version, _ in recorded)
+        if recorded_versions == expected_versions:
+            mismatched = next(
+                version
+                for (version, recorded_name), (_, expected_name) in zip(
+                    recorded, expected, strict=True
+                )
+                if recorded_name != expected_name
+            )
+            raise SchemaNotCurrent(
+                f"migration identity disagrees with this build at version {mismatched}"
+            )
+        raise SchemaNotCurrent(
+            f"migration ledger is not current: expected {expected_versions}, "
+            f"found {recorded_versions}"
+        )
+    return tuple(version for version, _ in recorded)
 
 
 def revert(dsn: str, *, to_version: int) -> tuple[int, ...]:
