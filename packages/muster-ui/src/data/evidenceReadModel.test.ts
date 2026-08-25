@@ -26,7 +26,7 @@ describe("transformRaviEvidence", () => {
     ]);
     expect(result.execution).toEqual(
       expect.objectContaining({
-        name: "muster-control-plane-hero-htkpt",
+        name: "muster-control-plane-hero-tsjds",
         modelName: "gemini-3.7-flash",
         modelLocation: "global",
         cloudRunRegion: "asia-south1",

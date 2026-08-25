@@ -40,6 +40,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 
 muster::require_database_secret_version
 
+#  Before anything is deployed or executed.  The interpreter is needed by the
+#  *last* step this script performs -- capturing the sanitized artifact -- and
+#  finding out there that it does not exist costs a real execution, real model
+#  calls and a durable case, none of which the second attempt can undo.  So the
+#  cheapest check in the script runs first.
+muster::require_python
+
 KEY_DIR="${1:-}"
 if [[ -z "${KEY_DIR}" || ! -d "${KEY_DIR}" ]]; then
   cat >&2 <<USAGE

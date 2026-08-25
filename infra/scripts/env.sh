@@ -388,10 +388,126 @@ muster::require_database_secret_version() {
 #  the same thing.
 : "${HERO_RAW_OBJECT:=${SITE_PREFIX}/gate-log-sat.txt}"
 
+#  ---- container paths, on a shell that rewrites them --------------------
+#
+#  Git Bash and MSYS2 rewrite arguments that look like POSIX paths into Windows
+#  paths before the program sees them.  That is right for a local file and wrong
+#  for a *container* path: ``--args=/app/demo/database_bootstrap.py`` arrived at
+#  Cloud Run as
+#
+#      C:/Program Files/Git/app/demo/database_bootstrap.py
+#
+#  and the job deployed cleanly, ran, and died on
+#  ``can't open file '/app/C:/Program Files/Git/app/...'`` -- after the deploy,
+#  in front of a cloud.  The path in the script was correct the whole time.
+#
+#  So the exclusion is applied here, to the one invocation that carries a
+#  container path, rather than exported into the operator's shell.  It is
+#  scoped to the ``--args=`` prefix and nothing else: MSYS2_ARG_CONV_EXCL='*'
+#  is the obvious-looking fix and it is wrong -- gcloud's own launcher is a
+#  shell script that needs its interpreter path converted, so excluding
+#  everything breaks gcloud itself with
+#  ``can't open file 'C:\c\Program Files (x86)\...\gcloud.py'``.
+#
+#  ``MSYS_NO_PATHCONV=1`` is not used either, and for the same reason: it is a
+#  blanket disable, so it breaks the launcher exactly as '*' does.  Verified.
+#
+#  Any pre-existing value is preserved and appended to rather than replaced,
+#  because an operator who set one meant it.  On Linux and macOS the variable
+#  is meaningless and setting it changes nothing.
+muster::gcloud_container_args() {
+  local scoped="${MSYS2_ARG_CONV_EXCL:-}"
+  if [[ -z "${scoped}" ]]; then
+    scoped="--args="
+  elif [[ "${scoped}" != *"--args="* ]]; then
+    scoped="${scoped};--args="
+  fi
+  MSYS2_ARG_CONV_EXCL="${scoped}" "$@"
+}
+
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURES="${REPOSITORY_ROOT}/packages/muster-agents/fixtures"
 EVIDENCE_DIR="${REPOSITORY_ROOT}/infra/evidence"
-: "${MUSTER_PYTHON:=python3}"
+#  ---- the local interpreter, established by running one --------------------
+#
+#  Stage 90 captures a sanitized artifact from the execution's own output, and
+#  that capture is *local* Python.  It used to default to ``python3`` and be
+#  believed.  On Windows that produced the worst ordering available: the cloud
+#  execution succeeded, the case became durable, model calls were spent -- and
+#  then the local step failed with
+#
+#      Python was not found; run without arguments to install from the
+#      Microsoft Store
+#
+#  which is the App Execution Alias, a zero-byte stub Windows puts on PATH that
+#  exists to advertise the Store.  ``command -v`` finds it, ``--version``
+#  does not work.  So the check is not "is there something called python" but
+#  "does this thing run a program and print a version", which is a question only
+#  running it can answer.
+#
+#  ``MUSTER_PYTHON`` set by the operator still wins and is probed too: an
+#  override that does not work should say so here rather than three stages later.
+: "${MUSTER_PYTHON:=}"
+
+#  Does this interpreter actually execute? Probes with a real program rather
+#  than ``--version``, because the answer that matters is whether it can run
+#  ``capture_case_trace.py``, and a stub can print a banner on stderr and exit 0.
+muster::usable_python() {
+  local candidate="$1"
+  [[ -n "${candidate}" ]] || return 1
+  command -v "${candidate}" >/dev/null 2>&1 || return 1
+  local answer
+  answer="$("${candidate}" -c 'import sys; sys.stdout.write("MUSTER_PY_OK")' 2>/dev/null)" || return 1
+  [[ "${answer}" == "MUSTER_PY_OK" ]]
+}
+
+#  The first candidate that runs. Leaves the answer in MUSTER_PYTHON so callers
+#  quote one word; a command plus arguments in a single scalar would have to be
+#  split somewhere, and every place that splits it is a place a path with a
+#  space in it breaks.
+muster::require_python() {
+  if [[ -n "${MUSTER_PYTHON}" ]]; then
+    if muster::usable_python "${MUSTER_PYTHON}"; then
+      return 0
+    fi
+    {
+      echo "MUSTER_PYTHON is set to '${MUSTER_PYTHON}', and it does not run."
+      echo
+      echo "  It was probed by asking it to execute a one-line program, not by"
+      echo "  looking for it on PATH -- on Windows those are different questions."
+      echo
+    } >&2
+    exit 2
+  fi
+
+  local candidate
+  for candidate in python3 python py; do
+    if muster::usable_python "${candidate}"; then
+      MUSTER_PYTHON="${candidate}"
+      return 0
+    fi
+  done
+
+  {
+    echo "No usable Python interpreter was found for the local capture step."
+    echo
+    echo "  Tried, in order: python3, python, py.  Each was either absent or"
+    echo "  present-but-not-runnable -- on Windows, 'python' is often an App"
+    echo "  Execution Alias that exists on PATH only to open the Microsoft Store."
+    echo
+    echo "  Install Python 3, or name one explicitly:"
+    echo
+    echo "      export MUSTER_PYTHON=/c/Python312/python.exe"
+    echo "      export MUSTER_PYTHON=\"\$PWD/.venv/Scripts/python.exe\""
+    echo
+    echo "  This is checked before the hero job runs, deliberately: the capture"
+    echo "  step is the last thing Stage 90 does, and discovering the problem"
+    echo "  there would mean discovering it after the model calls were spent and"
+    echo "  the case was already durable."
+    echo
+  } >&2
+  exit 2
+}
 
 export PROJECT_ID REGION VERTEX_LOCATION EVIDENCE_BUCKET SITE_PREFIX EMPLOYER_PREFIX
 export REPO IMAGE IMAGE_TAG CONTROL_PLANE_IMAGE

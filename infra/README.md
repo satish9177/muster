@@ -519,11 +519,10 @@ non-zero if anything else survived.
   `--ingress=internal`, so `80-smoke.sh` must be run from inside the project and
   the hero job reaches them over Direct VPC egress rather than by having the
   perimeter relaxed for it.
-* **No Cloud SQL instance is provisioned by any script here, and none has been
-  run against.** The control-plane image, Stage 85 and Stage 90 are
-  Cloud-SQL-ready; the instance, its private address, its database roles and its
-  secrets are operator-provisioned, in the order set out below. Stage 90's
-  default custody is in-memory and needs none of it.
+* **No Cloud SQL instance is created by any script here.** The instance, its
+  private address, its database roles and its secrets are operator-provisioned,
+  in the order set out below — which has been done once and verified. Stage 90's
+  default custody is still in-memory and needs none of it.
 * **No client certificate.** Cloud SQL is reached with a password and a verified
   server CA. See the reasoning below; it is a subtraction, not an omission.
 * **No control plane service.** The control plane calls the agents outbound and
@@ -538,13 +537,22 @@ non-zero if anything else survived.
   can be read line by line before anything is — which is what an approval step
   is for.
 
-## Cloud SQL readiness, and the order it has to be provisioned in
+## Cloud SQL durable custody, and the order it is provisioned in
 
-**Nothing here creates a Cloud SQL deployment, and nothing in this repository
-has run against one.** U1 prepares one direct PostgreSQL path over the same
-Direct VPC network the hero job already has, and Stage 90 refuses to start
-durable custody it cannot prove is migrated. Provisioning is the operator step
-below.
+**This has been provisioned and verified once, on
+`muster-agentic-2026-9177` / `asia-south1`.** Instance
+`muster-control-plane-db`, PostgreSQL 16, private IP only, no public IPv4,
+`sslMode=ENCRYPTED_ONLY`, Data API disabled. Stage-90 execution
+`muster-control-plane-hero-tsjds` authored the case; execution
+`muster-s90-verify-temp-zzs9w`, a separate Cloud Run process, read the identical
+durable identity back. Source commit
+`6fa34c0025cfde69386aa73d0467402507cf38ac`, control-plane image
+`sha256:d4139a5f4c48b81357263f3863c91ad2e590a784690752b80cf0b785796b6c31`.
+
+**No script here creates the instance.** The steps below are the operator
+procedure that was followed, written so it can be followed again in a fresh
+project. Stage 90 still defaults to in-memory custody and refuses to start
+durable custody it cannot prove is migrated.
 
 There is no Firestore, no ORM, no Cloud SQL connector, no proxy sidecar and no
 Google SDK in the control-plane image. `psycopg` opens an ordinary libpq
@@ -806,6 +814,34 @@ plane's database.
 
 The cloud hero does not migrate. It calls the read-only current-schema check and
 refuses to start if bootstrap has not been run.
+## Running these on Windows
+
+Both of these were found the hard way and are fixed in the scripts; neither
+needs anything from the operator now.
+
+**Container paths and Git Bash.** MSYS rewrites arguments that look like POSIX
+paths before the program sees them, which is right for a local file and wrong
+for a path inside a container. `--args=/app/demo/database_bootstrap.py` reached
+Cloud Run as `C:/Program Files/Git/app/demo/database_bootstrap.py`; the job
+deployed cleanly and died at runtime. `muster::gcloud_container_args` in
+`env.sh` scopes the exclusion to the one invocation that carries a container
+path, preserving any value the operator already set. It does **not** use
+`MSYS2_ARG_CONV_EXCL='*'` or `MSYS_NO_PATHCONV=1` — both are blanket disables,
+and gcloud on Windows is itself a shell script whose interpreter path must be
+converted, so either one breaks gcloud rather than fixing the deployment.
+
+**Finding a local Python.** Stage 90's last act is a local capture step. It used
+to assume `python3`, which on Windows is usually an App Execution Alias: a stub
+on `PATH` that exists to open the Microsoft Store and runs nothing.
+`muster::require_python` establishes an interpreter by *executing* one — probing
+`python3`, `python`, `py` in order — and runs before the job is deployed, because
+discovering it afterwards costs a real execution, real model calls and a durable
+case that a retry cannot undo. `MUSTER_PYTHON` still wins, and is probed too:
+
+```
+export MUSTER_PYTHON=/c/Python312/python.exe
+```
+
 ## Teardown
 
 ```

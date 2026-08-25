@@ -282,14 +282,25 @@ run the Action Gate, local PostgreSQL, procurement proof, or local Vite UI. See
 - IAM
 - Artifact Registry
 - Cloud Build
+- Cloud SQL for PostgreSQL (private IP only)
 
-No Cloud SQL instance has been deployed or verified. The cloud run's default
-custody is in-memory and says so. Cloud SQL *support* is implemented and
-unprovisioned: an explicit `EPHEMERAL`/`CLOUD_SQL` deployment label, strict
-connection-string validation, a separate migrator identity with its own
-repeatable bootstrap job, a read-only schema-readiness check that refuses to run
-against an unmigrated database, and pinned-secret deployment wiring. Provisioning
-it is an operator procedure, set out in `infra/README.md`.
+**Cloud SQL durable custody is provisioned and verified on GCP.** A Stage-90
+execution wrote the worked case to a private Cloud SQL instance, and a second,
+independent Cloud Run execution read the identical durable identity back out of
+it. Provenance is in `ARCHITECTURE.md`; the procedure is in `infra/README.md`.
+
+What that verifies, and what it does not:
+
+| | |
+|---|---|
+| Persistence across independent Cloud Run executions | **verified** |
+| Control Plane denied raw Site-A evidence (HTTP 403) | **verified** |
+| Semantic restart / resume / cross-process re-validation | **not yet** |
+| Cloud Action Gate | **not implemented, not executed** |
+| Real funds transferred | **no** |
+
+Stage 90 still defaults to `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`; durable custody
+is named explicitly with `CLOUD_SQL` and never fallen back to.
 
 ## Repository Structure
 

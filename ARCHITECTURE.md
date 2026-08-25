@@ -615,7 +615,7 @@ sanitized artifact
 | Kernel result | Yes — `INVARIANT` | Yes — `INVARIANT` | Identical outcome, identical unresolved set |
 | Certificate rebuild | Yes — `certificate_reproduced: true` | Yes | Determinism class `REPRODUCIBLE` |
 | Action Gate | **No — not executed** | Yes | Cloud trace records `NOT_EXECUTED`. The Gate is local only |
-| PostgreSQL | **No — the run's custody is in-memory** | Yes — local Docker | Cloud SQL support is implemented and unprovisioned: no instance deployed or verified |
+| PostgreSQL | **Yes — private Cloud SQL** | Yes — local Docker | Durable custody verified in execution `-tsjds`; a second execution read the identical identity back |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
 | Payment | — | Sandbox only | No payment rail. No real funds transferred |
@@ -647,12 +647,40 @@ the model is called at the `global` endpoint because that is where the shipped
 model is served. Setting the Vertex location to `asia-south1` restores full
 co-location and is correct for any model served regionally there.
 
-**PostgreSQL is not a verified Google Cloud resource in this project.** It runs
-in a local Docker container behind the browser demo. U1 added an explicit
-deployment label, strict Cloud SQL connection-string validation, a separate
-migrator identity with a repeatable bootstrap job, and a secret-backed Stage-85
-and Stage-90 deployment surface — but no Cloud SQL instance has been provisioned
-or executed, and the cloud run's default custody remains in-memory.
+**PostgreSQL is a verified Google Cloud resource in this project**, and also
+runs in a local Docker container behind the browser demo. Durable custody was
+provisioned and exercised end to end; the provenance below is enough to audit it.
+
+| | |
+|---|---|
+| Project | `muster-agentic-2026-9177` |
+| Region | `asia-south1` |
+| Instance | `muster-control-plane-db`, PostgreSQL 16, private IP only, no public IPv4, `sslMode=ENCRYPTED_ONLY` |
+| Source commit | `6fa34c0025cfde69386aa73d0467402507cf38ac` |
+| Control-plane image | `sha256:d4139a5f4c48b81357263f3863c91ad2e590a784690752b80cf0b785796b6c31` |
+| Stage-90 execution | `muster-control-plane-hero-tsjds` |
+| Persistence verification | `muster-s90-verify-temp-zzs9w` |
+
+The instance's private address is deliberately not written down here — no
+internal address appears anywhere in this repository's documentation, and an
+authorized auditor reads it from `gcloud sql instances describe`. Passwords, DSN
+payloads and key material are in Secret Manager and appear nowhere in the tree.
+
+Two roles, neither holding `cloudsqlsuperuser`: `muster_migrator` owns the
+database and is the only identity that performs DDL, and `muster_runtime`
+connects with `SELECT`/`INSERT` on the immutable tables, `UPDATE` on the three
+that compare-and-set, and `SELECT` on the migration ledger — no `DELETE`, no
+`TRUNCATE`, no `CREATE`, no ownership. PostgreSQL refuses each of those to the
+runtime role with SQLSTATE `42501`.
+
+**What this verifies, precisely.** Execution `-tsjds` wrote the case; execution
+`-zzs9w`, a separate Cloud Run execution in a separate process, read back an
+identical revision digest, certificate digest, construction digest,
+authorization-context digest, transcript count and transcript-membership digest.
+That is **persistence across process termination** and nothing more. It is not a
+restart, not a resume, and not cross-process re-validation: the second execution
+re-verified nothing, and could not, because the worked fixture's officer trust
+material is generated per process. That belongs to the durable-async milestone.
 
 Deployment is scripted end to end in `infra/scripts/` (`00-enable-apis` through
 `99-teardown`), and the IAM posture is verified by `70-verify-iam.sh`, whose
@@ -698,9 +726,9 @@ MUSTER does **not**:
    exists in this repository;
 5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
    at the analysis;
-6. claim Cloud SQL is deployed — the support exists and nothing has been
-   provisioned or run against it, and the cloud run's custody is in-memory by
-   default and reports itself as not durable;
+6. claim the cloud run *resumes* or *re-validates* a case across executions —
+   Cloud SQL custody is provisioned and verified, and what a second execution
+   established is persistence of durable identity, not re-verification;
 7. claim procurement ran in the cloud — it is a local deterministic proof;
 8. claim the Worker Agent reran during Stage-90 — the committed ADK path exists
    but was not deployed, and the claim was replayed from the fixture;

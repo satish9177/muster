@@ -29,6 +29,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -1990,3 +1991,192 @@ def test_a_custody_that_is_neither_stops_the_deployment(tmp_path: Path) -> None:
     assert done.returncode == 2
     assert "PROCEEDED" not in done.stdout
     assert "EPHEMERAL or CLOUD_SQL" in done.stderr
+
+
+#  ---- container paths on a shell that rewrites them ------------------------
+#
+#  Git Bash and MSYS2 rewrite arguments that look like POSIX paths before the
+#  program sees them.  For a local file that is right; for a *container* path it
+#  is a defect that deploys cleanly and dies at runtime:
+#
+#      --args=/app/demo/database_bootstrap.py
+#          arrives as  C:/Program Files/Git/app/demo/database_bootstrap.py
+#          and the job fails on
+#          can't open file '/app/C:/Program Files/Git/app/demo/...'
+#
+#  Driven through bash rather than read as text, because the thing that has to
+#  be right is what the argument *becomes*.
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_a_container_path_survives_argument_conversion(tmp_path: Path) -> None:
+    """The exact ``C:/Program Files/Git/app/...`` class, asserted as absent.
+
+    Handed to a **native** executable rather than a shell builtin.  MSYS
+    rewrites arguments on the boundary between the POSIX shell and a native
+    program, so a builtin like ``printf`` never sees a converted path -- and a
+    version of this test written against one passed against the broken code,
+    which is how it came to be pointed at ``sys.executable`` instead.
+    """
+    echoer = tmp_path / "echo_argv.py"
+    echoer.write_text("import sys\nprint(sys.argv[1])\n", encoding="utf-8")
+    body = (
+        f'muster::gcloud_container_args "{Path(sys.executable).as_posix()}" '
+        f'"{echoer.as_posix()}" "--args=/app/demo/database_bootstrap.py,--cloud-sql"'
+    )
+    done = _drive(body, tmp_path)
+    assert done.returncode == 0, done.stderr
+
+    printed = done.stdout.strip()
+    assert printed == "--args=/app/demo/database_bootstrap.py,--cloud-sql", printed
+    #  The failure this exists for, named rather than merely implied.
+    assert "Program Files" not in printed
+    assert ":/" not in printed.split("=", 1)[1]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_the_container_arg_helper_does_not_change_the_operators_shell(tmp_path: Path) -> None:
+    """Scoped to one invocation.  A deployment script is not a place to export."""
+    body = 'muster::gcloud_container_args true\necho "AFTER=[${MSYS2_ARG_CONV_EXCL:-unset}]"'
+    done = _drive(body, tmp_path)
+
+    assert done.returncode == 0, done.stderr
+    assert "AFTER=[unset]" in done.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_an_existing_conversion_exclusion_is_preserved(tmp_path: Path) -> None:
+    """An operator who set one meant it, so it is appended to and then restored."""
+    body = "\n".join(
+        (
+            'muster::gcloud_container_args env | grep MSYS2_ARG_CONV_EXCL | sed "s/^/INSIDE /"',
+            'echo "AFTER=[${MSYS2_ARG_CONV_EXCL}]"',
+        )
+    )
+    done = _drive(body, tmp_path, MSYS2_ARG_CONV_EXCL="--other=")
+
+    assert done.returncode == 0, done.stderr
+    assert "INSIDE MSYS2_ARG_CONV_EXCL=--other=;--args=" in done.stdout, done.stdout
+    assert "AFTER=[--other=]" in done.stdout
+
+
+def test_the_exclusion_is_never_widened_to_everything() -> None:
+    """``'*'`` is the obvious fix and it breaks gcloud's own launcher.
+
+    gcloud on Windows is a shell script whose own interpreter path *must* be
+    converted, so excluding everything makes gcloud itself fail with
+    ``can't open file 'C:\\c\\Program Files (x86)\\...\\gcloud.py'``.  Both
+    blanket forms are ruled out where they would be written rather than merely
+    avoided by whoever wrote the last script.
+    """
+    for path in sorted(SCRIPTS.glob("*.sh")):
+        executable = "\n".join(
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        assert "MSYS2_ARG_CONV_EXCL='*'" not in executable, path.name
+        assert 'MSYS2_ARG_CONV_EXCL="*"' not in executable, path.name
+        assert "MSYS_NO_PATHCONV" not in executable, path.name
+
+
+def test_every_container_path_argument_goes_through_the_helper() -> None:
+    """A second script passing a container path must not rediscover this."""
+    for path in sorted(SCRIPTS.glob("*.sh")):
+        executable = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        carries = [line for line in executable if "--args=" in line and "/app/" in line]
+        if not carries:
+            continue
+        assert any("muster::gcloud_container_args" in line for line in executable), (
+            f"{path.name} passes a container path to --args without the helper"
+        )
+
+
+#  ---- the local interpreter ------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_an_interpreter_is_established_by_running_one(tmp_path: Path) -> None:
+    """Found by execution, not by ``command -v``: on Windows they differ."""
+    done = _drive('muster::require_python\necho "CHOSE=[${MUSTER_PYTHON}]"', tmp_path)
+
+    assert done.returncode == 0, done.stderr
+    assert "CHOSE=[" in done.stdout
+    assert "CHOSE=[]" not in done.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_a_present_but_unrunnable_interpreter_is_refused(tmp_path: Path) -> None:
+    """The Windows App Execution Alias, reproduced.
+
+    A file that exists, is on PATH, is executable, and does not run a program --
+    which is what ``python3`` is on a Windows box without Python, and what made
+    Stage 90 fail *after* the model calls were spent and the case was durable.
+    ``command -v`` finds it; only running it tells the truth.
+    """
+    stub_dir = tmp_path / "stub"
+    stub_dir.mkdir()
+    stub = stub_dir / "python3"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "echo 'Python was not found; run without arguments to install from the"
+        " Microsoft Store' >&2\n"
+        "exit 9009\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+
+    body = "\n".join(
+        (
+            f'export PATH="{stub_dir.as_posix()}:$PATH"',
+            'command -v python3 >/dev/null && echo "ON_PATH yes"',
+            'if muster::usable_python python3; then echo USABLE; else echo REFUSED; fi',
+        )
+    )
+    done = _drive(body, tmp_path)
+
+    assert done.returncode == 0, done.stderr
+    assert "ON_PATH yes" in done.stdout, "the stub must be findable, or this proves nothing"
+    assert "REFUSED" in done.stdout, done.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+def test_an_explicit_interpreter_that_does_not_run_stops_the_deployment(
+    tmp_path: Path,
+) -> None:
+    """An override that is wrong says so here, not three stages later."""
+    done = _drive(
+        "muster::require_python\necho PROCEEDED",
+        tmp_path,
+        MUSTER_PYTHON="/definitely/not/here",
+    )
+
+    assert done.returncode == 2
+    assert "PROCEEDED" not in done.stdout
+    assert "does not run" in done.stderr
+
+
+def test_the_interpreter_is_established_before_anything_is_deployed() -> None:
+    """Ordering is the whole point: the cheapest check runs before the run.
+
+    Discovering a missing local interpreter *after* the hero job has executed
+    costs a real execution, real model calls and a durable case, and a second
+    attempt cannot undo any of the three.
+    """
+    executable = [
+        line
+        for line in (SCRIPTS / "90-hero-job.sh").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    guard = next(i for i, line in enumerate(executable) if "muster::require_python" in line)
+    deploy = next(i for i, line in enumerate(executable) if "gcloud run jobs deploy" in line)
+    execute = next(i for i, line in enumerate(executable) if "muster::execute_job" in line)
+    capture = next(i for i, line in enumerate(executable) if "capture_case_trace.py" in line)
+
+    assert guard < deploy, "the interpreter is checked after the job is deployed"
+    assert guard < execute, "the interpreter is checked after the job has run"
+    assert execute < capture, "the capture would not be the step that needs it"

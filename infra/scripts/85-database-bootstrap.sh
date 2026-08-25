@@ -84,7 +84,10 @@ muster::require_private_google_access
 #
 #  ``--max-retries=0``: a migration that failed is a fact to read, not a thing
 #  to attempt again automatically against a database whose state is now unknown.
-gcloud run jobs deploy "${BOOTSTRAP_JOB}" \
+#
+#  ``muster::gcloud_container_args``: the container path below is a *container*
+#  path, and on Git Bash it would not arrive as one.  See the note in env.sh.
+muster::gcloud_container_args gcloud run jobs deploy "${BOOTSTRAP_JOB}" \
   --project="${PROJECT_ID}" \
   --region="${REGION}" \
   --image="${CONTROL_PLANE_IMAGE}" \
