@@ -27,7 +27,7 @@ from muster.core.values.symbols import SymbolRef
 from muster.platform.dispatch.acquire import Answered
 
 if TYPE_CHECKING:
-    from demo.cloud_hero import CloudHeroRun
+    from demo.cloud_hero import CloudGateExecution, CloudHeroRun
 
     from support.ravi import RaviCase
 
@@ -123,9 +123,29 @@ def cloud_artifact_context_from_environment(
 
 
 def build_case_trace_artifact(
-    run: CloudHeroRun, case: RaviCase, context: ArtifactContext
+    run: CloudHeroRun,
+    case: RaviCase,
+    context: ArtifactContext,
+    *,
+    execution: CloudGateExecution | None = None,
 ) -> CaseTraceArtifact:
-    """Project one successful run, refusing to manufacture missing proof."""
+    """Project one successful run, refusing to manufacture missing proof.
+
+    ``execution`` is the deployed Action Gate's durable lifecycle, and it is
+    ``None`` for every analysis-only run -- which keeps the artifact an
+    analysis-only deployment emits byte-identical in shape to the U1 one.  When
+    it is present, what is projected are the fields the Gate actually produced
+    and nothing that would have to be invented.
+
+    That now includes the three lifecycle instants, and they are read rather
+    than derived.  ``reserved_at`` is always a stored value; ``dispatched_at``
+    and ``finalized_at`` are ``null`` for exactly the states whose rows have
+    not reached them.  There is still no per-step *event* here: that a CONFIRMED
+    row passed through RESERVED and DISPATCHED is a property of the state
+    machine, and a viewer may draw it as one -- but the moments below are
+    measurements, and the artifact keeps the two apart by carrying only the
+    measurements.
+    """
 
     report = run.report
     if report is None or report.analysis is None:
@@ -231,13 +251,85 @@ def build_case_trace_artifact(
                     {"name": field.name, "value": _value(field.value)}
                     for field in action.consequential_fields
                 ],
-                "execution": {"status": "NOT_EXECUTED"},
+                "execution": _execution(execution),
             },
             "unresolved": [
                 _proposition(reference) for reference in analysis.projected.unresolved()
             ],
         },
     )
+
+
+#: The durable states a *published* lifecycle may be in.  RESERVED is absent:
+#: a reservation that never crossed the executor boundary is unfinished work,
+#: and an artifact carrying one would publish a payment mid-flight.  The Gate
+#: cannot return a RESERVED record from ``execute`` today; this is here so that
+#: it staying unpublishable does not depend on that remaining true.
+_PUBLISHABLE_STATES = frozenset({"CONFIRMED", "DISPATCHED", "FAILED", "UNCERTAIN"})
+
+
+def _execution(execution: CloudGateExecution | None) -> dict[str, object]:
+    """The Gate's durable lifecycle, or the honest absence of one.
+
+    Refusals rather than assumptions, one per way this projection could publish
+    something it cannot support.  ``real_funds: false`` printed for an executor
+    that said otherwise would be the one field in this artifact nobody
+    downstream could check; a CONFIRMED state with no external reference would
+    be a settlement claim with no receipt behind it; an unconfirmed state
+    carrying one would be the reverse; and a state outside the published
+    vocabulary would be a lifecycle the capture and the viewer have no reading
+    for.  The durable row already refuses most of these -- ``ExecutionRecord``
+    and the table's own CHECK constraint both say so -- and this says it again
+    at the boundary where the value stops being a database row and becomes a
+    published fact.
+    """
+    if execution is None:
+        return {"status": "NOT_EXECUTED"}
+    if execution.real_funds:
+        raise ValueError("a published case trace never carries a real-funds execution")
+    if execution.state not in _PUBLISHABLE_STATES:
+        raise ValueError(f"a case trace does not publish a {execution.state} execution")
+    if execution.state == "CONFIRMED" and not execution.external_reference:
+        raise ValueError("a confirmed execution carries an external reference")
+    if execution.state != "CONFIRMED" and execution.external_reference:
+        raise ValueError("an unconfirmed execution carries no external reference")
+    #  An outcome code is a *result*, and DISPATCHED is precisely the state in
+    #  which no result exists yet: the executor boundary has been crossed and
+    #  the executor has not answered.  A truthful dispatched row therefore
+    #  carries a null outcome code, a null external reference and a null
+    #  finalized-at.  Requiring a code from every published state made that row
+    #  unpublishable, which is an invitation to manufacture one -- and
+    #  ``outcome_code: "DISPATCHED"`` would be a lifecycle state wearing a
+    #  result's name, which is the single worst thing this projection could
+    #  publish about an action that may still settle.
+    if execution.state == "DISPATCHED":
+        if execution.outcome_code is not None:
+            raise ValueError("a dispatched execution has no outcome yet")
+    elif not execution.outcome_code:
+        raise ValueError("a finalized execution carries an outcome code")
+    #  The instants a published state must already carry.  Every state in
+    #  ``_PUBLISHABLE_STATES`` is at or past DISPATCHED, so a dispatched-at is
+    #  not optional here, and the three final states carry a finalized-at as
+    #  well.  ``ExecutionRecord`` refuses rows that disagree; this refuses to
+    #  publish one that somehow did, rather than emitting a null a viewer would
+    #  have to interpret.
+    if execution.dispatched_at is None:
+        raise ValueError(f"a {execution.state} execution carries a dispatch instant")
+    if execution.state != "DISPATCHED" and execution.finalized_at is None:
+        raise ValueError(f"a {execution.state} execution carries a finalization instant")
+    if execution.state == "DISPATCHED" and execution.finalized_at is not None:
+        raise ValueError("a dispatched execution has not been finalized")
+    return {
+        "status": execution.state,
+        "execution_key": execution.execution_key,
+        "external_reference": execution.external_reference,
+        "outcome_code": execution.outcome_code,
+        "real_funds": execution.real_funds,
+        #  Measurements, not a reconstructed timeline.  See the docstring above.
+        "reserved_at": execution.reserved_at,
+        "dispatched_at": execution.dispatched_at,
+        "finalized_at": execution.finalized_at,
+    }
 
 
 def _grant_for(case: RaviCase, key_ref: str, source_class: str) -> AuthorityGrant:

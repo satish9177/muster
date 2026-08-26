@@ -21,6 +21,35 @@ export type ReplayMode =
   | "deterministic-local-replay"
   | "curated-example";
 
+/**
+ * The durable states an Action Gate lifecycle can be published in.
+ *
+ * `RESERVED` is deliberately absent. A reservation that never crossed the
+ * executor boundary is unfinished work rather than an execution, and a screen
+ * that rendered one would be showing a payment mid-flight as a fact about the
+ * case. The producer refuses to publish one and the capture refuses to accept
+ * one; this is the third place that says so, because it is the one the viewer
+ * actually reads.
+ */
+export type ActionExecutionState =
+  | "NOT_EXECUTED"
+  | "DISPATCHED"
+  | "CONFIRMED"
+  | "FAILED"
+  | "UNCERTAIN";
+
+const ACTION_EXECUTION_STATES: readonly ActionExecutionState[] = [
+  "NOT_EXECUTED",
+  "DISPATCHED",
+  "CONFIRMED",
+  "FAILED",
+  "UNCERTAIN",
+];
+
+export function isActionExecutionState(value: unknown): value is ActionExecutionState {
+  return ACTION_EXECUTION_STATES.includes(value as ActionExecutionState);
+}
+
 export interface RawInspectorDetail {
   source_class: string;
   source_identity: string;
@@ -64,7 +93,7 @@ export interface RawHeroCase {
       recipient: string;
       currency: "INR";
       amount_minor: number;
-      execution: "NOT_EXECUTED";
+      execution: ActionExecutionState;
     };
     unresolved: string[];
   };
@@ -119,7 +148,7 @@ export interface HeroCaseViewModel {
     kind: "PAY";
     recipient: string;
     amount: string;
-    execution: "NOT_EXECUTED";
+    execution: ActionExecutionState;
   };
   unresolved: string[];
   provenance: RawHeroCase["provenance"];
@@ -214,8 +243,8 @@ function assertHeroCase(input: unknown): asserts input is RawHeroCase {
   if (!isProvenance(input.provenance)) {
     throw new Error("Hero-case provenance is malformed");
   }
-  if (!isRecord(input.case.action) || input.case.action.execution !== "NOT_EXECUTED") {
-    throw new Error("UI-1 may only render actions that have not been executed");
+  if (!isRecord(input.case.action) || !isActionExecutionState(input.case.action.execution)) {
+    throw new Error("Hero-case action names no durable execution state");
   }
   if (
     input.case.status !== "PROPOSED" ||

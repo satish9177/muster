@@ -12,6 +12,7 @@ Run it:
     python demo/hero.py                    the deterministic interpreters
     python demo/hero.py --live             explicit configured Gemini model calls
     python demo/hero.py --postgres DSN     against a real database
+    python demo/hero.py --postgres DSN --gate  through the durable Action Gate
 
 **Every step below uses the production-oriented application path.** ``open_case``,
 ``append_transcript_entry``, ``acquire_outstanding`` and ``case_status`` are the
@@ -59,7 +60,7 @@ from google.adk.models.base_llm import BaseLlm  # noqa: E402
 
 from agent_tests.support import fleet  # noqa: E402
 from muster.agents.runtime.claimant import ClaimRejection  # noqa: E402
-from muster.core.analysis.outcomes import outcome_class  # noqa: E402
+from muster.core.analysis.outcomes import Invariant, outcome_class  # noqa: E402
 from muster.core.evidence.delivery import AcquisitionTransport  # noqa: E402
 from muster.core.evidence.requests import EvidenceRequest  # noqa: E402
 from muster.core.evidence.transcript import Statement, StatementRecord  # noqa: E402
@@ -77,6 +78,14 @@ from muster.platform.dispatch.acquire import (  # noqa: E402
     Answered,
     acquire_outstanding,
 )
+from muster.platform.gate.authority import (  # noqa: E402
+    ExecutionGrant,
+    GateCaller,
+    LocalExecutionAuthority,
+)
+from muster.platform.gate.executor import SandboxPaymentExecutor  # noqa: E402
+from muster.platform.gate.model import ExecuteProposal, ExecutionRecord  # noqa: E402
+from muster.platform.gate.service import ActionGate  # noqa: E402
 from muster.platform.orchestration.decisions import Dispatch  # noqa: E402
 from support import ravi  # noqa: E402
 from support.authority import publish_fleet  # noqa: E402
@@ -92,6 +101,107 @@ class HeroRun:
     solicited: EvidenceRequest
     reports: tuple[AcquisitionReport, ...]
     report: CaseReport
+
+
+LOCAL_GATE_CALLER = GateCaller("local-hero-configured-operator")
+
+
+@dataclass(frozen=True, slots=True)
+class LocalGateExecution:
+    """The existing durable Gate lifecycle projected for the local CLI."""
+
+    record: ExecutionRecord
+    dispatch_count: int
+    execution_count: int
+    real_funds: bool
+
+    def lines(self) -> tuple[str, ...]:
+        record = self.record
+        return (
+            f"gate                   {record.intent.gate_id}",
+            f"executor               {record.intent.executor_id}",
+            f"principal              {LOCAL_GATE_CALLER.principal_id}",
+            "principal source       CONFIGURED",
+            f"state                  {record.state.value}",
+            f"execution id           {record.execution_key.hex}",
+            f"action digest          {record.intent.action_digest.hex}",
+            f"reserved at            {record.reserved_at}",
+            f"dispatched at          {_instant(record.dispatched_at)}",
+            f"finalized at           {_instant(record.finalized_at)}",
+            f"external reference     {record.external_reference or 'none'}",
+            f"outcome code           {record.outcome_code or 'none'}",
+            f"real funds             {'true' if self.real_funds else 'false'}",
+            f"dispatches this run    {self.dispatch_count}",
+            f"executions this run    {self.execution_count}",
+        )
+
+
+def _instant(value: int | None) -> str:
+    return "none" if value is None else str(value)
+
+
+def execute_local_gate(
+    casework: Casework,
+    *,
+    tenant_id: str,
+    report: CaseReport,
+    now: Instant = ravi.NOW,
+) -> LocalGateExecution:
+    """Execute the local hero through the existing ActionGate service."""
+    head = report.head
+    analysis = report.analysis
+    if analysis is None or head.revision_digest is None or head.certificate_digest is None:
+        raise SystemExit("muster-hero: GATE REFUSED: the case carries no analysis")
+    outcome = analysis.kernel.outcome
+    if not isinstance(outcome, Invariant):
+        raise SystemExit("muster-hero: GATE REFUSED: only an invariant action is executable")
+
+    executor = SandboxPaymentExecutor()
+    gate = ActionGate(
+        casework=casework,
+        executor=executor,
+        authority=LocalExecutionAuthority(
+            (
+                ExecutionGrant(
+                    principal_id=LOCAL_GATE_CALLER.principal_id,
+                    tenant_id=tenant_id,
+                    action_kind="PAY",
+                    gate_id=executor.trusted_gate_id,
+                    executor_id=executor.executor_id,
+                ),
+            )
+        ),
+    )
+    performed = gate.execute(
+        caller=LOCAL_GATE_CALLER,
+        tenant_id=tenant_id,
+        request=ExecuteProposal(
+            case_id=head.case_id,
+            revision_digest=head.revision_digest,
+            certificate_digest=head.certificate_digest,
+            action_digest=outcome.action.digest(),
+        ),
+        now=now,
+    )
+    if isinstance(performed, Err):
+        raise SystemExit(f"muster-hero: GATE REFUSED: {performed.error.failure.value}")
+    return LocalGateExecution(
+        performed.value,
+        executor.dispatch_count,
+        executor.execution_count,
+        executor.transfers_real_funds,
+    )
+
+
+def _print_gate_execution(execution: LocalGateExecution) -> None:
+    print("")
+    print("LOCAL ACTION GATE")
+    print("")
+    print("  SANDBOX: NO REAL FUNDS TRANSFERRED")
+    print("")
+    for line in execution.lines():
+        print(f"  {line}")
+    print("")
 
 
 def run_hero(
@@ -281,9 +391,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="DSN",
         help="run against a real database instead of the in-memory adapter",
     )
+    parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="execute the invariant proposal through the sandbox Action Gate; requires --postgres",
+    )
     parser.add_argument("--tenant", default="DEMO", help="tenant identifier")
     parser.add_argument("--case", default="CASE-RAVI-SAT-DEMO", help="case identifier")
     arguments = parser.parse_args(argv)
+
+    if arguments.gate and not arguments.postgres:
+        raise SystemExit("muster-hero: --gate requires --postgres")
 
     if not arguments.live:
         _configure_scripted_demo_logging()
@@ -308,8 +426,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             fleet.EMPLOYER_ENDPOINT: fleet.employer(arguments.tenant, model=employer_model),
         }
     )
+    casework = ravi.casework(database)
     run = run_hero(
-        ravi.casework(database),
+        casework,
         transport,
         tenant_id=arguments.tenant,
         case_id=arguments.case,
@@ -317,6 +436,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     worker_model_name = worker_model.model if worker_model is not None else None
     narrate(run, worker_model_name=worker_model_name)
+    if arguments.gate:
+        execution = execute_local_gate(
+            casework,
+            tenant_id=arguments.tenant,
+            report=run.report,
+        )
+        _print_gate_execution(execution)
+        return 0 if execution.record.state.value == "CONFIRMED" else 1
     return 0
 
 

@@ -61,6 +61,76 @@ class ExecuteProposal:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionLookup:
+    """The durable identity of one already-authorized execution, and nothing more.
+
+    This is what an *idempotency read* is allowed to present.  It is
+    deliberately not an :class:`ExecuteProposal`: a proposal is a request to
+    validate a case and act, while a lookup is a request to be told what a
+    previous authorization already durably did.  Neither carries a recipient,
+    an amount, a currency or an action kind -- those are read back from the
+    stored canonical ``ActionIntent``, which stays the authority for what was
+    actually reserved.
+
+    **The identity is the execution key, and that choice is the whole point.**
+    An :class:`ExecutionKey` is ``sha256`` over the canonical octets of the
+    exact ``ActionIntent`` that was authorized, and it is the durable primary
+    key of the row those octets live in.  So it names *one historical
+    execution* rather than "whatever the case currently proposes": the row
+    stays addressable by it for as long as the row exists, however far the case
+    head has since advanced.  An identity derived from the current head would
+    have made a confirmed payment un-lookupable the moment somebody appended
+    one more transcript entry -- and "the retry has to happen before the case
+    moves" is not a property a duplicate-prevention story can be built on.
+
+    It is also not a value anybody can usefully invent.  A caller who does not
+    already hold the octets cannot compute the key, and one who holds them has
+    the intent anyway; guessing it is guessing a 256-bit digest.  What the key
+    does *not* do is authorize: the read still authenticates the caller, still
+    demands an exact grant for the stored action kind, and still refuses a row
+    another Gate authorized.
+
+    ``expected_case_id`` is an optional caller-visible narrowing, not part of
+    the identity.  A caller that knows which case it is asking about can say
+    so, and a key belonging to another case is then refused rather than
+    answered -- which turns a configuration mix-up between two deployed cases
+    into a refusal instead of a confident report about the wrong one.  Omitting
+    it asks the narrower question "what did this execution do", which is
+    already exact.
+    """
+
+    execution_key: ExecutionKey
+    expected_case_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.expected_case_id is not None and not self.expected_case_id:
+            raise InvariantViolation(
+                "an execution lookup either names a case or does not constrain one"
+            )
+
+    def mismatches(self, intent: ActionIntent) -> tuple[str, ...]:
+        """Name every field a stored intent disagrees with.
+
+        Applied to the row a store returns, so that "the query matched" and
+        "the stored canonical value agrees" stay two checks rather than one.  A
+        store answers from its primary key; this answers from the octets that
+        key is supposed to be the hash of.
+        """
+        return tuple(
+            name
+            for name, offered, stored in (
+                ("execution_key", self.execution_key, intent.execution_key()),
+                (
+                    "case_id",
+                    self.expected_case_id,
+                    None if self.expected_case_id is None else intent.case_id,
+                ),
+            )
+            if offered != stored
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ActionIntent:
     """Every fact authorization is bound to and dispatch acts upon."""
 

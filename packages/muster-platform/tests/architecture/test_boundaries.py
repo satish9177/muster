@@ -229,12 +229,22 @@ ALLOWED: dict[str, frozenset[str]] = {
     "dispatch.observe": frozenset({"dispatch.acquire"}),
     #  The outbound HTTP client: the only module here that opens a socket, and
     #  the only one that names a URL.  Written against the kernel's delivery
-    #  port, so it imports nothing from this package at all.
-    "adapters.http": frozenset(),
+    #  port, and against exactly one port of this package's own -- ``gate.cloud``
+    #  asks "what identity is this workload running as", and the metadata server
+    #  is where that is answered.  The same shape ``adapters.sql.executions``
+    #  has: an adapter implementing a Gate port, never a Gate reaching an
+    #  adapter.
+    "adapters.http": frozenset({"gate.cloud"}),
     #  ---- deterministic Action Gate --------------------------------------
     "gate": frozenset(),
     "gate.model": frozenset(),
     "gate.authority": frozenset(),
+    #  Who a *deployed* Gate accepts as its caller.  It builds the same
+    #  ``ExecutionGrant`` the local authority holds, from an observed runtime
+    #  identity, and it reaches nothing else: no case, no store, no executor,
+    #  and above all no admission path.  A cloud identity decides who may ask;
+    #  it must have no route to what a case is allowed to conclude.
+    "gate.cloud": frozenset({"gate.authority"}),
     "gate.ports": frozenset({"gate.model"}),
     "gate.executor": frozenset({"gate.model"}),
     "gate.eligibility": frozenset(

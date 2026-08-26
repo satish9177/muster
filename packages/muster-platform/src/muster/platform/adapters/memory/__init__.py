@@ -746,6 +746,13 @@ class MemoryExecutionRepository:
     def read(
         self, execution_key: ExecutionKey
     ) -> Result[ExecutionRecord, ExecutionStoreError]:
+        """One record by ``(tenant, key)``, which is this store's primary key.
+
+        The in-memory twin of the SQL lookup the idempotency read uses, and it
+        is a dictionary access for the same reason that one is a primary-key
+        select: the durable identity a retry presents is the key itself, so
+        there is exactly one answer or none.
+        """
         found = self.records.executions.get((self.tenant_id, execution_key))
         if found is None:
             return Err(ExecutionStoreError(ExecutionStoreFailure.ABSENT, execution_key.hex))

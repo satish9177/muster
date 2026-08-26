@@ -113,11 +113,12 @@ EMPLOYER_SA="${EMPLOYER_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 #  failure.  ``default``/``default`` is the auto-mode network and the regional
 #  subnet every new project has; a project that deleted them, or that keeps its
 #  workloads on a named network, overrides these two and nothing else.
-#  Assigned with ``=`` rather than ``:=``, which is the only place in this file
-#  that matters: for these two, *empty* is a meaningful value -- it means "no
-#  network", which is the diagnostic path 90-hero-job.sh takes and warns about.
-#  Under ``:=`` an operator who exported an empty one would silently get the
-#  default back, and the branch below could never be reached deliberately.
+#  Assigned with ``=`` rather than ``:=``, which matters here and in one other
+#  place (``HERO_GATE_REPEAT``, below): for these two, *empty* is a meaningful
+#  value -- it means "no network", which is the diagnostic path 90-hero-job.sh
+#  takes and warns about.  Under ``:=`` an operator who exported an empty one
+#  would silently get the default back, and the branch below could never be
+#  reached deliberately.
 : "${HERO_VPC_NETWORK=default}"
 : "${HERO_VPC_SUBNET=default}"
 
@@ -382,6 +383,165 @@ muster::require_database_secret_version() {
 #  choosing a name.
 : "${HERO_CASE_ID:=CASE-RAVI-SAT-CLOUD}"
 
+#  ---- the deliberate Action Gate mode ------------------------------------
+#
+#  ANALYSIS_ONLY is the default, and it is the shape U1 verified: the run stops
+#  at the analysis, nothing is authorized and nothing is executed.  There is no
+#  automatic promotion here for exactly the reason there is none for custody --
+#  an operator asking for an analysis must not get a payment, however synthetic.
+#
+#  CLOUD_SQL_ACTION_GATE_SANDBOX runs the deterministic Action Gate after the
+#  analysis, against the synthetic sandbox executor.  No payment provider, no
+#  account, no credential: what it demonstrates is the *lifecycle*, and the
+#  control plane refuses the mode outright under EPHEMERAL custody, because a
+#  durable execution proof in memory is a proof about one process.
+#
+#  **Set here, ruled on in muster::require_gate_configuration.**  This file is
+#  sourced by bootstrap, IAM verification, teardown and the source-agent
+#  deploys, none of which composes a Gate.  A refusal at source time would let
+#  a Gate-specific relationship between two case identifiers stop a teardown,
+#  so the values are set unconditionally and the rules about them belong to the
+#  one script that actually asks for cloud execution.
+: "${HERO_GATE_MODE:=ANALYSIS_ONLY}"
+
+#  **A separate case, and the separation is not stylistic.**  The U1 case is
+#  closed verified evidence: its rows are what a durable-custody claim was
+#  established against, and a Gate run that reserved an execution against it
+#  would be writing into evidence somebody has already published.  So the Gate
+#  mode runs its own case, and the two names are required to differ -- required
+#  by muster::require_gate_configuration, and only when the Gate is requested.
+: "${HERO_GATE_CASE_ID:=CASE-RAVI-SAT-CLOUD-GATE}"
+
+#  Which case this invocation actually runs.  Derived rather than chosen, so
+#  there is no way to ask for the Gate and get the analysis-only case.  An
+#  unrecognised mode derives the *analysis* case, which is the safe direction:
+#  nothing points at the Gate's case until a mode this deployment recognises
+#  has been checked, and the check is what names the mistake.
+if [[ "${HERO_GATE_MODE}" == "CLOUD_SQL_ACTION_GATE_SANDBOX" ]]; then
+  HERO_RUN_CASE_ID="${HERO_GATE_CASE_ID}"
+else
+  HERO_RUN_CASE_ID="${HERO_CASE_ID}"
+fi
+
+#  The identity the Gate grants, and the only one it will accept.  It is the
+#  control plane's own service account, and the running job proves it holds it
+#  by asking the metadata server -- this value is what that answer is compared
+#  against, never a substitute for it.
+: "${HERO_GATE_PRINCIPAL:=${CONTROL_PLANE_SA}}"
+
+#  The durable execution a retry job asks about, named by its ``execution_id``
+#  column.  Empty for every normal run: it is read from the first Gate
+#  execution's own output and set only on the job that verifies idempotency,
+#  which has no analysis of its own -- and, deliberately, no case head -- to
+#  derive an identity from.
+#
+#  **``_EXECUTION_ID`` and not ``_EXECUTION_KEY``, and the name is load-bearing.**
+#  The value is a SHA-256 idempotency identity and is public, but this variable
+#  is written *by value* into a Cloud Run environment file -- and the rule that
+#  file lives under is that anything key-ish in it is a reference or a public
+#  half.  Naming a non-secret ``..._KEY`` there would spend that rule to save a
+#  word.  ``execution_id`` is also what the durable column is called.
+: "${HERO_GATE_EXECUTION_ID:=}"
+
+#  Ask Stage 90 for the stronger U3 proof: run the ordinary Gate job and then
+#  execute that same deployed job again with ``--repeat-gate-execution``.  The
+#  second execution receives no execution id; it replays the case and derives
+#  the same identity through the ordinary ActionGate.execute path.
+#
+#  ``=`` rather than ``:=``, for the reason the two VPC values above use it and
+#  then one step further.  This is a *request for a proof*, and the failure mode
+#  a bare ``== "1"`` test leaves open is the worst one available to a proof: an
+#  operator who wrote ``true``, ``yes``, ``2`` or an empty value gets the
+#  ordinary single-run path and an exit status of **zero** -- a green run that
+#  demonstrated nothing, reported as if it had.  So the value is refused unless
+#  it is exactly ``0`` or ``1``, and ``=`` is what keeps an explicit empty value
+#  reaching that refusal instead of being promoted back to the default.
+: "${HERO_GATE_REPEAT=0}"
+
+#  **Every rule about the Gate's configuration, in one function nothing else
+#  calls.**  Sourcing this file must not be able to fail on a Gate-specific
+#  relationship: 10-bootstrap.sh, 70-verify-iam.sh, 99-teardown.sh and the
+#  source-agent deploys all read PROJECT_ID, REGION and the service-account
+#  names out of here, and not one of them composes an Action Gate or has an
+#  opinion about which case one would run against.  So the refusals live here,
+#  and this is called by the script that requests cloud execution.
+#
+#  ``return`` rather than ``exit``, because a function that killed its caller
+#  would put the coupling back where it was: the caller decides what a refused
+#  Gate configuration means for the rest of what it was doing.
+muster::require_gate_configuration() {
+  case "${HERO_GATE_MODE}" in
+    ANALYSIS_ONLY|CLOUD_SQL_ACTION_GATE_SANDBOX) ;;
+    *)
+      echo "HERO_GATE_MODE is '${HERO_GATE_MODE}';" >&2
+      echo "expected ANALYSIS_ONLY or CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+      return 2
+      ;;
+  esac
+
+  #  A closed set, exactly as the mode above is, and for a reason the mode does
+  #  not have.  Every other reader of this variable tests ``== "1"``, so any
+  #  value that is not ``1`` means "the ordinary run" -- and the ordinary run
+  #  exits zero.  A misspelt request for the repeat proof would therefore be
+  #  indistinguishable, in a job log and in an exit status, from never having
+  #  asked for it.  Refusing the value is the only place that difference can
+  #  still be made visible.
+  case "${HERO_GATE_REPEAT}" in
+    0|1) ;;
+    *)
+      echo "HERO_GATE_REPEAT is '${HERO_GATE_REPEAT}'; expected 0 or 1." >&2
+      echo "It is not a truthy flag: every reader tests for exactly '1', so" >&2
+      echo "any other value would run the ordinary single execution and exit" >&2
+      echo "zero, reporting a proof that was never attempted." >&2
+      return 2
+      ;;
+  esac
+
+  #  Two proofs, and a run performs one of them.  The retry names an execution
+  #  and reads its historical row; the repeat accepts no identity and re-derives
+  #  one by replaying the case.  Stage 90 tests them in file order, so a caller
+  #  asking for both would silently get whichever branch came first and no word
+  #  about the other -- and the one it lost is the one the operator would then
+  #  believe had run.  Refused rather than ordered: which proof this run is for
+  #  is the caller's decision to make, and making it for them is how a proof
+  #  nobody performed gets reported as passed.
+  if [[ "${HERO_GATE_REPEAT}" == "1" \
+        && "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ]]; then
+    echo "HERO_GATE_REPEAT=1 and HERO_VERIFY_GATE_IDEMPOTENCY=1 ask for two" >&2
+    echo "different proofs of the same deployment.  Run one at a time:" >&2
+    echo "  HERO_VERIFY_GATE_IDEMPOTENCY=1  names an execution id and reads" >&2
+    echo "                                  what that execution already did;" >&2
+    echo "  HERO_GATE_REPEAT=1              names nothing and re-derives the" >&2
+    echo "                                  identity by replaying the case." >&2
+    return 2
+  fi
+
+  #  The case-identifier rule applies only when the Gate is actually requested.
+  #  An analysis-only run never reads HERO_GATE_CASE_ID, so two equal names
+  #  describe a configuration nobody is acting on and there is nothing to
+  #  refuse.
+  if [[ "${HERO_GATE_MODE}" != "CLOUD_SQL_ACTION_GATE_SANDBOX" ]]; then
+    if [[ "${HERO_GATE_REPEAT}" == "1" ]]; then
+      echo "HERO_GATE_REPEAT=1 requires" >&2
+      echo "HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+      return 2
+    fi
+    return 0
+  fi
+  if [[ "${HERO_GATE_CASE_ID}" == "${HERO_CASE_ID}" ]]; then
+    echo "HERO_GATE_CASE_ID and HERO_CASE_ID name one case." >&2
+    echo "The Action Gate mode authors its own case; it does not act on the" >&2
+    echo "analysis-only one, whose rows are already published evidence." >&2
+    return 2
+  fi
+  #  Restated rather than assumed.  The derivation above ran before the mode
+  #  had been checked, so this is what makes "the run case is the Gate case"
+  #  true downstream of a mode this function has accepted.
+  HERO_RUN_CASE_ID="${HERO_GATE_CASE_ID}"
+  export HERO_RUN_CASE_ID
+  return 0
+}
+
 #  The object the hero job attempts to read directly, under the control plane's
 #  own identity, and must be refused.  The same object 70-verify-iam.sh asserts
 #  about, so the policy check and the running process say the same thing about
@@ -515,6 +675,8 @@ export CONTROL_PLANE_SA SITE_SA EMPLOYER_SA BUILD_SA
 export CONTROL_PLANE_SA_ID SITE_SA_ID EMPLOYER_SA_ID BUILD_SA_ID
 export SITE_SERVICE EMPLOYER_SERVICE SITE_SECRET EMPLOYER_SECRET PROBE_JOB HERO_JOB
 export HERO_VPC_NETWORK HERO_VPC_SUBNET HERO_VPC_EGRESS HERO_CASE_ID HERO_RAW_OBJECT
+export HERO_GATE_MODE HERO_GATE_CASE_ID HERO_RUN_CASE_ID
+export HERO_GATE_PRINCIPAL HERO_GATE_EXECUTION_ID HERO_GATE_REPEAT
 export SIGNING_KEY_MOUNT SIGNING_KEY_VERSION UNRESOLVED_AUDIENCE
 export TENANT_ID SITE_AGENT_ID SITE_PRINCIPAL SITE_KEY_REF
 export EMPLOYER_AGENT_ID EMPLOYER_PRINCIPAL EMPLOYER_KEY_REF AGENT_MODEL
@@ -682,6 +844,13 @@ MUSTER_EXECUTION=""
 #  is how an undetermined result gets reported as a verdict.
 muster::execute_job() {
   local job="$1"
+  shift
+  #  Everything after the job name is forwarded to ``gcloud run jobs execute``
+  #  verbatim, which is how one deployed job can be executed in more than one
+  #  shape -- the run, and the retry proof that reads what the run recorded.
+  #  Expanded as ``${overrides[@]+...}`` for the bash 3.2 unbound-array reason
+  #  the deploy flags already carry.
+  local overrides=("$@")
   MUSTER_EXECUTION=""
 
   #  Two fields, because the created execution's name sits at ``metadata.name``
@@ -693,6 +862,7 @@ muster::execute_job() {
   local named=""
   named="$(gcloud run jobs execute "${job}" \
     --project="${PROJECT_ID}" --region="${REGION}" \
+    ${overrides[@]+"${overrides[@]}"} \
     --async --format="value(metadata.name,name)")" || named=""
 
   local execution="${named%%$'\t'*}"

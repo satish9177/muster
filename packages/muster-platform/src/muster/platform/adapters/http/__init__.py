@@ -57,6 +57,11 @@ from typing import Any, Protocol
 
 from muster.core.evidence.delivery import TransportError, TransportFailure
 from muster.core.results import Err, InvariantViolation, Ok, Result
+from muster.platform.gate.cloud import (
+    CloudPrincipalError,
+    CloudPrincipalFailure,
+    RuntimePrincipal,
+)
 
 #: Where a workload on Google Cloud asks for an identity token naming itself.
 #: A documented, stable, credential-free endpoint reachable only from inside
@@ -66,6 +71,20 @@ METADATA_IDENTITY_URL = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
 )
 METADATA_HEADER = ("Metadata-Flavor", "Google")
+
+#: Where the same workload asks *what* it is running as, rather than for a
+#: token addressed to somebody else.  A sibling of the identity endpoint above,
+#: reached the same way, and it answers with one line: the service-account
+#: address.  The answer depends on where the request came from, so there is
+#: nothing here a caller of this process can influence.
+METADATA_EMAIL_URL = (
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email"
+)
+
+#: A service-account address is well under a hundred octets.  The cap is not
+#: about this endpoint misbehaving; it is about the process that holds the case
+#: record never reading unbounded octets from anything, including a local one.
+MAX_PRINCIPAL_OCTETS = 512
 
 #: **Required, and the reason is the claim it adds.**  The metadata server's
 #: default format omits ``email``; ``full`` includes it.  An agent decides
@@ -175,6 +194,58 @@ class MetadataServerTokens(IdentityTokens):
             #  identity" is a configuration fact an operator should read in a
             #  refusal rather than in a traceback.
             return Err(TokenError(TokenFailure.UNAVAILABLE, str(unreachable)))
+
+
+@dataclass(frozen=True, slots=True)
+class MetadataServerPrincipal(RuntimePrincipal):
+    """This workload's own service-account identity, from the metadata server.
+
+    The deployed counterpart of the local demo's configured principal string,
+    and the reason the cloud Gate can authenticate a caller at all.  It holds
+    no credential, reads no environment variable and takes no argument: the
+    answer is a property of *where this process is running*, which is precisely
+    the property a browser, a request body or a model output cannot forge.
+
+    An unreachable metadata server is a value rather than a raise, for the same
+    reason ``MetadataServerTokens`` makes it one: "this process has no cloud
+    identity" is a configuration fact an operator should read in a refusal.
+    """
+
+    timeout_seconds: float = 5.0
+
+    def principal_id(self) -> Result[str, CloudPrincipalError]:
+        request = urllib.request.Request(
+            METADATA_EMAIL_URL, headers=dict((METADATA_HEADER,)), method="GET"
+        )
+        try:
+            with direct_opener().open(request, timeout=self.timeout_seconds) as answer:
+                identity = answer.read(MAX_PRINCIPAL_OCTETS).decode("ascii").strip()
+        except urllib.error.HTTPError as refused:
+            return Err(
+                CloudPrincipalError(
+                    CloudPrincipalFailure.RUNTIME_IDENTITY_UNAVAILABLE,
+                    f"{refused.code} {refused.reason}",
+                )
+            )
+        except (urllib.error.URLError, TimeoutError, OSError, UnicodeDecodeError):
+            #  The reason is deliberately not carried.  Every case here is "the
+            #  metadata server did not answer", the operator's next step is the
+            #  same for all of them, and a driver's message is one log line away
+            #  from quoting something nobody chose to print.
+            return Err(
+                CloudPrincipalError(
+                    CloudPrincipalFailure.RUNTIME_IDENTITY_UNAVAILABLE,
+                    "the instance metadata server did not answer",
+                )
+            )
+        if not identity:
+            return Err(
+                CloudPrincipalError(
+                    CloudPrincipalFailure.RUNTIME_IDENTITY_MALFORMED,
+                    "the instance metadata server answered with no identity",
+                )
+            )
+        return Ok(identity)
 
 
 @dataclass(frozen=True, slots=True)

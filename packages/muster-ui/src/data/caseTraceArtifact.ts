@@ -1,4 +1,11 @@
-import { transformHeroCase, type HeroCaseViewModel, type RawHeroCase, type RawTraceEvent } from "./readModel";
+import {
+  isActionExecutionState,
+  transformHeroCase,
+  type ActionExecutionState,
+  type HeroCaseViewModel,
+  type RawHeroCase,
+  type RawTraceEvent,
+} from "./readModel";
 
 export const CASE_TRACE_SCHEMA_VERSION = "muster.case-trace/v1" as const;
 
@@ -17,6 +24,65 @@ export type ArtifactValue =
   | { type: "int"; value: number }
   | { type: "scaled"; unit: string; scale: number; minor: number }
   | { type: "enum"; enum_id: string; value: string };
+
+/**
+ * What the artifact says the deterministic Action Gate did.
+ *
+ * Two shapes, and the discriminant is the only field they share. An
+ * analysis-only run publishes the first and carries nothing else, so a screen
+ * cannot accidentally read an execution key off a run that never executed. A
+ * gate run publishes the second, and `real_funds` is typed as the literal
+ * `false`: an artifact claiming a real settlement is not a variant this viewer
+ * has, which makes "this screen never shows a real payment" a fact about the
+ * type rather than a promise in a comment.
+ */
+interface ArtifactExecutionCommon {
+  execution_key: string;
+  real_funds: false;
+  /**
+   * The durable lifecycle instants, exactly as the execution row carries them.
+   * These are measurements, not a reconstructed timeline: the producer read
+   * them off the row and this viewer renders them as read.
+   *
+   * `reserved_at` and `dispatched_at` are always present, because every
+   * published state is at or past the dispatch boundary. `finalized_at` is
+   * present for exactly the states that have finalized, which the variants
+   * below say individually rather than leaving to a nullable field.
+   */
+  reserved_at: number;
+  dispatched_at: number;
+}
+
+export type ArtifactActionExecution =
+  | { status: "NOT_EXECUTED" }
+  //  Dispatched and not yet answered. There is no outcome, no reference and no
+  //  finalization instant, because the executor boundary has been crossed and
+  //  the executor has not come back -- so all three are `null` in the type
+  //  rather than optional in a comment. This is what a real DISPATCHED row
+  //  looks like, and the viewer must be able to render one truthfully.
+  | (ArtifactExecutionCommon & {
+      status: "DISPATCHED";
+      external_reference: null;
+      outcome_code: null;
+      finalized_at: null;
+    })
+  //  Settled. A confirmed execution has a receipt, and the receipt is the
+  //  external reference: a CONFIRMED variant without one is not a shape this
+  //  viewer has.
+  | (ArtifactExecutionCommon & {
+      status: "CONFIRMED";
+      external_reference: string;
+      outcome_code: string;
+      finalized_at: number;
+    })
+  //  Finalized without a settlement. There is an outcome to report and, by
+  //  construction, nothing for a reference to point at.
+  | (ArtifactExecutionCommon & {
+      status: "FAILED" | "UNCERTAIN";
+      external_reference: null;
+      outcome_code: string;
+      finalized_at: number;
+    });
 
 export type ArtifactRelation =
   | { kind: "EXACT" | "CLOSED_LOWER_BOUND" | "CLOSED_UPPER_BOUND"; value: ArtifactValue }
@@ -81,7 +147,7 @@ export interface CaseTraceArtifact {
     action: {
       kind: "PAY";
       fields: Array<{ name: string; value: ArtifactValue }>;
-      execution: { status: "NOT_EXECUTED" };
+      execution: ArtifactActionExecution;
     };
     unresolved: ArtifactProposition[];
   };
@@ -327,32 +393,115 @@ function rebuildEvent(artifact: CaseTraceArtifact): RawTraceEvent {
   });
 }
 
+const EXECUTION_TONES: Record<
+  Exclude<ActionExecutionState, "NOT_EXECUTED">,
+  RawTraceEvent["result_tone"]
+> = {
+  CONFIRMED: "verified",
+  DISPATCHED: "uncertain",
+  UNCERTAIN: "uncertain",
+  FAILED: "failed",
+};
+
 function actionEvent(
   artifact: CaseTraceArtifact,
   recipient: string,
   amount: Extract<ArtifactValue, { type: "scaled" }>,
 ): RawTraceEvent {
+  const execution = artifact.result.action.execution;
+  const proposed = `proposed_action = ${artifact.result.action.kind}(${recipient}, ${formatValue(amount)})`;
+  if (execution.status === "NOT_EXECUTED") {
+    return event({
+      id: "action",
+      kind: "action",
+      actor: "Proposed action",
+      eyebrow: "Authorization handoff",
+      title: `${artifact.result.action.kind} ${recipient} ${formatValue(amount)}`,
+      summary: "The captured cloud replay stops at proposal; local sandbox execution is shown separately.",
+      result: execution.status.replace("_", " "),
+      result_tone: "pending",
+      tags: ["CLOUD TRACE: NOT EXECUTED"],
+      inspector: {
+        source_class: "DETERMINISTIC CASE RESULT",
+        source_identity: "MUSTER Control Plane",
+        key_id: null,
+        authority_grant: "No execution grant in the captured cloud replay",
+        predicates: [proposed],
+        disclosure: "A proposed consequential action, explicitly not a settlement receipt.",
+        q12_result: "Source authority validated upstream",
+        model_interpretation: "No",
+        deterministic_decision: `Yes — proposed from ${artifact.result.outcome} analysis`,
+        provenance_note: "The cloud action state remains NOT_EXECUTED; local sandbox Gate state is a separate API read model.",
+      },
+    });
+  }
+  //  Every line below is a field the Gate produced. The lifecycle is written
+  //  out in full because the states it passed through are what the screen is
+  //  claiming, and a summary that said "executed" without them would be the
+  //  viewer asserting a sequence the artifact does not carry.
+  //
+  //  DISPATCHED is where the machine currently *is*, not where it ended, so the
+  //  explanatory path stops at it rather than naming it twice. A tag reading
+  //  `DISPATCHED → DISPATCHED` would draw an edge the Gate does not have, on
+  //  the one row whose next state is genuinely still open.
+  const path =
+    execution.status === "DISPATCHED"
+      ? "PROPOSED → RESERVED → DISPATCHED"
+      : `PROPOSED → RESERVED → DISPATCHED → ${execution.status}`;
+  //  What a dispatched row is allowed to say about its result, which is
+  //  nothing. `external_reference = none` is a *finding*: it is what FAILED and
+  //  UNCERTAIN report, because those rows finalized and there was no receipt to
+  //  record. A row the executor has not answered has found nothing, and
+  //  printing `none` for it would publish a settled absence in place of an open
+  //  question -- the same overclaim as an invented outcome code. So both result
+  //  fields are absent for DISPATCHED, and not knowing is named instead.
+  const result_fields =
+    execution.status === "DISPATCHED"
+      ? ["finality = OUTCOME_UNKNOWN"]
+      : [
+          `external_reference = ${execution.external_reference ?? "none"}`,
+          `outcome_code = ${execution.outcome_code}`,
+        ];
   return event({
     id: "action",
     kind: "action",
-    actor: "Proposed action",
-    eyebrow: "Authorization handoff",
+    actor: "Cloud deterministic Action Gate",
+    eyebrow: "Authorized execution",
     title: `${artifact.result.action.kind} ${recipient} ${formatValue(amount)}`,
-    summary: "The captured cloud replay stops at proposal; local sandbox execution is shown separately.",
-    result: artifact.result.action.execution.status.replace("_", " "),
-    result_tone: "pending",
-    tags: ["CLOUD TRACE: NOT EXECUTED"],
+    summary:
+      execution.status === "CONFIRMED"
+        ? "The exact authorized action was reserved, dispatched once, and confirmed. A retry reads this record; it does not dispatch again."
+        : execution.status === "DISPATCHED"
+          ? "The exact authorized action was reserved and dispatched once, and the executor has not answered. There is no outcome yet. A retry reads this record; it does not dispatch again."
+          : "The durable lifecycle crossed the dispatch boundary and stopped here. Automatic retry is disabled.",
+    result: `${execution.status} · SANDBOX · NO REAL FUNDS`,
+    result_tone: EXECUTION_TONES[execution.status],
+    //  The first tag is the state machine and is labelled as such; the second
+    //  is what the row actually says. Keeping them apart is the whole point:
+    //  a CONFIRMED row does imply it passed through RESERVED and DISPATCHED,
+    //  but that is an explanation of the machine, while the instants below are
+    //  values the database recorded.
+    tags: [`STATE MACHINE: ${path}`, `RECORDED: ${execution.status}`, "NO REAL FUNDS"],
     inspector: {
-      source_class: "DETERMINISTIC CASE RESULT",
-      source_identity: "MUSTER Control Plane",
-      key_id: null,
-      authority_grant: "No execution grant in the captured cloud replay",
-      predicates: [`proposed_action = ${artifact.result.action.kind}(${recipient}, ${formatValue(amount)})`],
-      disclosure: "A proposed consequential action, explicitly not a settlement receipt.",
-      q12_result: "Source authority validated upstream",
-      model_interpretation: "No",
-      deterministic_decision: `Yes — proposed from ${artifact.result.outcome} analysis`,
-      provenance_note: "The cloud action state remains NOT_EXECUTED; local sandbox Gate state is a separate API read model.",
+      source_class: "CLOUD DETERMINISTIC ACTION GATE",
+      source_identity: "MUSTER Control Plane / Cloud SQL execution custody",
+      key_id: execution.execution_key.slice(0, 16),
+      authority_grant: "Exact runtime principal / tenant / action / gate / executor grant",
+      predicates: [
+        proposed,
+        `execution_key = ${execution.execution_key}`,
+        `state = ${execution.status}`,
+        `reserved_at = ${execution.reserved_at}`,
+        `dispatched_at = ${execution.dispatched_at}`,
+        `finalized_at = ${execution.finalized_at ?? "not finalized"}`,
+        ...result_fields,
+        `real_funds = ${String(execution.real_funds)}`,
+      ],
+      disclosure: "A synthetic sandbox execution reference. No payment provider was called and no funds moved.",
+      q12_result: "Source authority validated upstream; execution authority is a separate grant",
+      model_interpretation: "No — no model can reach the Gate",
+      deterministic_decision: `Durable execution state: ${execution.status}`,
+      provenance_note: "Every execution field above is a value read from the durable Cloud SQL row the captured execution wrote; the state-machine path in the first tag is an explanation of the Gate, not a recorded sequence of events.",
     },
   });
 }
@@ -396,6 +545,98 @@ function formatRelation(relation: ArtifactRelation): string {
       return `≤ ${formatValue(relation.value)}`;
     case "ENUM_SUBSET":
       return `∈ {${relation.values.map(formatValue).join(", ")}}`;
+  }
+}
+
+
+function assertActionExecution(execution: Record<string, unknown>): void {
+  //  The state is validated before the shape, so that `status` narrows to the
+  //  published vocabulary for everything below -- and so that RESERVED, which
+  //  is deliberately not in it, is refused as a state rather than as a set of
+  //  missing fields.
+  const status = execution.status;
+  if (!isActionExecutionState(status)) {
+    throw new Error("Case-trace action execution names an unknown state");
+  }
+  if (status === "NOT_EXECUTED") {
+    if (Object.keys(execution).length !== 1) {
+      throw new Error("An unexecuted action carries no execution fields");
+    }
+    return;
+  }
+  //  Exactly false, not merely falsy. This is the field the whole screen is
+  //  honest by, and 0, null and the empty string must not satisfy it.
+  if (execution.real_funds !== false) {
+    throw new Error("This viewer never renders a real-funds execution");
+  }
+  if (
+    typeof execution.execution_key !== "string" ||
+    !/^[0-9a-f]{64}$/.test(execution.execution_key)
+  ) {
+    throw new Error("Case-trace action execution names no canonical execution key");
+  }
+  //  DISPATCHED is the one published state that has no result yet, so it is
+  //  the one state whose outcome code must be absent. Demanding a code from
+  //  every state made a truthful dispatched row unrenderable, and the only way
+  //  to satisfy that demand was to invent one -- `outcome_code: "DISPATCHED"`,
+  //  a lifecycle state presented to an audience as a result.
+  if (status === "DISPATCHED") {
+    if (execution.outcome_code !== null) {
+      throw new Error("A dispatched execution has no outcome yet");
+    }
+  } else if (
+    typeof execution.outcome_code !== "string" ||
+    execution.outcome_code.length === 0
+  ) {
+    throw new Error("A finalized execution carries an outcome code");
+  }
+  const reference = execution.external_reference;
+  if (status === "CONFIRMED") {
+    if (typeof reference !== "string" || reference.length === 0) {
+      throw new Error("A confirmed execution carries an external reference");
+    }
+  } else if (reference !== null) {
+    throw new Error("An unconfirmed execution carries no external reference");
+  }
+  assertLifecycleInstants(execution, status);
+}
+
+/**
+ * The three durable instants the row carries, checked as measurements.
+ *
+ * `typeof x === "number"` is not enough on its own here: `NaN` is a number and
+ * would render as "NaN" in a field the screen presents as a recorded moment, so
+ * `Number.isInteger` is the predicate. A viewer that displayed an instant it
+ * could not verify would be showing an audience something it made up.
+ */
+function assertLifecycleInstants(
+  execution: Record<string, unknown>,
+  status: Exclude<ActionExecutionState, "NOT_EXECUTED">,
+): void {
+  const instant = (name: string): number => {
+    const value = execution[name];
+    if (!Number.isInteger(value)) {
+      throw new Error(`Case-trace execution ${name} is not a durable instant`);
+    }
+    return value as number;
+  };
+  const reserved = instant("reserved_at");
+  const dispatched = instant("dispatched_at");
+  //  Every published state is at or past DISPATCHED, so only the finalization
+  //  is optional -- and it is optional for exactly one state.
+  const finalized = execution.finalized_at;
+  if (status === "DISPATCHED") {
+    if (finalized !== null) {
+      throw new Error("A dispatched execution has not been finalized");
+    }
+  } else {
+    const settled = instant("finalized_at");
+    if (settled < dispatched) {
+      throw new Error("Finalization cannot precede dispatch");
+    }
+  }
+  if (dispatched < reserved) {
+    throw new Error("Dispatch cannot precede reservation");
   }
 }
 
@@ -457,15 +698,14 @@ export function assertCaseTraceArtifact(input: unknown): asserts input is CaseTr
   requireStrings(rebuild, "processor");
   if (typeof rebuild.certificate_reproduced !== "boolean") throw new Error("Case-trace rebuild is malformed");
   const action = record(result.action, "result.action");
-  const actionExecution = record(action.execution, "result.action.execution");
   if (
     action.kind !== "PAY" ||
-    actionExecution.status !== "NOT_EXECUTED" ||
     !Array.isArray(action.fields) ||
     !action.fields.every(isActionField)
   ) {
     throw new Error("Case-trace action is malformed or unsafe");
   }
+  assertActionExecution(record(action.execution, "result.action.execution"));
   if (!Array.isArray(result.unresolved) || !result.unresolved.every(isProposition)) {
     throw new Error("Case-trace unresolved propositions are malformed");
   }

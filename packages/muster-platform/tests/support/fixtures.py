@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import psycopg
 
+from muster.core.evidence.transcript import Statement, TranscriptEntry
 from muster.core.results import Err, Ok
 from muster.core.values.times import Instant
 from muster.core.wire.digests import Digest
@@ -80,6 +81,28 @@ def append_all(casework: Casework, case: RaviCase, *, now: Instant) -> Advanced:
     assert last is not None
     assert isinstance(last.advanced, Ok), last.advanced
     return last.advanced.value
+
+
+def split_at_the_inert_claim(
+    case: RaviCase,
+) -> tuple[tuple[TranscriptEntry, ...], TranscriptEntry]:
+    """Everything the analysis needs, and one entry that may arrive afterwards.
+
+    The attested fixture carries exactly one ``Statement``: the claimant's own
+    words about a proposition the sources went on to attest.  It is inert on
+    arrival -- the case reaches INVARIANT without it, and appending it
+    afterwards publishes a new revision without changing the answer.
+
+    That is the shape a case-advancement test needs.  The head genuinely moves,
+    through the ordinary command, and it moves for a reason nobody could
+    mistake for a different case or a different action -- so a claim about what
+    survives the move is a claim about the *move* and not about a case that was
+    quietly rebuilt into something else.
+    """
+    claims = tuple(entry for entry in case.entries if isinstance(entry, Statement))
+    assert len(claims) == 1, claims
+    held = claims[0]
+    return tuple(entry for entry in case.entries if entry is not held), held
 
 
 def rejected_append(casework: Casework, case: RaviCase, index: int, *, now: Instant) -> object:

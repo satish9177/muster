@@ -48,6 +48,18 @@ class ActionExecutor(Protocol):
     @property
     def trusted_gate_id(self) -> str: ...
 
+    @property
+    def transfers_real_funds(self) -> bool:
+        """Whether a confirmation from this executor moved money that exists.
+
+        Part of the contract rather than a label a demo prints, because the
+        one thing an audience of a payment demo must be able to check is which
+        answer this is -- and a projection that asserted ``false`` on its own
+        authority would be asserting it about whichever executor happened to be
+        composed, not about the one that ran.
+        """
+        ...
+
     def dispatch(self, request: ExecutorDispatch) -> ExecutorOutcome: ...
 
 
@@ -85,6 +97,11 @@ class SandboxPaymentExecutor:
     @property
     def trusted_gate_id(self) -> str:
         return self._trusted_gate_id
+
+    @property
+    def transfers_real_funds(self) -> bool:
+        """Never.  There is no payment rail here and no credential for one."""
+        return False
 
     @property
     def dispatch_count(self) -> int:

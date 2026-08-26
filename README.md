@@ -250,10 +250,24 @@ authority, and uses a durable PostgreSQL reservation:
 RESERVED → DISPATCHED → CONFIRMED | FAILED | UNCERTAIN
 ```
 
-After dispatch, an uncertain outcome is never automatically redispatched. The
-current implementation uses local PostgreSQL and a local sandbox executor; no
-real funds are transferred. The Action Gate was not part of the verified
-Stage-90 cloud execution.
+After dispatch, an uncertain outcome is never automatically redispatched, and a
+retry of an already-durable execution is an *idempotency read*: it returns the
+recorded lifecycle without crossing the executor boundary again.
+
+A retry names that execution by its **execution key** — `sha256` over the
+canonical octets of the exact authorized `ActionIntent`, and the primary key of
+the row holding them. Nothing about that identity comes from the case's current
+state, so a confirmed execution stays addressable after the case head moves on.
+
+Both the local demo and the deployed Cloud SQL composition use a **synthetic
+sandbox executor**. There is no payment provider and no credential for one, and
+no real funds are transferred in any mode.
+
+**Cloud Action Gate support is implemented, not deployed/verified.** It is
+covered by the local suite -- including PostgreSQL duplicate-prevention and
+concurrency proofs -- and has not been run against Google Cloud. The Action Gate
+was not part of the verified Stage-90 cloud execution, and this sentence stays
+until a real run replaces it.
 
 ## Verified Google Cloud Execution
 
@@ -296,7 +310,7 @@ What that verifies, and what it does not:
 | Persistence across independent Cloud Run executions | **verified** |
 | Control Plane denied raw Site-A evidence (HTTP 403) | **verified** |
 | Semantic restart / resume / cross-process re-validation | **not yet** |
-| Cloud Action Gate | **not implemented, not executed** |
+| Cloud Action Gate | **implemented, not deployed/verified** |
 | Real funds transferred | **no** |
 
 Stage 90 still defaults to `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`; durable custody
@@ -342,8 +356,9 @@ when intentionally running those integration paths.
 
 ## Limitations / Scope
 
-The submission uses synthetic enterprise fixtures. Action execution is a local
+The submission uses synthetic enterprise fixtures. Action execution is a
 sandbox with no real payment rail; the Action Gate and PostgreSQL were not part
-of the verified Stage-90 cloud run. The UI currently runs locally. Cloud Run
+of the verified Stage-90 cloud run, and cloud Action Gate support is
+implemented, not deployed/verified. The UI currently runs locally. Cloud Run
 and Cloud Storage are in `asia-south1`, while Vertex inference uses the
 `global` location. These are the current submission boundaries.

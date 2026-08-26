@@ -535,9 +535,33 @@ unknown outcome and requires reconciliation against the executor; the Gate will
 not guess. If the executor raises after possibly having accepted, the outcome is
 recorded as `UNCERTAIN` rather than as a failure.
 
+An exact full repeat uses this same path, not a second execution mechanism.
+`reserve` attempts the same PostgreSQL insert with `ON CONFLICT DO NOTHING`,
+reads the winner, and verifies every binding with `binding_mismatches`. For a
+previously confirmed intent the service returns that record before the dispatch
+claim. A fresh executor therefore observes zero dispatch calls, while the
+execution key, external reference, intent octets and all lifecycle timestamps
+remain those of the first call. A unique proposal constraint also prevents the
+same authorized revision from being rebound to another Gate or executor under a
+second key.
+
 The head of the case is held across validation and reservation, so a proposal
 cannot become stale between the replay and the durable insert. A case that moved
 is refused with `CASE_MOVED` rather than executed against an old certificate.
+
+**The idempotency read is addressed by `ExecutionKey`, not by the case.** A
+retry presents the key and, optionally, the case it believes it is asking
+about; the store answers by primary key or answers `ABSENT`. Nothing on that
+path reads the case head, calls a case command or touches the executor — so a
+confirmed execution stays addressable for as long as its row exists, however
+far the case has advanced since. An identity derived from the current head
+would have made a payment that already happened unfindable the moment one more
+transcript entry was appended.
+
+The read still authenticates its caller, still requires an exact grant for the
+action kind the *stored* intent names, still refuses a row another Gate
+authorized, and still refuses `RESERVED` — a reservation that never crossed the
+executor boundary is unfinished work, and finishing it is an action.
 
 > The current browser demo uses **local PostgreSQL** and a **sandbox executor**.
 > No real funds are transferred, and no payment rail exists in this repository.
@@ -545,7 +569,31 @@ is refused with `CASE_MOVED` rather than executed against an old certificate.
 
 The Action Gate was **not** part of the verified Stage-90 cloud execution. That
 run stops at the analysis by design: no gate, nothing authorized, nothing
-settled.
+settled, and that remains the default for every Stage-90 run.
+
+> **Cloud Action Gate support is implemented, not deployed/verified.** A
+> deliberate `HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX` runs the same
+> deterministic Gate over Cloud SQL custody against the same synthetic sandbox
+> executor. The earlier retry mode names an execution key and only reads the
+> recorded lifecycle. U3's repeat mode accepts no key: a second execution of the
+> same digest-pinned job reconstructs the stable synthetic officer, authority
+> publisher and catalog publisher identities, replays the full hero case,
+> re-derives the identical intent and calls `ActionGate.execute()` again. The
+> deployed agents' source keys remain the real configured source keys; the
+> publicly derivable stable material is confined to synthetic hero control-plane
+> populations. The repeat re-applies authority/catalog publication and case
+> admission, so it is not a pure read, but an exact confirmed execution row is
+> returned without redispatch. This is covered locally across PostgreSQL and
+> separate OS processes and has not been run against Google Cloud, so nothing in
+> this document claims a verified cloud execution of it. The mode is refused
+> under ephemeral custody and runs its own case, so the verified analysis-only
+> case stays untouched.
+
+The local convergence path is `demo/hero.py --postgres --gate`: the ordinary
+worked case runs over PostgreSQL, the same Action Gate reaches `CONFIRMED`, and
+an exact call from a fresh Gate/executor pair returns that durable lifecycle
+with zero dispatches. The default local hero remains analysis-only unless the
+explicit `--gate` flag is present.
 
 ---
 
@@ -614,7 +662,7 @@ sanitized artifact
 | Q-12 | Yes — passed on all three attestations | Yes | Same admission function on both paths |
 | Kernel result | Yes — `INVARIANT` | Yes — `INVARIANT` | Identical outcome, identical unresolved set |
 | Certificate rebuild | Yes — `certificate_reproduced: true` | Yes | Determinism class `REPRODUCIBLE` |
-| Action Gate | **No — not executed** | Yes | Cloud trace records `NOT_EXECUTED`. The Gate is local only |
+| Action Gate | **No — not executed in any verified run** | Yes | The captured cloud trace records `NOT_EXECUTED`. Cloud Gate support is implemented and not deployed/verified |
 | PostgreSQL | **Yes — private Cloud SQL** | Yes — local Docker | Durable custody verified in execution `-tsjds`; a second execution read the identical identity back |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
@@ -725,7 +773,8 @@ MUSTER does **not**:
 4. make a real payment — the executor is a synthetic sandbox and no payment rail
    exists in this repository;
 5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
-   at the analysis;
+   at the analysis, and the cloud Gate mode is implemented, not
+   deployed/verified;
 6. claim the cloud run *resumes* or *re-validates* a case across executions —
    Cloud SQL custody is provisioned and verified, and what a second execution
    established is persistence of durable identity, not re-verification;

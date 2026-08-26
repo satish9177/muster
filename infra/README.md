@@ -45,6 +45,119 @@ PROJECT_ID=your-project ./infra/scripts/85-database-bootstrap.sh   # DDL, as the
 PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
 ```
 
+## The deliberate Action Gate mode
+
+**Status: Cloud Action Gate support implemented, not deployed/verified.**
+Nothing below has been run against Google Cloud. The verified execution this
+project publishes is still the analysis-only one, and every claim about the
+Gate is a claim about the local suite until a real run replaces this sentence.
+
+`HERO_GATE_MODE` decides what the hero job does after the analysis, and the
+default is the shape U1 verified:
+
+| `HERO_GATE_MODE` | What the run does |
+| --- | --- |
+| `ANALYSIS_ONLY` (default) | Stops at the analysis. No gate, nothing authorized, nothing executed. |
+| `CLOUD_SQL_ACTION_GATE_SANDBOX` | Runs the deterministic Action Gate over the same Cloud SQL custody, against the **synthetic sandbox executor**. No payment provider, no account, no credential, and no funds. |
+
+The Gate mode requires `HERO_DATABASE_DEPLOYMENT=CLOUD_SQL` and is refused
+under ephemeral custody, before anything is deployed: a durable execution
+lifecycle kept in memory is a proof about one process, and the whole point of
+the mode is a claim about a database.
+
+It also runs **its own case**. `HERO_GATE_CASE_ID` defaults to
+`CASE-RAVI-SAT-CLOUD-GATE`, and a configuration where it equals `HERO_CASE_ID`
+is refused when the Gate is requested: the analysis-only case is
+already-published evidence, and a Gate run that reserved an execution against it
+would be writing into it.
+
+That refusal lives in `muster::require_gate_configuration`, which
+`90-hero-job.sh` calls before it deploys anything — deliberately *not* at
+`env.sh` file scope. Every script here sources `env.sh` for the project, the
+region and the service-account names, and bootstrap, IAM verification, teardown
+and the source-agent deploys compose no Gate at all. A relationship between two
+Gate case identifiers must not be able to stop a teardown.
+
+```
+export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+export HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX
+PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
+The execution's caller is the identity the **metadata server** reports for the
+running job, compared against `HERO_GATE_PRINCIPAL` (the control-plane service
+account by default). Nothing on that path reads a request field or an argument,
+so there is no value a caller of this deployment can supply that changes who
+the Gate thinks is asking. A workload running as another identity executes
+nothing and creates no row.
+
+### The retry proof
+
+A second execution of the same deployed job reads the lifecycle the first one
+recorded, confirms it, and dispatches nothing:
+
+```
+export HERO_GATE_EXECUTION_ID=<the "execution id" line the first run printed>
+HERO_VERIFY_GATE_IDEMPOTENCY=1 \
+PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
+It is an **idempotency read**, not a restart: it opens no case, appends
+nothing, acquires nothing, calls no model, runs no check, reads no case head
+and never reaches the executor.
+
+The id is required because a retry names the **execution** it is asking about.
+It is `sha256` over the canonical octets of the exact `ActionIntent` that was
+authorized, and it is the primary key of the row those
+octets live in — so it keeps naming the same historical execution however far
+the case has advanced since. A retry identified from the current case head
+would report a confirmed payment as absent the moment one more transcript entry
+was appended, which is a duplicate-prevention story with an expiry date.
+
+### The repeat proof
+
+The stronger U3 proof runs the complete hero path twice as two executions of
+one deployed Cloud Run job. It requires an immutable, digest-pinned control
+plane image and refuses before deployment when `CONTROL_PLANE_IMAGE` is only a
+tag:
+
+```
+export CONTROL_PLANE_IMAGE=asia-south1-docker.pkg.dev/PROJECT/muster/control-plane@sha256:DIGEST
+export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+export HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX
+HERO_GATE_REPEAT=1 \
+PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
+Stage 90 deploys that image once, executes the ordinary full Gate run, and then
+executes the same job with `--repeat-gate-execution`; there is no redeploy
+between them. The first execution must report `CONFIRMED` with one sandbox
+dispatch. The second reconstructs the same synthetic case and trust material,
+replays the complete case path, re-derives the proposal and calls the existing
+`ActionGate.execute()` path with a fresh executor. It must report the same
+execution id and external reference, `CONFIRMED`, and zero dispatches. An
+unreadable second execution is `UNDETERMINED`, not success, and mismatched
+identity, reference, state, or dispatch counts fail the proof.
+
+The repeat is not a pure read. It re-applies the stable synthetic authority and
+catalog publications (their set-in-force upserts may advance publication
+epochs), reopens the same construction idempotently, re-appends the same
+evidence idempotently, reruns deterministic analysis, and repeats the raw-access
+denial check before reaching the Gate. The durable execution row itself is not
+rewritten by an exact repeat: its key, intent octets, lifecycle timestamps and
+outcome remain the first execution's values.
+
+The retry **names** an execution id and reads its historical row. The repeat
+accepts no execution id: it **re-derives** one from the exact canonical
+`ActionIntent`. The same image digest matters because certificate reproduction
+is a property of the running solver build and configuration; a different build
+fails closed as `PROPOSAL_REFUSED: CERTIFICATE_NOT_REPRODUCED` before any row or
+dispatch.
+
+This workflow is implemented and covered locally against PostgreSQL. It has not
+been run against live Cloud SQL or Google Cloud; doing so, capturing both Cloud
+Run execution names and preserving their outputs remains operator work.
+
 ## The worked run, in the project
 
 `90-hero-job.sh` deploys the control plane as a **Cloud Run job** under
@@ -529,10 +642,18 @@ non-zero if anything else survived.
   needs no ingress of its own for this slice. The two things deployed under its
   identity are jobs: the probe, which exists to prove a negative, and the hero
   run, which exits when it is done.
-* **No cloud Action Gate and no settlement.** The verified hero job stops at
-  analysis: no gate, nothing authorized, nothing settled. A PostgreSQL-backed
-  Action Gate exists only in the local sandbox demo, outside this infrastructure
-  slice, and it transfers no real funds.
+* **No settlement, in any mode.** The Gate reserves, dispatches once, and
+  records an outcome against a *synthetic sandbox* executor. There is no
+  payment provider, no account and no credential for one, and no mode of this
+  deployment transfers real funds.
+* **No cloud Action Gate has been verified yet.** The verified hero job is the
+  analysis-only one: no gate, nothing authorized, nothing settled. Cloud Action
+  Gate support is implemented and covered by the local suite, and it has not
+  been deployed or verified against Google Cloud -- see
+  [The deliberate Action Gate mode](#the-deliberate-action-gate-mode). Until a
+  real run replaces that section's status line, the only executed Action Gate
+  in this project is the local sandbox demo, outside this infrastructure
+  slice.
 * **No Terraform.** The material here is `gcloud`, so that what will be created
   can be read line by line before anything is — which is what an approval step
   is for.
@@ -777,6 +898,13 @@ created establishes nothing.
 export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
 ./infra/scripts/90-hero-job.sh /tmp/muster-keys
 ```
+
+For the durable full-repeat proof, keep the same custody configuration, pin
+`CONTROL_PLANE_IMAGE` by digest, enable the deliberate Gate mode, and set
+`HERO_GATE_REPEAT=1`. Stage 90 then deploys once and runs that one job twice as
+described in [The repeat proof](#the-repeat-proof). `EPHEMERAL` remains the
+normal default and is intentionally unrepresentable for a cross-execution
+proof; durable custody is selected explicitly rather than silently promoted.
 
 **10 — Read the run.** The job prints its custody in its configuration line and
 refuses before doing any casework if the schema is not current.

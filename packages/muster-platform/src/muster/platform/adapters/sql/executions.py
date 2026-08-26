@@ -178,6 +178,19 @@ class SqlExecutionRepository:
     def read(
         self, execution_key: ExecutionKey
     ) -> Result[ExecutionRecord, ExecutionStoreError]:
+        """One row by ``(tenant_id, execution_id)``, which is the primary key.
+
+        Also the whole of the idempotency read's store access, which is why
+        that path needs no query of its own and U2 needs no migration 6: the
+        durable identity a retry presents *is* this key, so the answer is one
+        row or ``ABSENT`` -- there is no ordering to get wrong, no ``LIMIT`` to
+        hide a second match behind, and nothing here that depends on the case's
+        current head.
+
+        ``_record`` re-derives the canonical value on the way out: the octets
+        must decode, re-encode byte-identically, hash to this key, and agree
+        with every identity column the row carries.
+        """
         row = self.connection.execute(
             _SELECT, (self.tenant_id, execution_key.octets)
         ).fetchone()

@@ -81,14 +81,34 @@ describe("transformHeroCase", () => {
     expect(result.events[0]?.result).toBe("CLAIM ONLY — INERT");
   });
 
-  it("rejects any read model that claims UI-1 executed an action", () => {
-    const unsafe = structuredClone(specimen) as unknown as Record<string, unknown>;
-    const unsafeCase = unsafe.case as Record<string, unknown>;
-    const action = unsafeCase.action as Record<string, unknown>;
-    action.execution = "EXECUTED";
+  //  U2 gave this viewer a second legitimate shape: a captured cloud trace may
+  //  now carry the durable Action Gate lifecycle. What has to stay refused is a
+  //  state that is not one of the Gate's own -- including RESERVED, which is a
+  //  reservation that never crossed the executor boundary rather than something
+  //  a screen may render as an outcome.
+  it.each(["EXECUTED", "RESERVED", "SETTLED", "", "true"])(
+    "rejects a read model naming %s as a durable execution state",
+    (state) => {
+      const unsafe = structuredClone(specimen) as unknown as Record<string, unknown>;
+      const unsafeCase = unsafe.case as Record<string, unknown>;
+      const action = unsafeCase.action as Record<string, unknown>;
+      action.execution = state;
 
-    expect(() => transformHeroCase(unsafe)).toThrow(/not been executed/);
-  });
+      expect(() => transformHeroCase(unsafe)).toThrow(/durable execution state/);
+    },
+  );
+
+  it.each(["NOT_EXECUTED", "DISPATCHED", "CONFIRMED", "FAILED", "UNCERTAIN"])(
+    "renders a read model whose action is %s",
+    (state) => {
+      const accepted = structuredClone(specimen) as unknown as Record<string, unknown>;
+      const acceptedCase = accepted.case as Record<string, unknown>;
+      const action = acceptedCase.action as Record<string, unknown>;
+      action.execution = state;
+
+      expect(transformHeroCase(accepted).action.execution).toBe(state);
+    },
+  );
 
   it("rejects duplicate trace identifiers", () => {
     const duplicate = structuredClone(specimen);

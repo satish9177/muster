@@ -8,7 +8,12 @@ from typing import Protocol
 
 from muster.core.results import Result
 from muster.core.values.times import Instant
-from muster.platform.gate.model import ActionIntent, ExecutionKey, ExecutionRecord, ExecutionState
+from muster.platform.gate.model import (
+    ActionIntent,
+    ExecutionKey,
+    ExecutionRecord,
+    ExecutionState,
+)
 
 
 class ExecutionStoreFailure(Enum):
@@ -44,7 +49,17 @@ class ExecutionRepository(Protocol):
         self, intent: ActionIntent, *, requested_by: str, now: Instant
     ) -> Result[Reservation, ExecutionStoreError]: ...
 
-    def read(self, execution_key: ExecutionKey) -> Result[ExecutionRecord, ExecutionStoreError]: ...
+    def read(self, execution_key: ExecutionKey) -> Result[ExecutionRecord, ExecutionStoreError]:
+        """The one lifecycle stored under this key for this tenant.
+
+        A read, and only a read: it reserves nothing, transitions nothing and
+        cannot create a row.  ``ABSENT`` when the key names no row -- and never
+        some other row that looked close enough.  This is also the whole of the
+        idempotency read's store access, which is why that path can be exact
+        without consulting the case at all: the key *is* the durable primary
+        key, so there is one answer or none.
+        """
+        ...
 
     def read_for_case(self, case_id: str) -> Result[ExecutionRecord, ExecutionStoreError]: ...
 

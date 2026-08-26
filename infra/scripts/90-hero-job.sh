@@ -26,8 +26,27 @@
 #  What the job does is the production path and nothing else: it replays the
 #  worked case, analyses it, tries and fails to read the site's raw object under
 #  its own identity, asks the fleet over authenticated HTTPS, admits what comes
-#  back through check Q-12, rebuilds, and stops at the analysis.  There is no
-#  gate, nothing is authorized and nothing is settled.
+#  back through check Q-12, and rebuilds.
+#
+#  Where it goes after that is HERO_GATE_MODE, and it is a decision rather than
+#  a default.  ANALYSIS_ONLY stops at the analysis: no gate, nothing authorized,
+#  nothing settled -- the shape U1 verified.  CLOUD_SQL_ACTION_GATE_SANDBOX runs
+#  the deterministic Action Gate over the same Cloud SQL custody against the
+#  synthetic sandbox executor: no payment provider and no funds, and the job
+#  says so on every line it prints.  The Gate mode runs its own case
+#  (HERO_GATE_CASE_ID), because the analysis-only case is published evidence.
+#
+#  HERO_VERIFY_GATE_IDEMPOTENCY=1 runs the retry proof instead of a run: a
+#  second execution that reads the lifecycle the first one recorded, confirms
+#  it, and dispatches nothing.  It needs HERO_GATE_EXECUTION_ID, which the
+#  first execution printed as its 'execution id', and it reads no case head at
+#  all -- so it resolves the same historical execution however far the case has
+#  since advanced.
+#
+#  HERO_GATE_REPEAT=1 runs the stronger repeat proof: the ordinary job first,
+#  then the same deployed job and image digest again with
+#  --repeat-gate-execution.  The second process replays the full hero path and
+#  re-derives the execution identity; no HERO_GATE_EXECUTION_ID is involved.
 #
 #  It reaches the agents over **Direct VPC egress**, which is what makes its
 #  call recognisable as internal traffic to a service deployed
@@ -114,6 +133,54 @@ if [[ "${HERO_DATABASE_DEPLOYMENT}" == "CLOUD_SQL" ]]; then
 else
   echo "  store     EPHEMERAL -- in memory, for the life of one execution, and not durable"
 fi
+#  **Where the Gate's own configuration rules are enforced, and the only
+#  place.**  env.sh defines HERO_GATE_MODE, HERO_GATE_CASE_ID and the derived
+#  HERO_RUN_CASE_ID unconditionally, because bootstrap, IAM verification,
+#  teardown and the source-agent deploys all source it and none of them
+#  composes a Gate.  This script is the one that asks for cloud execution, so
+#  this is where a mode nobody recognises, or a Gate case that collides with
+#  the published analysis-only one, becomes a refusal.
+muster::require_gate_configuration || exit 2
+
+echo "  case      ${HERO_RUN_CASE_ID}"
+if [[ "${HERO_GATE_MODE}" == "CLOUD_SQL_ACTION_GATE_SANDBOX" ]]; then
+  echo "  mode      CLOUD_SQL + ACTION_GATE_SANDBOX -- SANDBOX: NO REAL FUNDS TRANSFERRED"
+  echo "  gate      grants ${HERO_GATE_PRINCIPAL} exactly PAY, for ${TENANT_ID}"
+else
+  echo "  mode      ANALYSIS_ONLY -- the run stops at the analysis; no gate"
+fi
+
+#  Refused here as well as in the control plane, and for the reason every other
+#  precondition in this script is checked before the deploy: a refusal that
+#  arrives from inside a Cloud Run execution has already spent the model calls.
+if [[ "${HERO_GATE_MODE}" == "CLOUD_SQL_ACTION_GATE_SANDBOX" \
+      && "${HERO_DATABASE_DEPLOYMENT}" != "CLOUD_SQL" ]]; then
+  echo "  the Action Gate mode requires HERO_DATABASE_DEPLOYMENT=CLOUD_SQL." >&2
+  echo "  A durable execution lifecycle kept in memory is a proof about one" >&2
+  echo "  process, and this mode exists to make a claim about a database." >&2
+  exit 2
+fi
+if [[ "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ]]; then
+  if [[ "${HERO_GATE_MODE}" != "CLOUD_SQL_ACTION_GATE_SANDBOX" ]]; then
+    echo "  the idempotency proof needs HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+    exit 2
+  fi
+  if [[ -z "${HERO_GATE_EXECUTION_ID}" ]]; then
+    echo "  the idempotency proof needs HERO_GATE_EXECUTION_ID." >&2
+    echo "  It is the 'execution id' the first Gate execution printed: the" >&2
+    echo "  hash of the exact authorized intent, and the durable primary key" >&2
+    echo "  of its row.  A retry names that execution, not the case and not" >&2
+    echo "  whatever the case currently proposes -- so it still resolves after" >&2
+    echo "  the head has moved on." >&2
+    exit 2
+  fi
+fi
+if [[ "${HERO_GATE_REPEAT:-0}" == "1" \
+      && "${CONTROL_PLANE_IMAGE}" != *@sha256:* ]]; then
+  echo "  the repeat proof requires CONTROL_PLANE_IMAGE pinned with @sha256:." >&2
+  echo "  Both executions must run the same reviewed image digest." >&2
+  exit 2
+fi
 
 #  Written to a file, by the same emitter 50-deploy.sh uses -- see
 #  muster::env_entry in env.sh.  The same defect was latent here: these values
@@ -124,7 +191,7 @@ muster::env_file "${HERO_JOB}"
 env_file="${MUSTER_ENV_FILE}"
 {
   muster::env_entry MUSTER_HERO_TENANT "${TENANT_ID}"
-  muster::env_entry MUSTER_HERO_CASE "${HERO_CASE_ID}"
+  muster::env_entry MUSTER_HERO_CASE "${HERO_RUN_CASE_ID}"
   muster::env_entry MUSTER_HERO_SITE_ENDPOINT "${SITE_URL}"
   muster::env_entry MUSTER_HERO_EMPLOYER_ENDPOINT "${EMPLOYER_URL}"
   muster::env_entry MUSTER_HERO_SITE_KEY_REF "${SITE_KEY_REF}"
@@ -133,6 +200,9 @@ env_file="${MUSTER_ENV_FILE}"
   muster::env_entry MUSTER_HERO_EMPLOYER_PUBLIC_KEY "${EMPLOYER_PUBLIC}"
   muster::env_entry MUSTER_HERO_RAW_OBJECT "gs://${EVIDENCE_BUCKET}/${HERO_RAW_OBJECT}"
   muster::env_entry MUSTER_DATABASE_DEPLOYMENT "${HERO_DATABASE_DEPLOYMENT}"
+  muster::env_entry MUSTER_HERO_GATE_MODE "${HERO_GATE_MODE}"
+  muster::env_entry MUSTER_HERO_GATE_PRINCIPAL "${HERO_GATE_PRINCIPAL}"
+  muster::env_entry MUSTER_HERO_GATE_EXECUTION_ID "${HERO_GATE_EXECUTION_ID}"
   muster::env_entry MUSTER_TRACE_PROJECT_ID "${PROJECT_ID}"
   muster::env_entry MUSTER_TRACE_JOB_NAME "${HERO_JOB}"
   muster::env_entry MUSTER_TRACE_CLOUD_RUN_REGION "${REGION}"
@@ -257,6 +327,173 @@ if [[ "${HERO_EXECUTE:-1}" != "1" ]]; then
   exit 0
 fi
 
+#  The exact-repeat proof is two executions of this one deployed job, with no
+#  deploy between them.  The first uses the job's ordinary entry point.  The
+#  second changes only the container argument, asking the same image digest to
+#  replay the full case and call the same ActionGate.execute path again.
+if [[ "${HERO_GATE_REPEAT:-0}" == "1" ]]; then
+  muster::banner "running the first gate execution as ${CONTROL_PLANE_SA}"
+  set +e
+  muster::execute_job "${HERO_JOB}"
+  first_status=$?
+  set -e
+  first_execution="${MUSTER_EXECUTION}"
+
+  muster::banner "repeating the full gate execution as ${CONTROL_PLANE_SA}"
+  set +e
+  muster::execute_job "${HERO_JOB}" --args="--repeat-gate-execution"
+  repeat_status=$?
+  set -e
+  repeat_execution="${MUSTER_EXECUTION}"
+
+  first_logs="$(mktemp "${TMPDIR:-/tmp}/muster-gate-first.XXXXXX")"
+  repeat_logs="$(mktemp "${TMPDIR:-/tmp}/muster-gate-repeat.XXXXXX")"
+  trap 'rm -f "${first_logs}" "${repeat_logs}"; muster::env_cleanup' EXIT
+  first_read=1
+  repeat_read=1
+  if ! muster::execution_output "${HERO_JOB}" "${first_execution}" > "${first_logs}"; then
+    first_read=0
+  fi
+  if ! muster::execution_output "${HERO_JOB}" "${repeat_execution}" > "${repeat_logs}"; then
+    repeat_read=0
+  fi
+
+  muster::banner "what the first execution printed"
+  [[ ! -s "${first_logs}" ]] || cat "${first_logs}"
+  muster::banner "what the repeat execution printed"
+  [[ ! -s "${repeat_logs}" ]] || cat "${repeat_logs}"
+
+  if [[ ${first_status} -eq 2 || ${repeat_status} -eq 2 \
+        || ${first_read} -ne 1 || ${repeat_read} -ne 1 ]]; then
+    {
+      echo "  One or both execution outputs could not be read, so the exact-repeat"
+      echo "  result is UNDETERMINED.  Nothing is claimed about duplicate prevention."
+    } >&2
+    exit 4
+  fi
+  if [[ ${first_status} -ne 0 || ${repeat_status} -ne 0 ]]; then
+    echo "  the exact-repeat proof was not established; read both outputs above" >&2
+    exit 1
+  fi
+
+  first_id="$(sed -n 's/^[[:space:]]*execution id[[:space:]]*//p' "${first_logs}" | tail -n 1)"
+  repeat_id="$(sed -n 's/^[[:space:]]*execution id[[:space:]]*//p' "${repeat_logs}" | tail -n 1)"
+  first_reference="$(sed -n 's/^[[:space:]]*external reference[[:space:]]*//p' "${first_logs}" | tail -n 1)"
+  repeat_reference="$(sed -n 's/^[[:space:]]*external reference[[:space:]]*//p' "${repeat_logs}" | tail -n 1)"
+  first_state="$(sed -n 's/^[[:space:]]*state[[:space:]]*//p' "${first_logs}" | tail -n 1)"
+  repeat_state="$(sed -n 's/^[[:space:]]*state[[:space:]]*//p' "${repeat_logs}" | tail -n 1)"
+  first_dispatches="$(sed -n 's/^[[:space:]]*dispatches this run[[:space:]]*//p' "${first_logs}" | tail -n 1)"
+  repeat_dispatches="$(sed -n 's/^[[:space:]]*dispatches this run[[:space:]]*//p' "${repeat_logs}" | tail -n 1)"
+
+  if [[ -z "${first_id}" || -z "${repeat_id}" \
+        || -z "${first_reference}" || -z "${repeat_reference}" \
+        || -z "${first_state}" || -z "${repeat_state}" \
+        || -z "${first_dispatches}" || -z "${repeat_dispatches}" ]]; then
+    echo "  The execution outputs were incomplete, so the exact-repeat result is UNDETERMINED." >&2
+    exit 4
+  fi
+  if [[ "${first_id}" != "${repeat_id}" \
+        || "${first_reference}" != "${repeat_reference}" \
+        || "${first_state}" != "CONFIRMED" \
+        || "${repeat_state}" != "CONFIRMED" \
+        || "${first_dispatches}" != "1" \
+        || "${repeat_dispatches}" != "0" ]]; then
+    echo "  the two executions did not establish exact-repeat idempotency" >&2
+    exit 1
+  fi
+
+  echo "  exact repeat re-derived ${repeat_id}; one dispatch across both executions"
+  exit 0
+fi
+
+#  The retry proof is a *different invocation of the same job*, deliberately:
+#  a second Cloud Run execution, a second process, a second connection, and no
+#  shared memory with the first.  That is the whole claim -- an idempotency read
+#  that only worked inside the process that executed would be no claim at all.
+#
+#  ``--args`` carries the flag and **not** the script path.  The control-plane
+#  image's ENTRYPOINT is already ``["python", "/app/demo/cloud_hero.py"]``, and
+#  Cloud Run appends the container args to it: naming the script here as well
+#  -- which is what 85-database-bootstrap.sh does, correctly, because that job
+#  overrides the command with ``--command="python"`` -- would run
+#
+#      python /app/demo/cloud_hero.py /app/demo/cloud_hero.py --verify-...
+#
+#  and argparse would refuse an argument nobody meant to pass.  There is also
+#  no leading '/' in the value, so the Git Bash path rewriting that
+#  ``muster::gcloud_container_args`` exists for cannot apply to it.
+if [[ "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ]]; then
+  muster::banner "verifying gate idempotency as ${CONTROL_PLANE_SA}"
+  set +e
+  muster::execute_job "${HERO_JOB}" --args="--verify-gate-idempotency"
+  status=$?
+  set -e
+  execution="${MUSTER_EXECUTION}"
+
+  muster::banner "what it printed"
+  #  The proof is what this execution *printed*, and reading it is required
+  #  rather than attempted.
+  #
+  #  A Cloud Run execution that succeeded is not by itself a duplicate-prevention
+  #  proof: the claim being made is that the retry read a durable CONFIRMED row
+  #  and dispatched nothing, and every term of that claim -- the state, the
+  #  execution id, ``dispatches this run 0`` -- lives in the output.  An exit
+  #  status of zero with no readable output says a process ended well and says
+  #  nothing about what it decided, so printing the proof line off that alone
+  #  would be asserting the thing this stage exists to demonstrate.
+  #
+  #  Unreadable output is therefore undetermined, not negative and not proved:
+  #  the same exit 4 the evidence path below returns when it cannot read what it
+  #  is bound to.  Scoped to ${execution} for the reason that path is scoped.
+  #  Bash keeps one EXIT trap, so this handler has to do everything the one it
+  #  replaces did.  ``muster::env_file`` installed ``muster::env_cleanup`` on
+  #  EXIT when it made MUSTER_ENV_DIR, and a bare ``rm -f`` here would silently
+  #  disarm it -- leaving the 0700 directory holding this job's env-vars file
+  #  behind on every run, which is the one thing env.sh's own note promises does
+  #  not happen.  ``muster::env_cleanup`` is idempotent and returns 0, so
+  #  calling it here and from the INT/TERM handlers costs nothing.
+  retry_logs="$(mktemp "${TMPDIR:-/tmp}/muster-gate-retry.XXXXXX")"
+  trap 'rm -f "${retry_logs}"; muster::env_cleanup' EXIT
+  retry_read=1
+  if ! muster::execution_output "${HERO_JOB}" "${execution}" > "${retry_logs}"; then
+    retry_read=0
+  fi
+  if [[ -s "${retry_logs}" ]]; then
+    cat "${retry_logs}"
+  fi
+
+  echo
+  if [[ ${status} -eq 2 ]]; then
+    cat >&2 <<UNDETERMINED
+
+  The retry's outcome could not be read, so this run has no verdict about
+  idempotency -- not a negative one.  ${execution:-(no execution was named)} is
+  what to look at:
+
+      gcloud run jobs executions describe ${execution:-EXECUTION} \
+        --project=${PROJECT_ID} --region=${REGION}
+
+UNDETERMINED
+    exit 4
+  fi
+
+  if [[ ${status} -eq 0 ]]; then
+    if [[ ${retry_read} -ne 1 ]]; then
+      {
+        echo "  the retry execution succeeded, but its own output could not be read, so"
+        echo "  whether anything was dispatched is undetermined.  Nothing is claimed:"
+        echo "      gcloud run jobs executions describe ${execution} \\"
+        echo "        --project=${PROJECT_ID} --region=${REGION}"
+      } >&2
+      exit 4
+    fi
+    echo "  the durable execution was already CONFIRMED, and nothing was dispatched"
+    exit 0
+  fi
+  echo "  the idempotency proof was not established; read ${execution} above" >&2
+  exit "${status}"
+fi
+
 muster::banner "running it as ${CONTROL_PLANE_SA}"
 #  One execution, named by the call that created it.  ``muster::execute_job``
 #  leaves that name in MUSTER_EXECUTION and waits for that execution alone --
@@ -277,8 +514,10 @@ muster::banner "what it printed"
 #  Scoped to ${execution}, and to nothing else.  Keep the exact bytes that are
 #  shown, because the machine record is captured from this same bounded read --
 #  never from a second query that might observe a different ingestion state.
+#  Chained to ``muster::env_cleanup`` for the reason spelled out at the retry
+#  branch above: one EXIT trap, so replacing it means re-installing what it did.
 trace_logs="$(mktemp "${TMPDIR:-/tmp}/muster-case-trace.XXXXXX")"
-trap 'rm -f "${trace_logs}"' EXIT
+trap 'rm -f "${trace_logs}"; muster::env_cleanup' EXIT
 logs_read=1
 if ! muster::execution_output "${HERO_JOB}" "${execution}" > "${trace_logs}"; then
   logs_read=0
