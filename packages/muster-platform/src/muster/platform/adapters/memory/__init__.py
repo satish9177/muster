@@ -85,6 +85,7 @@ from muster.platform.gate.model import (
     ExecutionRecord,
     ExecutionState,
     binding_mismatches,
+    reconciliation_transition_is_legal,
     transition_is_legal,
 )
 from muster.platform.gate.ports import (
@@ -92,6 +93,7 @@ from muster.platform.gate.ports import (
     ExecutionRepository,
     ExecutionStoreError,
     ExecutionStoreFailure,
+    ReconciliationClaim,
     Reservation,
 )
 
@@ -813,6 +815,54 @@ class MemoryExecutionRepository:
         )
         self.records.executions[(self.tenant_id, execution_key)] = updated
         return Ok(updated)
+
+    def reconcile(
+        self,
+        execution_key: ExecutionKey,
+        *,
+        source_state: ExecutionState,
+        state: ExecutionState,
+        outcome_code: str,
+        external_reference: str | None,
+        detail: str | None,
+        now: Instant,
+    ) -> Result[ReconciliationClaim, ExecutionStoreError]:
+        _require_writable(self.writable, "action_gate.execution")
+        durable = self._durable(now)
+        if durable is not None:
+            return durable
+        if not reconciliation_transition_is_legal(source_state, state):
+            return Err(
+                ExecutionStoreError(
+                    ExecutionStoreFailure.ILLEGAL_TRANSITION,
+                    f"{source_state.value} -> {state.value}",
+                )
+            )
+        current = self.read(execution_key)
+        if isinstance(current, Err):
+            return current
+        if current.value.state is source_state:
+            updated = replace(
+                current.value,
+                state=state,
+                finalized_at=(
+                    now if current.value.finalized_at is None else current.value.finalized_at
+                ),
+                outcome_code=outcome_code,
+                external_reference=external_reference,
+                detail=detail,
+                reconciled_at=now,
+                reconciled_from=current.value.state,
+            )
+            self.records.executions[(self.tenant_id, execution_key)] = updated
+            return Ok(ReconciliationClaim(updated, applied=True))
+        if current.value.state in {
+            ExecutionState.CONFIRMED,
+            ExecutionState.FAILED,
+            ExecutionState.UNCERTAIN,
+        }:
+            return Ok(ReconciliationClaim(current.value, applied=False))
+        return self._illegal(current.value.state, state)
 
     def _for_case(self, case_id: str) -> ExecutionRecord | None:
         found = [

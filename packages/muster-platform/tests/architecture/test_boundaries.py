@@ -122,6 +122,7 @@ ALLOWED: dict[str, frozenset[str]] = {
     "adapters.sql.head": frozenset({"casework.ports"}),
     "adapters.sql.requests": frozenset({"casework.ports"}),
     "adapters.sql.executions": frozenset({"casework.ports", "gate.model", "gate.ports"}),
+    "adapters.sql.sandbox_rail": frozenset({"gate.executor"}),
     "adapters.sql.database": frozenset(
         {
             "casework.ports",

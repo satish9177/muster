@@ -396,6 +396,8 @@ def _execution_response(status: GateReadModel | None, dispatch_count: int) -> di
             "lifecycle": ["AUTHORIZED"],
             "dispatch_count": dispatch_count,
             "automatic_retry": False,
+            "reconciled_at": None,
+            "reconciled_from": None,
         }
     lifecycle = ["AUTHORIZED", "RESERVED"]
     if status.durable_state is not ExecutionState.RESERVED:
@@ -420,6 +422,12 @@ def _execution_response(status: GateReadModel | None, dispatch_count: int) -> di
         "lifecycle": lifecycle,
         "dispatch_count": dispatch_count,
         "automatic_retry": False,
+        # Durable reconciliation provenance, projected verbatim. A null pair is
+        # an outcome the dispatching process established itself.
+        "reconciled_at": status.reconciled_at,
+        "reconciled_from": (
+            None if status.reconciled_from is None else status.reconciled_from.value
+        ),
     }
 
 

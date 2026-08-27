@@ -24,6 +24,23 @@ export type GateFinality =
   | "DEFINITELY_EXECUTED"
   | "OUTCOME_UNKNOWN";
 
+/** The only durable states an outcome may have been reconciled away from. */
+export type ReconciledFrom = "DISPATCHED" | "UNCERTAIN";
+
+/**
+ * The durable reconciliation edges, mirroring the backend state machine.
+ *
+ * These are the backend's legal transitions and nothing more: RESERVED is not
+ * reconcilable, CONFIRMED and FAILED are never reopened, and an already
+ * UNCERTAIN row is only ever promoted to a final outcome.
+ */
+const RECONCILIATION_TRANSITIONS: Readonly<
+  Record<ReconciledFrom, readonly DurableGateState[]>
+> = {
+  DISPATCHED: ["CONFIRMED", "FAILED", "UNCERTAIN"],
+  UNCERTAIN: ["CONFIRMED", "FAILED"],
+};
+
 export interface ActionGateReadModel {
   schemaVersion: typeof ACTION_GATE_SCHEMA_VERSION;
   caseId: string;
@@ -35,6 +52,10 @@ export interface ActionGateReadModel {
   finality: GateFinality;
   executionId: string | null;
   externalReference: string | null;
+  /** Durable provenance: when this outcome was established by observation. */
+  reconciledAt: number | null;
+  /** Durable provenance: the state the outcome was reconciled away from. */
+  reconciledFrom: ReconciledFrom | null;
   lifecycle: GateLifecycleStep[];
   dispatchCount: number;
   automaticRetry: false;
@@ -106,6 +127,8 @@ export function transformActionGateReadModel(input: unknown): ActionGateReadMode
     !isFinality(execution.finality) ||
     !isStringOrNull(execution.execution_id) ||
     !isStringOrNull(execution.external_reference) ||
+    !isInstantOrNull(execution.reconciled_at) ||
+    !isReconciledFromOrNull(execution.reconciled_from) ||
     !Array.isArray(execution.lifecycle) ||
     !execution.lifecycle.every(isLifecycleStep) ||
     !Number.isInteger(execution.dispatch_count) ||
@@ -136,6 +159,8 @@ export function transformActionGateReadModel(input: unknown): ActionGateReadMode
     finality: execution.finality,
     executionId: execution.execution_id,
     externalReference: execution.external_reference,
+    reconciledAt: execution.reconciled_at,
+    reconciledFrom: execution.reconciled_from,
     lifecycle: [...execution.lifecycle],
     dispatchCount: execution.dispatch_count as number,
     automaticRetry: false,
@@ -163,6 +188,22 @@ export function gateActionLabel(model: ActionGateReadModel): string {
 
 export function mayInvokeGate(model: ActionGateReadModel): boolean {
   return model.phase !== "UNCERTAIN" && model.phase !== "DISPATCHED";
+}
+
+/**
+ * Whether this execution still has no durable outcome.
+ *
+ * Reconciliation provenance never makes an execution final. An UNCERTAIN row
+ * that was inspected and remained unknown is exactly as unresolved as one that
+ * was never inspected, and the reader must keep treating it that way.
+ */
+export function reconciliationRequired(model: ActionGateReadModel): boolean {
+  return model.finality === "OUTCOME_UNKNOWN";
+}
+
+/** Whether this outcome was established by observing the executor. */
+export function wasReconciled(model: ActionGateReadModel): boolean {
+  return model.reconciledFrom !== null;
 }
 
 export function withActionGate(
@@ -247,6 +288,7 @@ function assertStateShape(model: ActionGateReadModel): void {
   if (model.lifecycle[0] !== "AUTHORIZED") {
     throw new Error("Action Gate lifecycle does not begin at authorization");
   }
+  assertReconciliationShape(model);
   switch (model.phase) {
     case "AUTHORIZED":
       if (
@@ -299,6 +341,24 @@ function assertStateShape(model: ActionGateReadModel): void {
   }
 }
 
+/**
+ * Fail closed on reconciliation provenance the backend could not have written.
+ *
+ * The two fields are durable and are recorded together, so a lone half is a
+ * corrupted or invented claim rather than a partial one, and the pair must name
+ * an edge the backend state machine actually permits.
+ */
+function assertReconciliationShape(model: ActionGateReadModel): void {
+  if ((model.reconciledAt === null) !== (model.reconciledFrom === null)) {
+    throw new Error("Action Gate reconciliation provenance is incomplete");
+  }
+  if (model.reconciledFrom === null) return;
+  const reachable = RECONCILIATION_TRANSITIONS[model.reconciledFrom];
+  if (model.durableState === null || !reachable.includes(model.durableState)) {
+    throw new Error("Action Gate reconciliation provenance is not a legal transition");
+  }
+}
+
 function isGatePhase(value: unknown): value is GatePhase {
   return GATE_PHASES.includes(value as GatePhase);
 }
@@ -320,6 +380,14 @@ function isFinality(value: unknown): value is GateFinality {
   return ["DEFINITELY_NOT_EXECUTED", "DEFINITELY_EXECUTED", "OUTCOME_UNKNOWN"].includes(
     value as string,
   );
+}
+
+function isReconciledFromOrNull(value: unknown): value is ReconciledFrom | null {
+  return value === null || value === "DISPATCHED" || value === "UNCERTAIN";
+}
+
+function isInstantOrNull(value: unknown): value is number | null {
+  return value === null || (Number.isInteger(value) && (value as number) >= 0);
 }
 
 function isDigest(value: unknown): value is string {

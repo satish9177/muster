@@ -299,6 +299,24 @@ def transition_is_legal(before: ExecutionState, after: ExecutionState) -> bool:
     }
 
 
+def reconciliation_transition_is_legal(
+    before: ExecutionState, after: ExecutionState
+) -> bool:
+    """Whether an observation may refine an already-dispatched outcome.
+
+    Kept separate from dispatch finalization so reconciliation cannot make a
+    reservation actionable or reopen an outcome the durable row already made
+    definite.
+    """
+    return (before, after) in {
+        (ExecutionState.DISPATCHED, ExecutionState.CONFIRMED),
+        (ExecutionState.DISPATCHED, ExecutionState.FAILED),
+        (ExecutionState.DISPATCHED, ExecutionState.UNCERTAIN),
+        (ExecutionState.UNCERTAIN, ExecutionState.CONFIRMED),
+        (ExecutionState.UNCERTAIN, ExecutionState.FAILED),
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionRecord:
     """The durable lifecycle and its safe execution proof."""
@@ -312,6 +330,8 @@ class ExecutionRecord:
     external_reference: str | None = None
     outcome_code: str | None = None
     detail: str | None = None
+    reconciled_at: Instant | None = None
+    reconciled_from: ExecutionState | None = None
 
     def __post_init__(self) -> None:
         if not self.requested_by:
@@ -356,6 +376,19 @@ class ExecutionRecord:
             self.dispatched_at is None or self.finalized_at < self.dispatched_at
         ):
             raise InvariantViolation("finalization cannot precede dispatch")
+        if (self.reconciled_at is None) != (self.reconciled_from is None):
+            raise InvariantViolation(
+                "reconciliation time and source state are recorded together"
+            )
+        if self.reconciled_from is not None:
+            if not reconciliation_transition_is_legal(self.reconciled_from, self.state):
+                raise InvariantViolation(
+                    "reconciliation metadata does not describe a legal transition"
+                )
+            if self.finalized_at is None or self.reconciled_at is None:
+                raise InvariantViolation("a reconciled execution carries final timestamps")
+            if self.reconciled_at < self.finalized_at:
+                raise InvariantViolation("reconciliation cannot precede finalization")
 
     @property
     def execution_key(self) -> ExecutionKey:
@@ -375,11 +408,23 @@ class GateReadState(Enum):
 
 @dataclass(frozen=True, slots=True)
 class GateReadModel:
+    """What a reader may know about one durable execution.
+
+    ``reconciled_at`` and ``reconciled_from`` are the durable provenance of an
+    outcome that was established by observing the executor rather than by the
+    dispatching process itself.  They are projected verbatim from the record:
+    the read model states what happened, and never invents a UI-only state for
+    it.  An unresolved ``UNCERTAIN`` execution stays ``UNCERTAIN`` with
+    ``OUTCOME_UNKNOWN`` finality whether or not it carries this provenance.
+    """
+
     execution_id: str
     state: GateReadState
     durable_state: ExecutionState
     finality: Finality
     external_reference: str | None
+    reconciled_at: Instant | None = None
+    reconciled_from: ExecutionState | None = None
 
 
 def read_model(record: ExecutionRecord) -> GateReadModel:
@@ -396,4 +441,6 @@ def read_model(record: ExecutionRecord) -> GateReadModel:
         durable_state=record.state,
         finality=record.finality,
         external_reference=record.external_reference,
+        reconciled_at=record.reconciled_at,
+        reconciled_from=record.reconciled_from,
     )

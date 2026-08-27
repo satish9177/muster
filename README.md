@@ -254,6 +254,44 @@ After dispatch, an uncertain outcome is never automatically redispatched, and a
 retry of an already-durable execution is an *idempotency read*: it returns the
 recorded lifecycle without crossing the executor boundary again.
 
+`RESERVED` is not a stuck state and has no separate recovery API. It is the
+state machine's proof that dispatch has *not* occurred, and `execute()` already
+carries a durable reservation forward: a later process re-derives the same
+execution key, finds the row, and attempts the `RESERVED → DISPATCHED`
+conditional update, which is itself the single-winner ownership mechanism.
+
+A row left `DISPATCHED` or `UNCERTAIN` is different, because an external effect
+may already have happened. Those are **reconciled**, not retried:
+`reconcile_execution` asks the executor's own durable record what actually
+happened, and applies the answer to the existing row.
+
+```text
+DISPATCHED → CONFIRMED | FAILED | UNCERTAIN
+UNCERTAIN  → CONFIRMED | FAILED
+```
+
+`CONFIRMED` and `FAILED` stay final, `RESERVED` is not reconciled through this
+API, and reconciliation has **no redispatch path at all**. The executor is
+authoritative for the effect it owns: MUSTER never infers an outcome from
+elapsed time, process death, a missing finalize, or local memory, and there is
+no lease, timeout, heartbeat or background reconciler. Many reconcilers may
+inspect concurrently because inspection never dispatches or creates the effect;
+exactly one durable Gate compare-and-swap changes the row, and every loser is
+handed the winner's record. The sandbox external-world protocol may atomically
+seal a never-attempted idempotency key with durable negative evidence, which
+prevents a later dispatch from starting and makes `NotExecuted` provable.
+Each reconciled row records `reconciled_from` and `reconciled_at`, which the
+read model and the UI surface as provenance without ever changing the state or
+the finality it reports.
+
+The reconcilable executor used by the proofs keeps its record in a separate
+`sandbox_rail` PostgreSQL schema, on its own connection, so the executor's world
+survives the death of the MUSTER process. It commits `ATTEMPTED` before the
+transfer; an attempted key without a visible transfer remains unknown, and only
+a completed transfer or durable explicit negative evidence resolves it. **That rail is a simulated external
+system: it transfers no real funds, it is not a payment provider or a payment
+rail, and it is not production financial infrastructure.**
+
 A retry names that execution by its **execution key** — `sha256` over the
 canonical octets of the exact authorized `ActionIntent`, and the primary key of
 the row holding them. Nothing about that identity comes from the case's current
@@ -268,6 +306,11 @@ covered by the local suite -- including PostgreSQL duplicate-prevention and
 concurrency proofs -- and has not been run against Google Cloud. The Action Gate
 was not part of the verified Stage-90 cloud execution, and this sentence stays
 until a real run replaces it.
+
+**Executor reconciliation is likewise not live-verified.** It is proved locally
+over PostgreSQL, real process death and concurrent contenders. It has **not**
+been run on Cloud Run, against Cloud SQL reconciliation, against a deployed
+sandbox rail, in a deployed runtime, or against any real payment provider.
 
 ## Verified Google Cloud Execution
 

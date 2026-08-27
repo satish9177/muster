@@ -587,6 +587,15 @@ button:focus-visible {
   border-color: #e8b9bc;
 }
 
+.gate-reconciliation {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  gap: 1px;
+  color: #727c8d;
+  font-size: 10px;
+}
+
 .case-workspace {
   width: 100%;
   min-height: 0;

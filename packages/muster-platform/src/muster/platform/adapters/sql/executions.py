@@ -18,12 +18,14 @@ from muster.platform.gate.model import (
     ExecutionState,
     binding_mismatches,
     read_action_intent,
+    reconciliation_transition_is_legal,
     transition_is_legal,
 )
 from muster.platform.gate.ports import (
     DispatchClaim,
     ExecutionStoreError,
     ExecutionStoreFailure,
+    ReconciliationClaim,
     Reservation,
 )
 
@@ -33,7 +35,7 @@ _COLUMNS = """
     bundle_manifest_digest, authorization_context_digest,
     action_schema_digest, action_digest, action_kind, gate_id, executor_id,
     requested_by, state, reserved_at, dispatched_at, finalized_at,
-    external_reference, outcome_code, detail
+    external_reference, outcome_code, detail, reconciled_at, reconciled_from
 """
 
 _INSERT = f"""
@@ -44,7 +46,7 @@ INSERT INTO action_gate.execution (
     %(revision_number)s, %(revision)s, %(certificate)s, %(kernel_result)s,
     %(bundle)s, %(authorization)s, %(action_schema)s, %(action)s,
     %(action_kind)s, %(gate)s, %(executor)s, %(requested_by)s,
-    'RESERVED', %(now)s, NULL, NULL, NULL, NULL, NULL
+    'RESERVED', %(now)s, NULL, NULL, NULL, NULL, NULL, NULL, NULL
 )
 ON CONFLICT DO NOTHING
 RETURNING {_COLUMNS}
@@ -91,6 +93,23 @@ UPDATE action_gate.execution
        outcome_code = %(outcome_code)s, detail = %(detail)s
  WHERE tenant_id = %(tenant)s AND execution_id = %(execution)s
    AND state = 'DISPATCHED'
+RETURNING {_COLUMNS}
+"""  # noqa: S608
+
+_RECONCILE = f"""
+UPDATE action_gate.execution
+   SET state = %(state)s,
+       -- DISPATCHED has no final timestamp; UNCERTAIN already has the timestamp
+       -- of its original unknown finalization and reconciliation preserves it.
+       finalized_at = COALESCE(finalized_at, %(now)s),
+       external_reference = %(external_reference)s,
+       outcome_code = %(outcome_code)s, detail = %(detail)s,
+       -- SET expressions see the pre-update row, so this atomically records
+       -- the exact source state whose compare-and-swap succeeded.
+       reconciled_at = %(now)s, reconciled_from = state
+ WHERE tenant_id = %(tenant)s AND execution_id = %(execution)s
+   AND state IN ('DISPATCHED', 'UNCERTAIN')
+   AND state = %(source_state)s
 RETURNING {_COLUMNS}
 """  # noqa: S608
 
@@ -278,6 +297,59 @@ class SqlExecutionRepository:
             return Ok(_record(self.tenant_id, row))
         return self._transition_refusal(execution_key, state)
 
+    def reconcile(
+        self,
+        execution_key: ExecutionKey,
+        *,
+        source_state: ExecutionState,
+        state: ExecutionState,
+        outcome_code: str,
+        external_reference: str | None,
+        detail: str | None,
+        now: Instant,
+    ) -> Result[ReconciliationClaim, ExecutionStoreError]:
+        durable = _durable(now)
+        if durable is not None:
+            return durable
+        if not reconciliation_transition_is_legal(source_state, state):
+            return Err(
+                ExecutionStoreError(
+                    ExecutionStoreFailure.ILLEGAL_TRANSITION,
+                    f"{source_state.value} -> {state.value}",
+                )
+            )
+        row = self.connection.execute(
+            _RECONCILE,
+            {
+                "tenant": self.tenant_id,
+                "execution": execution_key.octets,
+                "source_state": source_state.value,
+                "state": state.value,
+                "now": now,
+                "external_reference": external_reference,
+                "outcome_code": outcome_code,
+                "detail": detail,
+            },
+        ).fetchone()
+        if row is not None:
+            return Ok(ReconciliationClaim(_record(self.tenant_id, row), applied=True))
+
+        current = self.read(execution_key)
+        if isinstance(current, Err):
+            return current
+        if current.value.state is not source_state and current.value.state in {
+            ExecutionState.CONFIRMED,
+            ExecutionState.FAILED,
+            ExecutionState.UNCERTAIN,
+        }:
+            return Ok(ReconciliationClaim(current.value, applied=False))
+        return Err(
+            ExecutionStoreError(
+                ExecutionStoreFailure.ILLEGAL_TRANSITION,
+                f"{current.value.state.value} -> {state.value}",
+            )
+        )
+
     def _transition_refusal(
         self, execution_key: ExecutionKey, after: ExecutionState
     ) -> Result[ExecutionRecord, ExecutionStoreError]:
@@ -349,6 +421,8 @@ def _record(tenant_id: str, row: tuple[object, ...]) -> ExecutionRecord:
         external_reference=_optional_text(row[19]),
         outcome_code=_optional_text(row[20]),
         detail=_optional_text(row[21]),
+        reconciled_at=_optional_integer(row[22]),
+        reconciled_from=_optional_execution_state(row[23]),
     )
 
 
@@ -376,3 +450,7 @@ def _text(value: object) -> str:
 
 def _optional_text(value: object) -> str | None:
     return None if value is None else _text(value)
+
+
+def _optional_execution_state(value: object) -> ExecutionState | None:
+    return None if value is None else ExecutionState(_text(value))

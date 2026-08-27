@@ -535,6 +535,105 @@ unknown outcome and requires reconciliation against the executor; the Gate will
 not guess. If the executor raises after possibly having accepted, the outcome is
 recorded as `UNCERTAIN` rather than as a failure.
 
+**Recovering a `RESERVED` execution.** `RESERVED` is not a stuck state and needs
+no separate recovery API. It is the state machine's proof that dispatch has
+*not* occurred: nothing was sent, so there is nothing to reason about.
+`execute()` already carries a durable reservation forward. A later process
+presenting the same `ActionIntent` re-derives the same `ExecutionKey`, finds the
+existing row and attempts the `RESERVED → DISPATCHED` conditional update —
+and that conditional update *is* the single-winner ownership mechanism. Exactly
+one caller wins it and reaches the executor; every other caller reads the
+durable row. U5 added a real process-death proof of this behaviour: a child
+interpreter reserves, commits and exits through `os._exit` before any dispatch,
+and a fresh process recovers the same row to `CONFIRMED` with exactly one
+dispatch and one external transfer. U5 did **not** introduce a new recovery API
+for `RESERVED`.
+
+The read paths are the deliberate exception: `read_authorized_execution`
+refuses a reservation with `RESERVED_WITHOUT_DISPATCH`, and
+`reconcile_execution` refuses it with `NOTHING_TO_RECONCILE`. Neither reaches
+the executor, and the reasoning is the same in both — see *The idempotency read*
+below.
+
+**Reconciling `DISPATCHED` and `UNCERTAIN`.** These are fundamentally different
+from `RESERVED`, because an external effect may already have happened. MUSTER
+does not retry them and does not guess: it asks the executor.
+
+`ActionGate.reconcile_execution` takes an authenticated caller, a tenant and an
+`ExecutionLookup`, applies the same authority and binding checks as the
+idempotency read, and — for a row in `DISPATCHED` or `UNCERTAIN` — calls
+`inspect()` on the executor. Reconciliation **never redispatches**: there is no
+code path from it to `dispatch()`, and an adversarial test asserts that
+syntactically over the service's own AST.
+
+`inspect()` is observational. It reads the executor's durable record of the
+effect the executor owns, and answers:
+
+| Answer | Meaning | Reconciled state |
+|---|---|---|
+| `ExecutedAs(external_reference)` | the executor holds the effect | `CONFIRMED` |
+| `NotExecuted(code, detail)` | the executor holds no such effect | `FAILED` |
+| `StillUnknown(code, detail)` | the executor cannot say | `UNCERTAIN` |
+
+An executor that does not implement `ReconcilableExecutor` is refused with
+`EXECUTOR_NOT_RECONCILABLE` rather than being interpreted, and an exception
+raised inside `inspect()` is `StillUnknown`, never a failure.
+
+The reconciliation transitions are exactly:
+
+```
+DISPATCHED ──► CONFIRMED | FAILED | UNCERTAIN
+UNCERTAIN  ──► CONFIRMED | FAILED
+```
+
+`RESERVED` is not reconciled through this API: it answers
+`NOTHING_TO_RECONCILE` and never reaches the executor. `CONFIRMED` and `FAILED`
+remain final — reconciling one returns the existing record unchanged. A
+`StillUnknown` answer over a row that is *already* `UNCERTAIN` does not rewrite
+it merely to produce a fresh timestamp.
+
+Each reconciled row carries its own provenance. `reconciled_from` records the
+state the compare-and-swap actually moved away from, and `reconciled_at` when it
+did. A `DISPATCHED` reconciliation establishes a normal `finalized_at` if the
+dying process never did; an `UNCERTAIN` reconciliation preserves the original
+`finalized_at`. Database `CHECK` constraints refuse a lone half of the pair, a
+`reconciled_from` outside `DISPATCHED`/`UNCERTAIN`, an illegal source/target
+pair, and a `reconciled_at` before finalization. The Gate read model projects
+both fields verbatim, so a reader can distinguish an outcome the dispatching
+process established itself from one established by later observation — without
+that provenance ever changing the state or the finality.
+
+**The executor trust boundary.** The executor is authoritative for the external
+effect it owns, and it is the only authority MUSTER consults about that effect.
+MUSTER never infers the result from elapsed time, from process death, from a
+missing finalize, or from anything held in local memory. There is no lease, no
+timeout, no ownership heartbeat and no background reconciler anywhere in the
+Gate.
+
+**The crash window this closes.** The dangerous interleaving is:
+
+```
+the external system accepts the action
+   ──► the MUSTER process dies before it can finalize
+   ──► the durable Gate row is left DISPATCHED
+   ──► a later process calls reconcile_execution
+   ──► inspect() finds the executor's record of that same effect
+   ──► the existing row reconciles to CONFIRMED
+   ──► zero redispatches, one external effect
+```
+
+The row is the same row and the key is the same key: reconciliation never opens
+a second execution, a second identity or a second table.
+
+**Concurrency.** Many reconcilers may `inspect()` at once, because inspection is
+read-only and changes nothing. Exactly one durable compare-and-swap changes the
+row; PostgreSQL serializes the contenders on it, and every loser is handed the
+winner's record rather than a conflict. Eight independently constructed
+deployments — separate `SqlDatabase`, gate, authority and executor objects,
+sharing only the DSN — race this in the suite and return one identical
+confirmation, with zero dispatches and an unchanged external world. No lease,
+heartbeat, timeout or automatic retry participates.
+
 An exact full repeat uses this same path, not a second execution mechanism.
 `reserve` attempts the same PostgreSQL insert with `ON CONFLICT DO NOTHING`,
 reads the winner, and verifies every binding with `binding_mismatches`. For a
@@ -566,6 +665,26 @@ executor boundary is unfinished work, and finishing it is an action.
 > The current browser demo uses **local PostgreSQL** and a **sandbox executor**.
 > No real funds are transferred, and no payment rail exists in this repository.
 > The sandbox executor mints deterministic synthetic transaction references.
+
+**The durable sandbox rail.** Reconciliation is only meaningful if the
+executor's world outlives the MUSTER process, so the reconcilable executor used
+by the suite keeps its protocol and effect records in a separate `sandbox_rail`
+schema, written on connections and transactions entirely outside
+`action_gate.execution`. Dispatch commits an `ATTEMPTED` marker before starting
+the transfer transaction. `ATTEMPTED` without a visible transfer is unknown;
+a transfer row is executed; and `NotExecuted` requires durable
+`DEFINITIVELY_NOT_EXECUTED` evidence. An inspection that finds no marker first
+seals the key with that negative evidence, whose primary key prevents a later
+dispatch from starting. That separation and ordering are the point: the rail
+survives the death of the Gate process independently of MUSTER's custody, which
+is what makes a real process-death proof possible at all.
+
+> The sandbox rail is a **simulated external system**, not infrastructure. It
+> transfers **no real funds**. It is **not a payment provider and not a payment
+> rail**; it holds no account and no credential for one, and it must not be
+> presented as production financial infrastructure. It exists so that "the
+> external world already accepted this" is something a test can make durably
+> true and then observe from a different process.
 
 The Action Gate was **not** part of the verified Stage-90 cloud execution. That
 run stops at the analysis by design: no gate, nothing authorized, nothing
@@ -669,6 +788,8 @@ sanitized artifact
 | Durable semantic revalidation | **No — not run against live Cloud SQL** | Yes — local PostgreSQL, independent OS processes | Stored construction, publications and entries are reverified; Q-12 and replay reproduce the certificate with zero writes and dispatches |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
+| Executor reconciliation | **No — not run against Cloud Run, Cloud SQL or a deployed rail** | Yes — local PostgreSQL, real process death | `DISPATCHED`/`UNCERTAIN` rows reconciled by inspecting the executor, with zero redispatch |
+| Durable sandbox rail | **No — not deployed** | Yes — local PostgreSQL schema | Simulated external world. Not a payment provider or payment rail |
 | Payment | — | Sandbox only | No payment rail. No real funds transferred |
 
 The demo and the acceptance suite call the same functions. There is no branch
@@ -791,7 +912,11 @@ MUSTER does **not**:
 9. claim all evidence remained in `asia-south1` — evidence content, including
    raw PNG bytes, is sent to Vertex AI at the `global` location by the
    authorized source agent;
-10. claim the UI is cloud-deployed — it is a local Vite application.
+10. claim the UI is cloud-deployed — it is a local Vite application;
+11. claim executor reconciliation has been live-verified — it is proved locally
+    over PostgreSQL and real process death, and has **not** been run on Cloud
+    Run, against Cloud SQL reconciliation, against a deployed sandbox rail, in a
+    deployed runtime, or against any real payment provider.
 
 The system is a hackathon implementation over synthetic fixtures. It is not
 represented as hardened for production use.

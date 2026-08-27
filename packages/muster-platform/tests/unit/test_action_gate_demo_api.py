@@ -26,7 +26,12 @@ from muster.platform.adapters.sql.database import SqlDatabase
 from muster.platform.adapters.sql.executions import SqlExecutionRepository
 from muster.platform.gate.authority import GateCaller
 from muster.platform.gate.executor import SandboxMode
-from muster.platform.gate.model import ExecutionState
+from muster.platform.gate.model import (
+    ExecutionState,
+    GateReadModel,
+    GateReadState,
+    finality,
+)
 
 pytestmark = pytest.mark.postgres
 
@@ -449,6 +454,9 @@ def test_uncertain_and_failed_are_distinct_api_states(
     assert execution["durable_state"] == durable_state
     assert execution["finality"] == finality
     assert execution["automatic_retry"] is False
+    # Nothing has observed the executor, so the wire carries no provenance.
+    assert execution["reconciled_at"] is None
+    assert execution["reconciled_from"] is None
     assert application.executor.dispatch_count == 1
 
 
@@ -475,3 +483,50 @@ def test_uncertain_remains_uncertain_across_restart(
     assert restarted["execution"]["execution_id"] == first["execution"]["execution_id"]
     assert restarted["execution"]["finality"] == "OUTCOME_UNKNOWN"
     assert restarted["process_dispatch_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("state", "source", "external_reference"),
+    [
+        (ExecutionState.CONFIRMED, ExecutionState.DISPATCHED, "sandbox-pay-1"),
+        (ExecutionState.CONFIRMED, ExecutionState.UNCERTAIN, "sandbox-pay-1"),
+        (ExecutionState.FAILED, ExecutionState.DISPATCHED, None),
+        (ExecutionState.UNCERTAIN, ExecutionState.DISPATCHED, None),
+    ],
+)
+def test_the_wire_shape_reports_durable_reconciliation_provenance(
+    state: ExecutionState,
+    source: ExecutionState,
+    external_reference: str | None,
+) -> None:
+    """The API states what the durable row says, and adds no UI-only status."""
+    read_state = {
+        ExecutionState.CONFIRMED: GateReadState.EXECUTED,
+        ExecutionState.FAILED: GateReadState.FAILED,
+        ExecutionState.UNCERTAIN: GateReadState.UNCERTAIN,
+    }[state]
+    status = GateReadModel(
+        execution_id="ab" * 32,
+        state=read_state,
+        durable_state=state,
+        finality=finality(state),
+        external_reference=external_reference,
+        reconciled_at=91,
+        reconciled_from=source,
+    )
+
+    execution = action_gate_api._execution_response(status, dispatch_count=0)
+
+    assert execution["durable_state"] == state.value
+    assert execution["finality"] == finality(state).value
+    assert execution["reconciled_at"] == 91
+    assert execution["reconciled_from"] == source.value
+    assert execution["automatic_retry"] is False
+
+
+def test_an_unreserved_proposal_reports_null_reconciliation_provenance() -> None:
+    execution = action_gate_api._execution_response(None, dispatch_count=0)
+
+    assert execution["phase"] == "AUTHORIZED"
+    assert execution["reconciled_at"] is None
+    assert execution["reconciled_from"] is None

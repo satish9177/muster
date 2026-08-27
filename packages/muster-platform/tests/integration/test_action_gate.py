@@ -392,3 +392,56 @@ def test_execution_uniqueness_is_proposal_scoped_not_case_scoped(
     }
     assert indexes == set(constraints)
     assert "action_gate_one_lifecycle_per_case" not in constraints
+
+
+def test_postgres_rejects_invalid_reconciliation_metadata_combinations(
+    database: SqlDatabase, migrated_dsn: str, tenant_id: str, case_id: str
+) -> None:
+    casework = ravi.casework(database)
+    case = ravi.ravi(tenant_id, case_id, attested=True)
+    open_ravi(casework, case)
+    append_all(casework, case, now=ravi.NOW)
+    _report, request = proposal(casework, case)
+    caller = GateCaller("postgres-reconciliation-constraint-operator")
+    executor = SandboxPaymentExecutor()
+    gate = ActionGate(
+        casework=casework,
+        executor=executor,
+        authority=LocalExecutionAuthority(
+            (
+                ExecutionGrant(
+                    principal_id=caller.principal_id,
+                    tenant_id=tenant_id,
+                    action_kind="PAY",
+                    gate_id=executor.trusted_gate_id,
+                    executor_id=executor.executor_id,
+                ),
+            )
+        ),
+    )
+    executed = gate.execute(
+        caller=caller, tenant_id=tenant_id, request=request, now=ravi.NOW
+    )
+    assert isinstance(executed, Ok)
+
+    mutations = (
+        "SET reconciled_at = finalized_at",
+        "SET reconciled_at = finalized_at, reconciled_from = 'RESERVED'",
+        "SET state = 'UNCERTAIN', external_reference = NULL, "
+        "reconciled_at = finalized_at, reconciled_from = 'UNCERTAIN'",
+        "SET reconciled_at = finalized_at - 1, reconciled_from = 'DISPATCHED'",
+    )
+    with psycopg.connect(migrated_dsn, autocommit=True) as connection:
+        for mutation in mutations:
+            with pytest.raises(psycopg.errors.CheckViolation), connection.transaction():
+                connection.execute(
+                    f"UPDATE action_gate.execution {mutation} "
+                    "WHERE tenant_id = %s AND execution_id = %s",
+                    (tenant_id, executed.value.execution_key.octets),
+                )
+        row = connection.execute(
+            "SELECT state, reconciled_at, reconciled_from "
+            "FROM action_gate.execution WHERE tenant_id = %s AND execution_id = %s",
+            (tenant_id, executed.value.execution_key.octets),
+        ).fetchone()
+    assert row == ("CONFIRMED", None, None)

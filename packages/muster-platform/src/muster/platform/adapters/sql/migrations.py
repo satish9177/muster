@@ -465,12 +465,114 @@ _ACTION_GATE_DOWN: tuple[str, ...] = (
 )
 
 
+#  Reconciliation adds provenance to the existing lifecycle row.  Migration 5's
+#  state-shape and timestamp-order constraints remain untouched: the new checks
+#  are cumulative, so a reconciled row must satisfy every original lifecycle
+#  invariant as well as the narrower observational transition rules below.
+_ACTION_GATE_RECONCILIATION_UP: tuple[str, ...] = (
+    """
+    ALTER TABLE action_gate.execution
+        ADD COLUMN reconciled_at bigint,
+        ADD COLUMN reconciled_from text
+    """,
+    """
+    ALTER TABLE action_gate.execution
+        ADD CONSTRAINT action_gate_reconciliation_metadata_pair CHECK (
+            (reconciled_at IS NULL) = (reconciled_from IS NULL)
+        ),
+        ADD CONSTRAINT action_gate_reconciled_from_closed CHECK (
+            reconciled_from IS NULL OR reconciled_from IN ('DISPATCHED', 'UNCERTAIN')
+        ),
+        ADD CONSTRAINT action_gate_reconciliation_transition CHECK (
+            reconciled_from IS NULL
+            OR (reconciled_from = 'DISPATCHED'
+                AND state IN ('CONFIRMED', 'FAILED', 'UNCERTAIN'))
+            OR (reconciled_from = 'UNCERTAIN'
+                AND state IN ('CONFIRMED', 'FAILED'))
+        ),
+        ADD CONSTRAINT action_gate_reconciliation_timestamps CHECK (
+            reconciled_at IS NULL OR (
+                dispatched_at IS NOT NULL
+                AND finalized_at IS NOT NULL
+                AND reconciled_at >= finalized_at
+            )
+        )
+    """,
+)
+
+_ACTION_GATE_RECONCILIATION_DOWN: tuple[str, ...] = (
+    """
+    ALTER TABLE action_gate.execution
+        DROP CONSTRAINT action_gate_reconciliation_timestamps,
+        DROP CONSTRAINT action_gate_reconciliation_transition,
+        DROP CONSTRAINT action_gate_reconciled_from_closed,
+        DROP CONSTRAINT action_gate_reconciliation_metadata_pair
+    """,
+    """
+    ALTER TABLE action_gate.execution
+        DROP COLUMN reconciled_from,
+        DROP COLUMN reconciled_at
+    """,
+)
+
+
+#  This schema is deliberately outside MUSTER custody.  It is the durable
+#  external world of the sandbox simulation: no tenant, case, intent, Gate
+#  state, executor identity, or foreign key connects it to action_gate.execution.
+#  No real payment rail is represented and no real funds move.
+_DURABLE_SANDBOX_RAIL_UP: tuple[str, ...] = (
+    "CREATE SCHEMA sandbox_rail",
+    """
+    CREATE TABLE sandbox_rail.attempt (
+        idempotency_key text  PRIMARY KEY,
+        outcome         text  NOT NULL,
+        failure_code    text,
+        failure_detail  text,
+        CONSTRAINT sandbox_attempt_outcome CHECK (
+            outcome IN ('ATTEMPTED', 'DEFINITIVELY_NOT_EXECUTED')
+        ),
+        CONSTRAINT sandbox_attempt_evidence_shape CHECK (
+            (outcome = 'ATTEMPTED'
+                AND failure_code IS NULL AND failure_detail IS NULL)
+            OR (outcome = 'DEFINITIVELY_NOT_EXECUTED'
+                AND failure_code IS NOT NULL AND failure_detail IS NOT NULL)
+        )
+    )
+    """,
+    """
+    CREATE TABLE sandbox_rail.transfer (
+        idempotency_key   text    PRIMARY KEY,
+        external_reference text  NOT NULL UNIQUE,
+        accepted_at       bigint  NOT NULL
+    )
+    """,
+)
+
+_DURABLE_SANDBOX_RAIL_DOWN: tuple[str, ...] = (
+    "DROP TABLE sandbox_rail.transfer",
+    "DROP TABLE sandbox_rail.attempt",
+    "DROP SCHEMA sandbox_rail",
+)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "case_custody", _INITIAL_UP, _INITIAL_DOWN),
     Migration(2, "case_commitment", _COMMITMENT_UP, _COMMITMENT_DOWN),
     Migration(3, "authority_and_catalog", _AUTHORITY_UP, _AUTHORITY_DOWN),
     Migration(4, "authority_publication_state", _PUBLICATION_STATE_UP, _PUBLICATION_STATE_DOWN),
     Migration(5, "deterministic_action_gate", _ACTION_GATE_UP, _ACTION_GATE_DOWN),
+    Migration(
+        6,
+        "action_gate_reconciliation",
+        _ACTION_GATE_RECONCILIATION_UP,
+        _ACTION_GATE_RECONCILIATION_DOWN,
+    ),
+    Migration(
+        7,
+        "durable_sandbox_external_world",
+        _DURABLE_SANDBOX_RAIL_UP,
+        _DURABLE_SANDBOX_RAIL_DOWN,
+    ),
 )
 
 #  The ledger. Created by the runner rather than by a migration, because a

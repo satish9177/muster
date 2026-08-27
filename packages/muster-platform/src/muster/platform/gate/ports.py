@@ -44,6 +44,14 @@ class DispatchClaim:
     acquired: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ReconciliationClaim:
+    """Result of the durable reconciliation compare-and-swap."""
+
+    record: ExecutionRecord
+    applied: bool
+
+
 class ExecutionRepository(Protocol):
     def reserve(
         self, intent: ActionIntent, *, requested_by: str, now: Instant
@@ -77,3 +85,17 @@ class ExecutionRepository(Protocol):
         detail: str | None,
         now: Instant,
     ) -> Result[ExecutionRecord, ExecutionStoreError]: ...
+
+    def reconcile(
+        self,
+        execution_key: ExecutionKey,
+        *,
+        source_state: ExecutionState,
+        state: ExecutionState,
+        outcome_code: str,
+        external_reference: str | None,
+        detail: str | None,
+        now: Instant,
+    ) -> Result[ReconciliationClaim, ExecutionStoreError]:
+        """Observationally refine DISPATCHED/UNCERTAIN through one durable CAS."""
+        ...

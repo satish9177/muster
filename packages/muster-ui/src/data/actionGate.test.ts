@@ -8,11 +8,14 @@ import {
   gateActionLabel,
   HttpActionGateClient,
   mayInvokeGate,
+  reconciliationRequired,
   transformActionGateReadModel,
+  wasReconciled,
 } from "./actionGate";
 
 function specimen(
   phase: "AUTHORIZED" | "EXECUTED" | "UNCERTAIN" | "FAILED" = "AUTHORIZED",
+  reconciliation: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const states = {
     AUTHORIZED: {
@@ -56,6 +59,9 @@ function specimen(
     execution: {
       phase,
       ...states[phase],
+      reconciled_at: null,
+      reconciled_from: null,
+      ...reconciliation,
       automatic_retry: false,
       existing_confirmation_returned: phase === "EXECUTED",
     },
@@ -130,5 +136,122 @@ describe("Action Gate client and read model", () => {
     execution.external_reference = null;
 
     expect(() => transformActionGateReadModel(malformed)).toThrow(/durable confirmation/);
+  });
+});
+
+describe("durable reconciliation provenance", () => {
+  it("leaves an ordinary outcome with no provenance and still valid", () => {
+    for (const phase of ["AUTHORIZED", "EXECUTED", "UNCERTAIN", "FAILED"] as const) {
+      const model = transformActionGateReadModel(specimen(phase));
+      expect(model.reconciledAt).toBeNull();
+      expect(model.reconciledFrom).toBeNull();
+      expect(wasReconciled(model)).toBe(false);
+    }
+  });
+
+  it("carries DISPATCHED provenance onto a reconciled final outcome", () => {
+    for (const phase of ["EXECUTED", "FAILED"] as const) {
+      const model = transformActionGateReadModel(
+        specimen(phase, { reconciled_at: 1717171717, reconciled_from: "DISPATCHED" }),
+      );
+      expect(model.reconciledAt).toBe(1717171717);
+      expect(model.reconciledFrom).toBe("DISPATCHED");
+      expect(wasReconciled(model)).toBe(true);
+      expect(reconciliationRequired(model)).toBe(false);
+    }
+  });
+
+  it("carries UNCERTAIN provenance onto a promoted final outcome", () => {
+    for (const phase of ["EXECUTED", "FAILED"] as const) {
+      const model = transformActionGateReadModel(
+        specimen(phase, { reconciled_at: 1717171718, reconciled_from: "UNCERTAIN" }),
+      );
+      expect(model.reconciledFrom).toBe("UNCERTAIN");
+      expect(reconciliationRequired(model)).toBe(false);
+    }
+  });
+
+  it("keeps an inspected-but-still-unknown execution reconciliation-required", () => {
+    const model = transformActionGateReadModel(
+      specimen("UNCERTAIN", { reconciled_at: 1717171719, reconciled_from: "DISPATCHED" }),
+    );
+
+    expect(model.durableState).toBe("UNCERTAIN");
+    expect(model.finality).toBe("OUTCOME_UNKNOWN");
+    expect(reconciliationRequired(model)).toBe(true);
+    expect(mayInvokeGate(model)).toBe(false);
+    expect(gateActionLabel(model)).toBe("Automatic retry disabled");
+
+    const markup = renderToStaticMarkup(
+      createElement(ActionGatePanel, { gate: model, unavailableReason: null }),
+    );
+    expect(markup).toContain("Automatic retry disabled · reconciliation required");
+    expect(markup).toContain("No redispatch occurred");
+    expect(markup).not.toMatch(/<button/);
+  });
+
+  it("reports a reconciled confirmation as observed, never as redispatched", () => {
+    const model = transformActionGateReadModel(
+      specimen("EXECUTED", { reconciled_at: 1717171720, reconciled_from: "DISPATCHED" }),
+    );
+    const markup = renderToStaticMarkup(
+      createElement(ActionGatePanel, { gate: model, unavailableReason: null }),
+    );
+
+    expect(markup).toContain("EXECUTED ONCE · SANDBOX");
+    expect(markup).toContain("Outcome established by inspecting the executor");
+    expect(markup).toContain("No redispatch occurred");
+    expect(markup).not.toMatch(/<button/);
+    expect(markup.toLowerCase()).not.toContain("retry");
+  });
+
+  it.each([
+    ["a lone source state", { reconciled_from: "DISPATCHED" }, /provenance is incomplete/],
+    ["a lone timestamp", { reconciled_at: 1717171721 }, /provenance is incomplete/],
+    [
+      "a source state outside the reconcilable pair",
+      { reconciled_at: 1717171721, reconciled_from: "RESERVED" },
+      /execution state is malformed/,
+    ],
+    [
+      "a source state that is the current state",
+      { reconciled_at: 1717171721, reconciled_from: "CONFIRMED" },
+      /execution state is malformed/,
+    ],
+    [
+      "a negative timestamp",
+      { reconciled_at: -1, reconciled_from: "DISPATCHED" },
+      /execution state is malformed/,
+    ],
+    [
+      "a fractional timestamp",
+      { reconciled_at: 1.5, reconciled_from: "DISPATCHED" },
+      /execution state is malformed/,
+    ],
+    [
+      "a string timestamp",
+      { reconciled_at: "1717171721", reconciled_from: "DISPATCHED" },
+      /execution state is malformed/,
+    ],
+  ])("fails closed on %s", (_name, reconciliation, expected) => {
+    expect(() => transformActionGateReadModel(specimen("EXECUTED", reconciliation))).toThrow(
+      expected,
+    );
+  });
+
+  it("fails closed on provenance an unreserved proposal could not have", () => {
+    expect(() =>
+      transformActionGateReadModel(
+        specimen("AUTHORIZED", { reconciled_at: 1717171722, reconciled_from: "DISPATCHED" }),
+      ),
+    ).toThrow(/not a legal transition/);
+  });
+
+  it("fails closed on a rewrite of UNCERTAIN onto itself", () => {
+    expect(() =>
+      transformActionGateReadModel(
+        specimen("UNCERTAIN", { reconciled_at: 1717171723, reconciled_from: "UNCERTAIN" }),
+      ),
+    ).toThrow(/not a legal transition/);
   });
 });

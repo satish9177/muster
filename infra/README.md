@@ -684,6 +684,14 @@ non-zero if anything else survived.
   records an outcome against a *synthetic sandbox* executor. There is no
   payment provider, no account and no credential for one, and no mode of this
   deployment transfers real funds.
+* **No cloud executor reconciliation has been verified.** `reconcile_execution`
+  asks an executor's own durable record what happened to a `DISPATCHED` or
+  `UNCERTAIN` execution and never redispatches. It is proved locally over
+  PostgreSQL, real process death and concurrent contenders, against a simulated
+  `sandbox_rail` schema that transfers no real funds and is **not** a payment
+  provider or payment rail. Nothing here has been run against Cloud SQL
+  reconciliation, a deployed rail, a deployed runtime, or a real payment
+  provider.
 * **No cloud Action Gate has been verified yet.** The verified hero job is the
   analysis-only one: no gate, nothing authorized, nothing settled. Cloud Action
   Gate support is implemented and covered by the local suite, and it has not

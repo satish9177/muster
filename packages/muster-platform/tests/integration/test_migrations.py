@@ -128,6 +128,128 @@ def test_migrating_twice_applies_each_version_once(scratch_database: str) -> Non
 
 
 @pytest.mark.postgres
+def test_reconciliation_migration_is_additive_and_its_down_restores_version_five(
+    scratch_database: str,
+) -> None:
+    migrate(scratch_database)
+    with psycopg.connect(scratch_database) as connection:
+        columns_at_six = {
+            row[0]
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'action_gate' AND table_name = 'execution'"
+            ).fetchall()
+        }
+        constraints_at_six = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'action_gate.execution'::regclass"
+            ).fetchall()
+        }
+    assert {"reconciled_at", "reconciled_from"} <= columns_at_six
+    assert {
+        "action_gate_reconciliation_metadata_pair",
+        "action_gate_reconciled_from_closed",
+        "action_gate_reconciliation_transition",
+        "action_gate_reconciliation_timestamps",
+        "action_gate_state_shape",
+        "action_gate_timestamps_ordered",
+    } <= constraints_at_six
+
+    assert revert(scratch_database, to_version=5) == (7, 6)
+    with psycopg.connect(scratch_database) as connection:
+        columns_at_five = {
+            row[0]
+            for row in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'action_gate' AND table_name = 'execution'"
+            ).fetchall()
+        }
+        constraints_at_five = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'action_gate.execution'::regclass"
+            ).fetchall()
+        }
+    assert "reconciled_at" not in columns_at_five
+    assert "reconciled_from" not in columns_at_five
+    assert "action_gate_state_shape" in constraints_at_five
+    assert "action_gate_timestamps_ordered" in constraints_at_five
+    assert not any(name.startswith("action_gate_reconcil") for name in constraints_at_five)
+    assert migrate(scratch_database) == (6, 7)
+
+
+@pytest.mark.postgres
+def test_durable_sandbox_external_world_has_attempt_evidence_and_own_down(
+    scratch_database: str,
+) -> None:
+    """Migration 7 is a simulation outside custody, never another execution table."""
+    migrate(scratch_database)
+    with psycopg.connect(scratch_database) as connection:
+        attempt_columns = connection.execute(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'sandbox_rail' AND table_name = 'attempt' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+        transfer_columns = connection.execute(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'sandbox_rail' AND table_name = 'transfer' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+        attempt_constraints = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint "
+                "WHERE conrelid = 'sandbox_rail.attempt'::regclass"
+            ).fetchall()
+        }
+        transfer_constraints: dict[str, str] = dict(
+            connection.execute(
+                "SELECT conname, pg_get_constraintdef(oid) "
+                "FROM pg_constraint "
+                "WHERE conrelid = 'sandbox_rail.transfer'::regclass"
+            ).fetchall()
+        )
+
+    assert attempt_columns == [
+        ("idempotency_key", "text", "NO"),
+        ("outcome", "text", "NO"),
+        ("failure_code", "text", "YES"),
+        ("failure_detail", "text", "YES"),
+    ]
+    assert transfer_columns == [
+        ("idempotency_key", "text", "NO"),
+        ("external_reference", "text", "NO"),
+        ("accepted_at", "bigint", "NO"),
+    ]
+    assert attempt_constraints == {
+        "attempt_pkey",
+        "sandbox_attempt_outcome",
+        "sandbox_attempt_evidence_shape",
+    }
+    assert transfer_constraints == {
+        "transfer_pkey": "PRIMARY KEY (idempotency_key)",
+        "transfer_external_reference_key": "UNIQUE (external_reference)",
+    }
+
+    assert revert(scratch_database, to_version=6) == (7,)
+    with psycopg.connect(scratch_database) as connection:
+        schema_exists = connection.execute(
+            "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'sandbox_rail'"
+        ).fetchone()
+        action_gate_exists = connection.execute(
+            "SELECT to_regclass('action_gate.execution')"
+        ).fetchone()
+    assert schema_exists is None
+    assert action_gate_exists == ("action_gate.execution",)
+    assert migrate(scratch_database) == (7,)
+
+
+@pytest.mark.postgres
 def test_explicit_bootstrap_is_repeatable_and_proves_the_schema_current(
     scratch_database: str,
 ) -> None:

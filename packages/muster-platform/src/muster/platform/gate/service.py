@@ -1,6 +1,6 @@
 """Imperative shell: validate, reserve, mark dispatch, call once, record finality.
 
-Two entry points, and the difference between them is the whole U2 design.
+Three entry points, with action, durable read and observation kept distinct.
 
 :meth:`ActionGate.execute` is the **only** way a proposal becomes an execution.
 It authenticates the caller, replays the case, derives every imperative field
@@ -27,6 +27,12 @@ The two are kept apart deliberately.  A single method that fell back from one
 to the other would be a method where a validation failure and a durable
 success are one code path, and the first bug in it would be an execution
 created on evidence nobody checked.
+
+:meth:`ActionGate.reconcile_execution` is the U5 observational path.  It loads
+through the idempotency read's complete authority and binding boundary, asks
+only the stored intent's executor about an execution already in DISPATCHED or
+UNCERTAIN, and records the answer through a durable compare-and-swap.  It never
+dispatches and cannot make RESERVED actionable.
 """
 
 from __future__ import annotations
@@ -44,7 +50,12 @@ from muster.platform.gate.executor import (
     ActionExecutor,
     Confirmed,
     DefiniteFailure,
+    ExecutedAs,
     ExecutorDispatch,
+    ExecutorInquiry,
+    NotExecuted,
+    ReconcilableExecutor,
+    StillUnknown,
     UnknownOutcome,
 )
 from muster.platform.gate.model import (
@@ -83,6 +94,8 @@ class GateFailure(Enum):
     #  executor boundary.  U2 does not carry a reservation forward from another
     #  process -- see ``read_authorized_execution``.
     RESERVED_WITHOUT_DISPATCH = "RESERVED_WITHOUT_DISPATCH"
+    NOTHING_TO_RECONCILE = "NOTHING_TO_RECONCILE"
+    EXECUTOR_NOT_RECONCILABLE = "EXECUTOR_NOT_RECONCILABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +318,38 @@ class ActionGate:
         the original dispatch produced.  None of them is redispatched, here or
         anywhere else.
         """
+        loaded = self._load_authorized_execution(
+            caller=caller,
+            tenant_id=tenant_id,
+            lookup=lookup,
+        )
+        if isinstance(loaded, Err):
+            return loaded
+        record = loaded.value
+        if record.state is ExecutionState.RESERVED:
+            return Err(
+                GateRejection(
+                    GateFailure.RESERVED_WITHOUT_DISPATCH,
+                    "a durable reservation has not crossed the executor boundary, and "
+                    "this milestone does not carry one forward from another process",
+                )
+            )
+        return Ok(record)
+
+    def _load_authorized_execution(
+        self,
+        *,
+        caller: GateCaller,
+        tenant_id: str,
+        lookup: ExecutionLookup,
+    ) -> Result[ExecutionRecord, GateRejection]:
+        """Load one exact stored execution after every read-side authority check.
+
+        The ordering is part of the boundary: authenticate before touching the
+        store, then prove the stored identity and bindings, then authorize the
+        action kind read from the canonical stored intent.  Callers may impose
+        narrower state-specific rules only after this loader succeeds.
+        """
         if not self.authority.may_invoke(
             caller,
             tenant_id=tenant_id,
@@ -374,15 +419,105 @@ class ActionGate:
                     f"{caller.principal_id!r} may not read executions of {intent.action.kind}",
                 )
             )
+        return Ok(record)
+
+    def reconcile_execution(
+        self,
+        *,
+        caller: GateCaller,
+        tenant_id: str,
+        lookup: ExecutionLookup,
+        now: Instant,
+    ) -> Result[ExecutionRecord, GateRejection]:
+        """Inspect and durably refine one already-dispatched execution.
+
+        Reconciliation is an observation, never another attempt to act.  It
+        first uses the same authenticated, exact-key loader as the idempotency
+        read, including every stored intent and Gate/executor binding check.
+        RESERVED is therefore visible but cannot cross the dispatch boundary;
+        definite durable outcomes are returned without consulting the executor.
+
+        Only DISPATCHED and UNCERTAIN reach the executor's read-only ``inspect``
+        boundary, with the stored canonical intent and its existing execution
+        key.  The answer is written by one compare-and-swap whose source states
+        are explicit.  If another reconciler wins, its durable answer is the
+        result.  No branch in this method calls ``dispatch`` or reconstructs an
+        action from current case state.
+        """
+        loaded = self._load_authorized_execution(
+            caller=caller,
+            tenant_id=tenant_id,
+            lookup=lookup,
+        )
+        if isinstance(loaded, Err):
+            return loaded
+        record = loaded.value
         if record.state is ExecutionState.RESERVED:
             return Err(
                 GateRejection(
-                    GateFailure.RESERVED_WITHOUT_DISPATCH,
-                    "a durable reservation has not crossed the executor boundary, and "
-                    "this milestone does not carry one forward from another process",
+                    GateFailure.NOTHING_TO_RECONCILE,
+                    "the execution has not crossed the dispatch boundary",
                 )
             )
-        return Ok(record)
+        if record.state in {ExecutionState.CONFIRMED, ExecutionState.FAILED}:
+            return Ok(record)
+        if not isinstance(self.executor, ReconcilableExecutor):
+            return Err(
+                GateRejection(
+                    GateFailure.EXECUTOR_NOT_RECONCILABLE,
+                    f"executor {self.executor.executor_id!r} exposes no outcome inspection",
+                )
+            )
+
+        inquiry = ExecutorInquiry(
+            intent=record.intent,
+            idempotency_key=record.execution_key.hex,
+            gate_id=self.gate_id,
+        )
+        try:
+            answer = self.executor.inspect(inquiry)
+        except Exception as error:
+            # An observation that failed proves neither execution nor
+            # non-execution.  Persist UNKNOWN only when it refines DISPATCHED;
+            # an already-UNCERTAIN row remains byte-for-byte unchanged below.
+            answer = StillUnknown("EXECUTOR_INSPECTION_EXCEPTION", type(error).__name__)
+
+        state: ExecutionState
+        code: str
+        external_reference: str | None
+        detail: str | None
+        match answer:
+            case ExecutedAs(reference):
+                state = ExecutionState.CONFIRMED
+                code = "CONFIRMED"
+                external_reference = reference
+                detail = None
+            case NotExecuted(failure_code, failure_detail):
+                state = ExecutionState.FAILED
+                code = failure_code
+                external_reference = None
+                detail = failure_detail
+            case StillUnknown(unknown_code, unknown_detail):
+                if record.state is ExecutionState.UNCERTAIN:
+                    return Ok(record)
+                state = ExecutionState.UNCERTAIN
+                code = unknown_code
+                external_reference = None
+                detail = unknown_detail
+
+        with self.casework.database.writing(tenant_id) as scope:
+            reconciled = scope.executions.reconcile(
+                record.execution_key,
+                source_state=record.state,
+                state=state,
+                outcome_code=code,
+                external_reference=external_reference,
+                detail=detail,
+                now=now,
+            )
+        if isinstance(reconciled, Err):
+            return Err(_store_rejection(reconciled.error.failure, reconciled.error.detail))
+        return Ok(reconciled.value.record)
 
     def status(
         self, *, tenant_id: str, case_id: str

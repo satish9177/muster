@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, CircleDashed, ShieldCheck, X } from "lucide-react";
 
 import type { ActionGateReadModel, GateLifecycleStep } from "../data/actionGate";
+import { reconciliationRequired, wasReconciled } from "../data/actionGate";
 
 interface ActionGatePanelProps {
   gate: ActionGateReadModel | null;
@@ -24,6 +25,7 @@ export function ActionGatePanel({ gate, unavailableReason }: ActionGatePanelProp
             ))}
           </ol>
           <GateOutcome gate={gate} />
+          <GateReconciliation gate={gate} />
         </>
       ) : (
         <div className="gate-unavailable">
@@ -49,8 +51,27 @@ function GateStep({ step, current }: { step: GateLifecycleStep; current: boolean
   );
 }
 
+/**
+ * Read-only provenance for an outcome that was established by observation.
+ *
+ * There is deliberately no control here: reconciliation is something an
+ * operator invokes elsewhere, and this surface only reports that it happened.
+ */
+function GateReconciliation({ gate }: { gate: ActionGateReadModel }) {
+  if (!wasReconciled(gate)) return null;
+  return (
+    <p className="gate-reconciliation">
+      <span className="section-label">RECONCILED</span>
+      <span>
+        Outcome established by inspecting the executor, from {gate.reconciledFrom}. No
+        redispatch occurred.
+      </span>
+    </p>
+  );
+}
+
 function GateOutcome({ gate }: { gate: ActionGateReadModel }) {
-  if (gate.phase === "UNCERTAIN" || gate.phase === "DISPATCHED") {
+  if (reconciliationRequired(gate)) {
     return (
       <div className="gate-outcome uncertain">
         <AlertTriangle size={17} aria-hidden="true" />
