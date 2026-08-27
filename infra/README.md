@@ -116,7 +116,7 @@ was appended, which is a duplicate-prevention story with an expiry date.
 
 ### The repeat proof
 
-The stronger U3 proof runs the complete hero path twice as two executions of
+The full-repeat proof runs the complete hero path twice as two executions of
 one deployed Cloud Run job. It requires an immutable, digest-pinned control
 plane image and refuses before deployment when `CONTROL_PLANE_IMAGE` is only a
 tag:
@@ -147,6 +147,14 @@ denial check before reaching the Gate. The durable execution row itself is not
 rewritten by an exact repeat: its key, intent octets, lifecycle timestamps and
 outcome remain the first execution's values.
 
+U4 also makes the fixture-source population process-stable. The deployed Site
+and Employer key references still resolve only to their configured public
+halves; derived fixture keys are never used under those references. The local
+two-process PostgreSQL regression proves the repeat reaches the identical
+revision, certificate, execution id and external reference, and explicitly
+measures that the completed second pass has no outstanding acquisition: zero
+acquisition reports, zero transport requests and zero second dispatches.
+
 The retry **names** an execution id and reads its historical row. The repeat
 accepts no execution id: it **re-derives** one from the exact canonical
 `ActionIntent`. The same image digest matters because certificate reproduction
@@ -157,6 +165,36 @@ dispatch.
 This workflow is implemented and covered locally against PostgreSQL. It has not
 been run against live Cloud SQL or Google Cloud; doing so, capturing both Cloud
 Run execution names and preserving their outputs remains operator work.
+
+### The durable case revalidation proof
+
+U4 adds a read-only semantic proof beside the persistence and Gate proofs:
+
+```
+export HERO_DATABASE_DEPLOYMENT=CLOUD_SQL
+HERO_VERIFY_CASE_REVALIDATION=1 \
+PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
+```
+
+Stage 90 invokes the deployed job once with `--revalidate-durable-case`. The
+fresh process reads the durable head, re-admits the stored construction,
+re-verifies the pinned authority/revocation publications and every stored
+attestation, reruns Q-12, replays the transcript prefix and reproduces the
+stored revision and certificate. It calls no source, model, metadata authority,
+Gate or executor; it derives no execution identity and opens no write scope.
+
+Success output includes the tenant and case, revision/certificate/construction/
+authorization-context digests, transcript membership count and digest, status,
+`certificate reproduced true`, the number of entries reverified, `writes 0`
+and `dispatches 0`. Unreadable output is `UNDETERMINED` (exit 4); a negative
+revalidation is exit 1. `HERO_VERIFY_CASE_REVALIDATION` is a strict `0`/`1`
+request, is refused under `EPHEMERAL`, and cannot be combined with the Gate
+repeat or idempotency proof.
+
+This revalidation and the cross-process repeat are **proven locally** with real
+PostgreSQL and independent OS processes. They have **not** been run against
+live Cloud SQL or as deployed Cloud Run/Job U4 executions; metadata and runtime
+behaviour in such a run remain operator work.
 
 ## The worked run, in the project
 

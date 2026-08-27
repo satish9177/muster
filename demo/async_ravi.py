@@ -407,6 +407,7 @@ def _state_model(report: CaseReport, members: set[str]) -> dict[str, object]:
         },
         "transcript_entry_count": len(members),
         "outstanding_request_count": len(report.outstanding),
+        "certificate_reproduced": report.certificate_reproduced,
     }
 
 

@@ -28,7 +28,11 @@ def test_separate_process_retry_and_resume_preserve_the_same_case(
     assert first["authored_entries_created"] > 0
     assert retry["authored_entries_created"] == 0
     assert retry["state"]["head"] == first["state"]["head"]
+    assert first["state"]["certificate_reproduced"] is True
+    assert retry["state"]["certificate_reproduced"] is True
     assert resumed["loaded_state"] == first["state"]
+    assert resumed["loaded_state"]["certificate_reproduced"] is True
+    assert resumed["state"]["certificate_reproduced"] is True
     assert resumed["prior_employer_entry_preserved"] is True
     assert resumed["state"]["head"]["revision_number"] > first["state"]["head"][
         "revision_number"

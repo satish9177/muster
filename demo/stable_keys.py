@@ -1,9 +1,9 @@
 """Process-stable synthetic keys shared by MUSTER's durable demos.
 
-The keys derived here protect no real system. The cloud hero uses them only
-for the officer, authority-publisher, and catalog-publisher populations on its
-synthetic hero tenant; it never derives a source key held by a deployed agent.
-The local durable Ravi demo also uses a separate derived source population so
+The keys derived here protect no real system. The cloud hero uses them for the
+officer, authority-publisher, catalog-publisher, and fixture-source populations
+on its synthetic hero tenant; it never derives a source key held by a deployed
+agent. The local durable Ravi demo also uses the derived source population so
 its entirely synthetic case can survive a process restart.
 """
 

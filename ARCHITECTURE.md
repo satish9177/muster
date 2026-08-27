@@ -575,15 +575,17 @@ settled, and that remains the default for every Stage-90 run.
 > deliberate `HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX` runs the same
 > deterministic Gate over Cloud SQL custody against the same synthetic sandbox
 > executor. The earlier retry mode names an execution key and only reads the
-> recorded lifecycle. U3's repeat mode accepts no key: a second execution of the
+> recorded lifecycle. The repeat mode accepts no key: a second execution of the
 > same digest-pinned job reconstructs the stable synthetic officer, authority
-> publisher and catalog publisher identities, replays the full hero case,
+> publisher, catalog publisher and fixture-source identities, replays the full
+> hero case,
 > re-derives the identical intent and calls `ActionGate.execute()` again. The
-> deployed agents' source keys remain the real configured source keys; the
-> publicly derivable stable material is confined to synthetic hero control-plane
-> populations. The repeat re-applies authority/catalog publication and case
-> admission, so it is not a pure read, but an exact confirmed execution row is
-> returned without redispatch. This is covered locally across PostgreSQL and
+> deployed agents' source keys remain the real configured source keys; derived
+> fixture-source keys are confined to the synthetic hero population and are
+> never minted under deployed references. The repeat re-applies
+> authority/catalog publication and case admission, so it is not a pure read,
+> but an exact confirmed execution row is returned without redispatch. This is
+> covered locally across PostgreSQL and
 > separate OS processes and has not been run against Google Cloud, so nothing in
 > this document claims a verified cloud execution of it. The mode is refused
 > under ephemeral custody and runs its own case, so the verified analysis-only
@@ -664,6 +666,7 @@ sanitized artifact
 | Certificate rebuild | Yes — `certificate_reproduced: true` | Yes | Determinism class `REPRODUCIBLE` |
 | Action Gate | **No — not executed in any verified run** | Yes | The captured cloud trace records `NOT_EXECUTED`. Cloud Gate support is implemented and not deployed/verified |
 | PostgreSQL | **Yes — private Cloud SQL** | Yes — local Docker | Durable custody verified in execution `-tsjds`; a second execution read the identical identity back |
+| Durable semantic revalidation | **No — not run against live Cloud SQL** | Yes — local PostgreSQL, independent OS processes | Stored construction, publications and entries are reverified; Q-12 and replay reproduce the certificate with zero writes and dispatches |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
 | Payment | — | Sandbox only | No payment rail. No real funds transferred |
@@ -725,10 +728,13 @@ runtime role with SQLSTATE `42501`.
 `-zzs9w`, a separate Cloud Run execution in a separate process, read back an
 identical revision digest, certificate digest, construction digest,
 authorization-context digest, transcript count and transcript-membership digest.
-That is **persistence across process termination** and nothing more. It is not a
-restart, not a resume, and not cross-process re-validation: the second execution
-re-verified nothing, and could not, because the worked fixture's officer trust
-material is generated per process. That belongs to the durable-async milestone.
+Those two recorded cloud executions establish **persistence across process
+termination** and nothing more: the second execution re-verified nothing. U4
+now composes process-stable synthetic officer, publisher and fixture-source
+trust and proves semantic revalidation locally with real PostgreSQL and
+independent OS processes. That local proof does not retroactively turn the
+earlier Cloud Run read into revalidation, and U4 has not been run against live
+Cloud SQL or a deployed Cloud Run job.
 
 Deployment is scripted end to end in `infra/scripts/` (`00-enable-apis` through
 `99-teardown`), and the IAM posture is verified by `70-verify-iam.sh`, whose
@@ -775,9 +781,10 @@ MUSTER does **not**:
 5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
    at the analysis, and the cloud Gate mode is implemented, not
    deployed/verified;
-6. claim the cloud run *resumes* or *re-validates* a case across executions —
-   Cloud SQL custody is provisioned and verified, and what a second execution
-   established is persistence of durable identity, not re-verification;
+6. claim a live cloud run *resumes* or *re-validates* a case across executions —
+   U4 proves that property locally over PostgreSQL and independent OS processes,
+   while the recorded Cloud SQL executions establish persistence of durable
+   identity only;
 7. claim procurement ran in the cloud — it is a local deterministic proof;
 8. claim the Worker Agent reran during Stage-90 — the committed ADK path exists
    but was not deployed, and the claim was replayed from the fixture;

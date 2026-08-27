@@ -68,10 +68,12 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+from typing import Never
 
 REPOSITORY = Path(__file__).resolve().parent.parent
 #  The kernel, the control plane, and the fixture that holds the worked case.
@@ -86,21 +88,35 @@ for _entry in (
     if str(_entry) not in sys.path:
         sys.path.insert(0, str(_entry))
 
-from demo.stable_keys import _OfficerSigner, _public_key, _PublisherSigner  # noqa: E402
+from demo.stable_keys import (  # noqa: E402
+    _OfficerSigner,
+    _public_key,
+    _PublisherSigner,
+    _SourceSigner,
+)
 
 from muster.core.analysis.outcomes import Invariant, outcome_class  # noqa: E402
 from muster.core.authority.grants import canonical_grants  # noqa: E402
 from muster.core.authority.signing import PublisherRole  # noqa: E402
 from muster.core.evidence.delivery import AcquisitionTransport  # noqa: E402
 from muster.core.evidence.requests import EvidenceRequest  # noqa: E402
-from muster.core.evidence.signing import case_construction_preimage  # noqa: E402
-from muster.core.evidence.transcript import Statement, StatementRecord  # noqa: E402
+from muster.core.evidence.signing import (  # noqa: E402
+    attestation_preimage,
+    case_construction_preimage,
+)
+from muster.core.evidence.transcript import (  # noqa: E402
+    Attestation,
+    Statement,
+    StatementRecord,
+    TranscriptEntry,
+)
 from muster.core.results import Err, InvariantViolation, Ok, Result  # noqa: E402
 from muster.core.values.scalars import render  # noqa: E402
 from muster.core.values.times import Instant  # noqa: E402
 from muster.platform.adapters.crypto import (  # noqa: E402
     LocalEcdsaOfficerVerifier,
     LocalEcdsaPublisherVerifier,
+    LocalEcdsaSourceVerifier,
 )
 from muster.platform.adapters.http import (  # noqa: E402
     HttpAcquisitionTransport,
@@ -130,7 +146,11 @@ from muster.platform.casework.commands import (  # noqa: E402
     case_status,
     open_case,
 )
-from muster.platform.casework.ports import CaseHead, CaseworkDatabase  # noqa: E402
+from muster.platform.casework.ports import (  # noqa: E402
+    CaseHead,
+    CaseworkDatabase,
+    TenantScope,
+)
 from muster.platform.casework.snapshot import read_published  # noqa: E402
 from muster.platform.catalog.publish import (  # noqa: E402
     CatalogPublisher,
@@ -165,12 +185,12 @@ from support.authority import (  # noqa: E402
     AUTHORITY_PUBLISHER_KEY,
     CATALOG_PUBLISHER_KEY,
     OFFICER_KEY,
+    SOURCE_KEYS,
     catalog,
     payroll_grant,
     payroll_profile,
     site_grant,
     site_profile,
-    source_keyring,
 )
 from support.ravi import RaviCase  # noqa: E402
 
@@ -509,6 +529,7 @@ def cloud_case(fleet: CloudFleet) -> RaviCase:
         ravi.ravi(fleet.tenant_id, fleet.case_id), *ravi.ACQUIRED_BY_THE_FLEET
     )
     case = _stable_hero_construction(case)
+    case = _stable_hero_sources(case)
     authority = replace(
         case.authority_snapshot,
         grants=canonical_grants(
@@ -542,6 +563,39 @@ def _stable_hero_construction(case: RaviCase) -> RaviCase:
     )
 
 
+def _stable_hero_sources(case: RaviCase) -> RaviCase:
+    """Give the synthetic fixture attestations stable source signatures.
+
+    Only attestations whose ``signer_key_ref`` belongs to ``SOURCE_KEYS`` are
+    re-signed.  Statements are inert on the admission path and are not
+    signature-verified there, so they are preserved byte-for-byte; a source
+    reference outside that fixture population belongs to a deployed agent and
+    is likewise left exactly as it arrived.  Stable signatures matter because
+    an attestation's signature contributes to its entry digest, and a fresh
+    process must reconstruct the same transcript prefix in order to reopen and
+    replay the durable hero case.
+    """
+    entries: list[TranscriptEntry] = []
+    for entry in case.entries:
+        if not isinstance(entry, Attestation):
+            entries.append(entry)
+            continue
+        receipt = entry.receipt
+        key_ref = receipt.payload.signer_key_ref
+        if key_ref not in SOURCE_KEYS:
+            entries.append(entry)
+            continue
+        entries.append(
+            Attestation(
+                replace(
+                    receipt,
+                    signature=_SourceSigner(key_ref).sign(attestation_preimage(receipt.payload)),
+                )
+            )
+        )
+    return replace(case, entries=tuple(entries))
+
+
 def build_casework(fleet: CloudFleet, database: CaseworkDatabase) -> Casework:
     """The control plane, holding the deployed agents' public keys and no more.
 
@@ -550,20 +604,20 @@ def build_casework(fleet: CloudFleet, database: CaseworkDatabase) -> Casework:
     and nothing else.  What the key may *say* is check Q-12, decided against
     the published snapshot, which has never heard of a keyring.
     """
+    fixture_sources = {key_ref: _public_key("source", key_ref) for key_ref in SOURCE_KEYS}
+    deployed_sources = {
+        fleet.site_key_ref: fleet.site_public_key,
+        fleet.employer_key_ref: fleet.employer_public_key,
+    }
     configured = ravi.casework(
         database,
-        sources=source_keyring(
-            **{
-                fleet.site_key_ref: fleet.site_public_key,
-                fleet.employer_key_ref: fleet.employer_public_key,
-            }
-        ),
+        sources=LocalEcdsaSourceVerifier(fixture_sources | deployed_sources),
     )
     return _stable_hero_trust(configured)
 
 
 def _stable_hero_trust(casework: Casework) -> Casework:
-    """Install stable synthetic officer/publisher trust without changing sources."""
+    """Install stable synthetic officer and publisher trust."""
     authority_key = _public_key("publisher", AUTHORITY_PUBLISHER_KEY)
     return replace(
         casework,
@@ -792,23 +846,25 @@ def run_cloud_hero(
     :func:`build_transport`, and it is authenticated HTTPS -- there is no branch
     below that could reach an in-process agent even if one were importable.
 
-    **This installs two verifiers on the ``casework`` it was handed, and keeps
-    the third.**  The first statement below replaces ``officer_verifier`` and
-    ``publisher_verifier`` with :func:`_stable_hero_trust`'s deterministic demo
-    keys, and re-signs the case construction under the matching officer key.
-    ``source_verifier`` is deliberately untouched: it holds the *deployed*
-    agents' real configured public halves, and nothing here may have an opinion
-    about who those are.  Stated in the signature's own documentation because a
+    **The composition installs derived deterministic keys for the synthetic
+    fixture population as well as for the officer and publishers.**  The first
+    statements below re-sign the construction and replace ``officer_verifier``
+    and ``publisher_verifier`` with :func:`_stable_hero_trust`'s matching demo
+    keys; :func:`build_casework` also installs the matching derived public halves
+    for fixture source references.  Deployed agents are the deliberate boundary:
+    their configured key references keep their configured real public halves and
+    are never derived.  Stated in the signature's own documentation because a
     function that quietly rebinds part of its argument's trust material is a
     function whose caller has to read it to know what it composed.
 
     Why it happens here rather than only at the composition roots: this is what
     makes the hero re-entrant.  A per-process officer key gives a different
     construction digest in every execution, so ``open_case`` would refuse the
-    second one as ``CASE_ALREADY_OPEN`` -- and a case a later process cannot
-    reopen is a case no repeat can replay.  Applying it on the way in means any
-    caller gets the re-entrant behaviour, including one that assembled its own
-    control plane.
+    second one as ``CASE_ALREADY_OPEN``.  A per-process source key gives a
+    different entry digest and therefore a different transcript prefix,
+    revision, certificate and ``ExecutionKey`` in every execution.  Applying
+    the stable fixture trust on the way in means any caller gets the re-entrant
+    behaviour, including one that assembled its own control plane.
 
     It **narrows** what this run trusts and never widens it: the key references
     and the publisher role topology are exactly ``support.authority``'s own, so
@@ -1439,12 +1495,10 @@ class DurableCase:
 
     **This is a persistence claim and only that.**  Two executions printing the
     same nine lines establishes that the head, the transcript membership and
-    the certificate identity survived the first process ending.  It is *not* a
-    restart, not a resume, and not a re-validation: nothing here re-admits a
-    record, re-runs Q-12 or re-analyses anything.  Stable cross-process
-    re-verification needs trust material that does not live inside one process,
-    which the worked fixture's per-process officer key is not -- and that
-    belongs to the durable-async milestone rather than to this one.
+    the certificate identity survived the first process ending.  It does not
+    itself re-admit a record, re-run Q-12 or re-analyse anything.  The separate
+    :func:`revalidate_durable_case` path makes that semantic claim using the
+    process-stable synthetic officer, publisher and fixture-source trust.
     """
 
     tenant_id: str
@@ -1484,33 +1538,31 @@ def read_durable_case(
     for would establish nothing at all.
 
     *No re-verification*, because re-verification is a different claim from
-    persistence and this function is only making the second one.  Asking
-    ``case_status`` here would re-admit the stored construction record against
-    **this** process's officer verifier, and the worked fixture signs with a
-    key generated per process -- so a second execution is told
-    ``CaseConstructionRecord ... is not signed by a trusted officer`` about a
-    record that is durably present and was perfectly valid when it was written.
-    That refusal is the fixture's key discipline showing through, not a custody
-    failure, and reporting it as one would be exactly backwards.  What the
-    execution that *wrote* the case established -- admission, Q-12, the
-    analysis, the certificate -- it established then, and the certificate
-    digest below is the durable record of it.
+    persistence and this function is only making the second one.  The cloud
+    hero now composes process-stable synthetic officer, publisher and fixture
+    source trust, so :func:`revalidate_durable_case` can ask ``case_status`` in
+    a fresh process.  Keeping this narrower read separate preserves the useful
+    distinction between "the rows survived" and "the stored case reproduced."
     """
     with database.reading(tenant_id) as scope:
-        head = scope.heads.read(case_id)
-        if isinstance(head, Err):
-            raise SystemExit(
-                f"muster-cloud-hero: DURABLE CASE ABSENT: {head.error.failure.value}"
-            )
-        stored = head.value
-        if stored.revision_digest is None or stored.certificate_digest is None:
-            raise SystemExit("muster-cloud-hero: DURABLE CASE NOT ANALYSED")
-        members = scope.transcript.members(case_id)
-        if isinstance(members, Err):
-            raise SystemExit(
-                f"muster-cloud-hero: DURABLE TRANSCRIPT UNREADABLE: "
-                f"{members.error.failure.value}"
-            )
+        return _read_durable_case(scope, tenant_id=tenant_id, case_id=case_id)
+
+
+def _read_durable_case(
+    scope: TenantScope, *, tenant_id: str, case_id: str
+) -> DurableCase:
+    """Project durable identities from an already-open coherent read scope."""
+    head = scope.heads.read(case_id)
+    if isinstance(head, Err):
+        raise SystemExit(f"muster-cloud-hero: DURABLE CASE ABSENT: {head.error.failure.value}")
+    stored = head.value
+    if stored.revision_digest is None or stored.certificate_digest is None:
+        raise SystemExit("muster-cloud-hero: DURABLE CASE NOT ANALYSED")
+    members = scope.transcript.members(case_id)
+    if isinstance(members, Err):
+        raise SystemExit(
+            f"muster-cloud-hero: DURABLE TRANSCRIPT UNREADABLE: {members.error.failure.value}"
+        )
 
     #  One digest over the membership, in the order the repository returns it,
     #  so two executions can be compared on a single line without either of
@@ -1532,10 +1584,201 @@ def read_durable_case(
     )
 
 
+class _RevalidationDatabase:
+    """Capture every reported observation inside ``case_status``'s read scope."""
+
+    def __init__(
+        self,
+        database: CaseworkDatabase,
+        casework: Casework,
+        *,
+        tenant_id: str,
+        case_id: str,
+    ) -> None:
+        self._database = database
+        self._casework = casework
+        self._tenant_id = tenant_id
+        self._case_id = case_id
+        self._durable: DurableCase | None = None
+        self._entries_reverified: int | None = None
+
+    def writing(self, tenant_id: str) -> Never:
+        raise InvariantViolation(f"revalidation cannot write tenant {tenant_id!r}")
+
+    @contextmanager
+    def reading(self, tenant_id: str) -> Iterator[TenantScope]:
+        if tenant_id != self._tenant_id:
+            raise InvariantViolation(
+                f"revalidation for {self._tenant_id!r} cannot read tenant {tenant_id!r}"
+            )
+        with self._database.reading(tenant_id) as scope:
+            durable = _read_durable_case(
+                scope,
+                tenant_id=tenant_id,
+                case_id=self._case_id,
+            )
+            authenticated = read_published(
+                scope,
+                self._case_id,
+                self._casework.publisher_verifier,
+                self._casework.officer_verifier,
+                self._casework.source_verifier,
+            )
+            self._durable = durable
+            if isinstance(authenticated, Ok):
+                self._entries_reverified = len(authenticated.value.entries)
+            yield scope
+
+    def observation(self) -> tuple[DurableCase, int]:
+        if self._durable is None or self._entries_reverified is None:
+            raise InvariantViolation("revalidation completed without a durable observation")
+        return self._durable, self._entries_reverified
+
+
 def _print_durable_case(durable: DurableCase, *, heading: str) -> None:
     print(heading)
     print("")
     for line in durable.lines():
+        print(f"  {line}")
+    print("")
+
+
+@dataclass(frozen=True, slots=True)
+class RevalidatedCase:
+    """What a durable case looks like after an independent semantic replay.
+
+    This record carries the durable identities alongside what the replaying
+    process established: the resulting status, whether its engine reproduced
+    the head's certificate, and how many entries from the head's own transcript
+    prefix were authenticated again.
+
+    **The zeros are structural, not observations.**  ``writes`` and
+    ``dispatches`` do not count operations that happened to remain at zero.
+    This path opens no write scope and constructs no executor, so it has no
+    mechanism by which it could mutate custody or dispatch an action.
+    """
+
+    tenant_id: str
+    case_id: str
+    revision_number: int
+    revision_digest: str
+    certificate_digest: str
+    construction_digest: str
+    authorization_context_digest: str
+    transcript_entries: int
+    transcript_membership_digest: str
+    status: str
+    certificate_reproduced: bool
+    entries_reverified: int
+    writes: int = 0
+    dispatches: int = 0
+
+    def lines(self) -> tuple[str, ...]:
+        return (
+            f"tenant                 {self.tenant_id}",
+            f"case                   {self.case_id}",
+            f"revision number        {self.revision_number}",
+            f"revision digest        {self.revision_digest}",
+            f"certificate digest     {self.certificate_digest}",
+            f"construction digest    {self.construction_digest}",
+            f"authorization context  {self.authorization_context_digest}",
+            f"transcript entries     {self.transcript_entries}",
+            f"transcript membership  {self.transcript_membership_digest}",
+            f"status                 {self.status}",
+            f"certificate reproduced {'true' if self.certificate_reproduced else 'false'}",
+            f"entries reverified     {self.entries_reverified}",
+            f"writes                 {self.writes}",
+            f"dispatches             {self.dispatches}",
+        )
+
+
+def revalidate_durable_case(
+    database: CaseworkDatabase,
+    fleet: CloudFleet,
+    *,
+    now: Instant = ravi.NOW,
+) -> RevalidatedCase:
+    """Re-admit and replay a durable case in a process that did not write it.
+
+    **This is semantic revalidation.**  The path re-admits the stored
+    construction record, re-verifies every stored attestation's source
+    signature, re-reads the pinned authority and catalog publications, re-runs
+    Q-12, replays the head's own transcript prefix, re-analyses the case, and
+    compares the replayed certificate with the digest held on the head.
+
+    **It gathers and authorizes nothing.**  There is no
+    ``acquire_outstanding`` because this is a re-check of what is stored, not a
+    new gathering.  There is no model and no agent transport.  It constructs no
+    ``ActionGate`` or ``GateCaller``, derives no execution identity, and asks no
+    metadata server for a principal: a read must not be able to become an
+    authorization, and there is nothing here to authorize.  It opens no
+    ``database.writing()`` scope because a verification that created what it
+    went looking for would establish nothing.  Publication, case, and gate
+    state are therefore never mutated.
+
+    **This is stronger than the persistence read.**  :func:`read_durable_case`
+    establishes only that rows and their identities survived another process;
+    this entry point establishes that the stored case can be authenticated and
+    derived again.  That claim became possible only when the synthetic officer,
+    publisher, and fixture-source populations all became process-stable, so a
+    fresh process holds the same public trust material as the writer.
+
+    **Certificate reproduction describes this process's engine.**
+    ``certificate_reproduced`` is reported by :func:`case_status` and, as
+    :class:`CaseReport` documents, is a property of the replaying process's
+    engine configuration.  A different solver build can legitimately move it.
+    This entry point nevertheless treats non-reproduction as a refusal because
+    reproduction is precisely the question it was asked to answer.
+    """
+    if fleet.deployment is DatabaseDeployment.EPHEMERAL:
+        raise SystemExit(
+            "muster-cloud-hero: REVALIDATION REFUSED: "
+            "EPHEMERAL custody keeps nothing between executions"
+        )
+
+    casework = build_casework(fleet, database)
+    observation = _RevalidationDatabase(
+        database,
+        casework,
+        tenant_id=fleet.tenant_id,
+        case_id=fleet.case_id,
+    )
+    casework = replace(casework, database=observation)
+    replayed = case_status(
+        casework,
+        tenant_id=fleet.tenant_id,
+        case_id=fleet.case_id,
+        now=now,
+    )
+    if isinstance(replayed, Err):
+        raise SystemExit(f"muster-cloud-hero: REVALIDATION REFUSED: {replayed.error.failure.value}")
+    report = replayed.value
+    if report.analysis is None:
+        raise SystemExit("muster-cloud-hero: DURABLE CASE NOT ANALYSED")
+    if not report.certificate_reproduced:
+        raise SystemExit("muster-cloud-hero: CERTIFICATE NOT REPRODUCED")
+    durable, entries_reverified = observation.observation()
+
+    return RevalidatedCase(
+        tenant_id=durable.tenant_id,
+        case_id=durable.case_id,
+        revision_number=durable.revision_number,
+        revision_digest=durable.revision_digest,
+        certificate_digest=durable.certificate_digest,
+        construction_digest=durable.construction_digest,
+        authorization_context_digest=durable.authorization_context_digest,
+        transcript_entries=durable.transcript_entries,
+        transcript_membership_digest=durable.transcript_digest,
+        status=report.status.value,
+        certificate_reproduced=report.certificate_reproduced,
+        entries_reverified=entries_reverified,
+    )
+
+
+def _print_revalidated_case(revalidated: RevalidatedCase, *, heading: str) -> None:
+    print(heading)
+    print("")
+    for line in revalidated.lines():
         print(f"  {line}")
     print("")
 
@@ -1561,6 +1804,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--revalidate-durable-case",
+        action="store_true",
+        help=(
+            "read and semantically revalidate the case a previous execution "
+            "left in durable custody, reproduce its certificate, write and "
+            "dispatch nothing, and exit; requires non-EPHEMERAL custody"
+        ),
+    )
+    parser.add_argument(
         "--verify-gate-idempotency",
         action="store_true",
         help=(
@@ -1583,13 +1835,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     fleet = from_environment()
-    transport = build_transport(fleet)
     if arguments.print_configuration:
+        transport = build_transport(fleet)
         for line in _configuration_lines(fleet, transport):
             print(line)
         return 0
 
     database = open_database(fleet)
+
+    if arguments.revalidate_durable_case:
+        _print_revalidated_case(
+            revalidate_durable_case(database, fleet),
+            heading=(
+                "durable case, semantically revalidated by a process that did not create it\n"
+                "  (stored inputs reverified and certificate reproduced; no writes or dispatches)"
+            ),
+        )
+        return 0
 
     if arguments.verify_durable_case:
         #  A durability proof read out of memory would be a proof about this
@@ -1639,7 +1901,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit(
                 "muster-cloud-hero: GATE REPEAT REFUSED: CLOUD_SQL custody is required"
             )
-        repeated = repeat_gate_execution(database, fleet, transport)
+        repeated = repeat_gate_execution(database, fleet, build_transport(fleet))
         _print_execution(
             repeated,
             heading=(
@@ -1649,6 +1911,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if repeated.state == "CONFIRMED" else 1
 
+    transport = build_transport(fleet)
     case = cloud_case(fleet)
     #  One control plane for the whole run.  The Gate below revalidates the
     #  case, and it must do so against the same verifiers the acquisition ran

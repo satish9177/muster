@@ -48,6 +48,10 @@
 #  --repeat-gate-execution.  The second process replays the full hero path and
 #  re-derives the execution identity; no HERO_GATE_EXECUTION_ID is involved.
 #
+#  HERO_VERIFY_CASE_REVALIDATION=1 runs one read-only execution that re-admits
+#  the stored case, re-verifies its entries and reproduces its certificate.  It
+#  contacts no agent and reports zero writes and zero dispatches.
+#
 #  It reaches the agents over **Direct VPC egress**, which is what makes its
 #  call recognisable as internal traffic to a service deployed
 #  ``--ingress=internal``.  That is a default here, not a repair: see the block
@@ -324,6 +328,51 @@ if [[ "${HERO_EXECUTE:-1}" != "1" ]]; then
   echo
   echo "  deployed and not executed (HERO_EXECUTE=0).  Run it with:"
   echo "      HERO_EXECUTE=1 $0 ${KEY_DIR}"
+  exit 0
+fi
+
+#  The semantic revalidation proof is a single execution of the deployed job.
+#  Configuration refusals were already decided above, before deployment.  The
+#  output is required because the exit status alone does not establish which
+#  certificate was reproduced or that the side-effect counters stayed zero.
+if [[ "${HERO_VERIFY_CASE_REVALIDATION:-0}" == "1" ]]; then
+  muster::banner "revalidating the durable case as ${CONTROL_PLANE_SA}"
+  set +e
+  muster::execute_job "${HERO_JOB}" --args="--revalidate-durable-case"
+  status=$?
+  set -e
+  execution="${MUSTER_EXECUTION}"
+
+  revalidation_read=1
+  revalidation_output=""
+  if ! revalidation_output="$(muster::execution_output "${HERO_JOB}" "${execution}")"; then
+    revalidation_read=0
+  fi
+  [[ -z "${revalidation_output}" ]] || printf '%s\n' "${revalidation_output}"
+
+  if [[ ${status} -eq 2 || ${revalidation_read} -ne 1 ]]; then
+    echo "  the revalidation output could not be read; the result is UNDETERMINED" >&2
+    exit 4
+  fi
+  if [[ ${status} -ne 0 ]]; then
+    echo "  durable case revalidation was not established; read ${execution} above" >&2
+    exit 1
+  fi
+
+  certificate_reproduced="$(printf '%s\n' "${revalidation_output}" | sed -n 's/^[[:space:]]*certificate reproduced[[:space:]]*//p' | tail -n 1)"
+  writes="$(printf '%s\n' "${revalidation_output}" | sed -n 's/^[[:space:]]*writes[[:space:]]*//p' | tail -n 1)"
+  dispatches="$(printf '%s\n' "${revalidation_output}" | sed -n 's/^[[:space:]]*dispatches[[:space:]]*//p' | tail -n 1)"
+  if [[ -z "${certificate_reproduced}" || -z "${writes}" || -z "${dispatches}" ]]; then
+    echo "  the revalidation output was incomplete; the result is UNDETERMINED" >&2
+    exit 4
+  fi
+  if [[ "${certificate_reproduced}" != "true" \
+        || "${writes}" != "0" || "${dispatches}" != "0" ]]; then
+    echo "  durable case revalidation did not reproduce a read-only result" >&2
+    exit 1
+  fi
+
+  echo "  durable case certificate reproduced; zero writes and zero dispatches"
   exit 0
 fi
 

@@ -20,14 +20,19 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from demo.cloud_hero import CloudFleet, CloudHeroRun, cloud_case, run_cloud_hero
+from demo.cloud_hero import (
+    CloudFleet,
+    CloudHeroRun,
+    build_casework,
+    cloud_case,
+    run_cloud_hero,
+)
 
 from agent_tests.support import fleet
 from muster.agents.runtime.agent import AcquisitionAgent
 from muster.agents.transport.inprocess import InProcessAcquisitionTransport
 from muster.platform.adapters.crypto import LocalEcdsaSourceVerifier
 from muster.platform.adapters.memory import MemoryDatabase
-from support import ravi
 from support.authority import source_keyring, source_public_key
 
 #: The references a deployment configures, and deliberately not the fixture's.
@@ -103,10 +108,11 @@ def transport(tenant_id: str) -> InProcessAcquisitionTransport:
 
 def worked_run(tenant_id: str, case_id: str) -> CloudHeroRun:
     """The whole run: seeded case, deployed keys, real agents, Q-12, rebuild."""
+    fleet = configuration(tenant_id, case_id)
     return run_cloud_hero(
-        ravi.casework(MemoryDatabase(), sources=keyring()),
+        build_casework(fleet, MemoryDatabase()),
         transport(tenant_id),
-        case=cloud_case(configuration(tenant_id, case_id)),
+        case=cloud_case(fleet),
         site_endpoint=SITE_ENDPOINT,
         employer_endpoint=EMPLOYER_ENDPOINT,
     )

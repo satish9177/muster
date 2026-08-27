@@ -309,12 +309,18 @@ What that verifies, and what it does not:
 |---|---|
 | Persistence across independent Cloud Run executions | **verified** |
 | Control Plane denied raw Site-A evidence (HTTP 403) | **verified** |
-| Semantic restart / resume / cross-process re-validation | **not yet** |
+| Semantic restart / resume / cross-process re-validation | **verified locally on PostgreSQL across independent OS processes; live Cloud SQL not yet** |
 | Cloud Action Gate | **implemented, not deployed/verified** |
 | Real funds transferred | **no** |
 
 Stage 90 still defaults to `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`; durable custody
 is named explicitly with `CLOUD_SQL` and never fallen back to.
+
+The local U4 proof re-admits the stored construction, re-verifies every stored
+entry and pinned authority publication, reruns Q-12, replays the transcript and
+reproduces the certificate from a fresh interpreter. It opens only a database
+read scope and reports zero writes and zero dispatches. No deployed Cloud Run
+or live Cloud SQL execution has established that U4 property yet.
 
 ## Repository Structure
 

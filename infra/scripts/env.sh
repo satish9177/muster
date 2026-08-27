@@ -458,6 +458,12 @@ fi
 #  reaching that refusal instead of being promoted back to the default.
 : "${HERO_GATE_REPEAT=0}"
 
+#  Ask Stage 90 to re-admit and replay the durable case from a fresh job
+#  execution.  Like HERO_GATE_REPEAT this is a proof request, so an explicit
+#  empty or truthy-looking value must be refused rather than silently becoming
+#  the ordinary run.
+: "${HERO_VERIFY_CASE_REVALIDATION=0}"
+
 #  **Every rule about the Gate's configuration, in one function nothing else
 #  calls.**  Sourcing this file must not be able to fail on a Gate-specific
 #  relationship: 10-bootstrap.sh, 70-verify-iam.sh, 99-teardown.sh and the
@@ -496,6 +502,31 @@ muster::require_gate_configuration() {
       return 2
       ;;
   esac
+
+  case "${HERO_VERIFY_CASE_REVALIDATION-0}" in
+    0|1) ;;
+    *)
+      echo "HERO_VERIFY_CASE_REVALIDATION is '${HERO_VERIFY_CASE_REVALIDATION-}'; expected 0 or 1." >&2
+      echo "It is not a truthy flag: a value other than '1' would otherwise" >&2
+      echo "run the ordinary hero path and report a proof that was not attempted." >&2
+      return 2
+      ;;
+  esac
+
+  if [[ "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" \
+        && "${HERO_DATABASE_DEPLOYMENT}" == "EPHEMERAL" ]]; then
+    echo "HERO_VERIFY_CASE_REVALIDATION=1 requires durable custody." >&2
+    echo "HERO_DATABASE_DEPLOYMENT=EPHEMERAL keeps nothing between executions." >&2
+    return 2
+  fi
+
+  if [[ "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" \
+        && ( "${HERO_GATE_REPEAT}" == "1" \
+             || "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ) ]]; then
+    echo "HERO_VERIFY_CASE_REVALIDATION=1 cannot be combined with another proof request." >&2
+    echo "Run case revalidation, gate repeat, and gate idempotency one at a time." >&2
+    return 2
+  fi
 
   #  Two proofs, and a run performs one of them.  The retry names an execution
   #  and reads its historical row; the repeat accepts no identity and re-derives
@@ -677,6 +708,7 @@ export SITE_SERVICE EMPLOYER_SERVICE SITE_SECRET EMPLOYER_SECRET PROBE_JOB HERO_
 export HERO_VPC_NETWORK HERO_VPC_SUBNET HERO_VPC_EGRESS HERO_CASE_ID HERO_RAW_OBJECT
 export HERO_GATE_MODE HERO_GATE_CASE_ID HERO_RUN_CASE_ID
 export HERO_GATE_PRINCIPAL HERO_GATE_EXECUTION_ID HERO_GATE_REPEAT
+export HERO_VERIFY_CASE_REVALIDATION
 export SIGNING_KEY_MOUNT SIGNING_KEY_VERSION UNRESOLVED_AUDIENCE
 export TENANT_ID SITE_AGENT_ID SITE_PRINCIPAL SITE_KEY_REF
 export EMPLOYER_AGENT_ID EMPLOYER_PRINCIPAL EMPLOYER_KEY_REF AGENT_MODEL
