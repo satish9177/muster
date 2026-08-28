@@ -161,7 +161,11 @@ def test_the_deployed_composition_confirms_once_and_a_retry_reads_it(
     assert execution.external_reference is not None
     assert execution.external_reference.startswith("sandbox-pay-")
     assert execution.dispatch_count == 1
-    assert execution.execution_count == 1
+    #  The durable sandbox counts inspection rather than maintaining the
+    #  in-memory simulation's execution dictionary.  ``None`` is therefore the
+    #  honest absence of that other simulation's counter, not a disguised zero.
+    assert execution.execution_count is None
+    assert execution.inspection_count == 0
     assert len(execution.execution_key) == 64
     assert len(execution.action_digest) == 64
     #  The durable lifecycle instants, read off the row rather than derived.
@@ -204,7 +208,8 @@ def test_the_deployed_composition_confirms_once_and_a_retry_reads_it(
     assert retry.finalized_at == execution.finalized_at
     #  Zero.  This process never crossed the executor boundary.
     assert retry.dispatch_count == 0
-    assert retry.execution_count == 0
+    assert retry.execution_count is None
+    assert retry.inspection_count == 0
     assert _rows(migrated_dsn, tenant_id, case_id) == rows
 
 
@@ -327,7 +332,8 @@ def test_full_cloud_repeat_rederives_the_same_execution_and_dispatches_zero(
     assert repeated.external_reference == first.external_reference
     assert first.dispatch_count == 1
     assert repeated.dispatch_count == 0
-    assert repeated.execution_count == 0
+    assert repeated.execution_count is None
+    assert repeated.inspection_count == 0
     assert _rows(migrated_dsn, tenant_id, case_id) == before
 
 
@@ -475,7 +481,8 @@ def test_the_deployed_retry_still_reads_the_execution_after_the_case_advances(
     assert retry.dispatched_at == execution.dispatched_at
     assert retry.finalized_at == execution.finalized_at
     assert retry.dispatch_count == 0
-    assert retry.execution_count == 0
+    assert retry.execution_count is None
+    assert retry.inspection_count == 0
     assert _rows(migrated_dsn, tenant_id, case_id) == rows
 
 

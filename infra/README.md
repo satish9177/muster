@@ -692,6 +692,20 @@ non-zero if anything else survived.
   provider or payment rail. Nothing here has been run against Cloud SQL
   reconciliation, a deployed rail, a deployed runtime, or a real payment
   provider.
+
+  Two different proofs are involved, and only one of them is constructible in a
+  deployed runtime at all. The **local** proof is literal process death:
+  `demo/reconcile_ravi.py` kills the dispatching process inside the executor,
+  after the simulated external system has committed and before the Gate can
+  finalize, and a genuinely later process reconciles the `DISPATCHED` row. The
+  **live** proof is narrower and is about a durably unknown outcome:
+  `HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1` runs the ordinary hero job
+  with a simulation that commits its transfer and then loses the answer, so the
+  Gate records `UNCERTAIN`; a second execution with
+  `HERO_VERIFY_GATE_RECONCILIATION=1` observes that row and confirms it with
+  zero redispatch. **The live sequence is implemented and has not been run.**
+  Cloud Run process death is not claimed anywhere and is not what the live
+  sequence demonstrates.
 * **No cloud Action Gate has been verified yet.** The verified hero job is the
   analysis-only one: no gate, nothing authorized, nothing settled. Cloud Action
   Gate support is implemented and covered by the local suite, and it has not

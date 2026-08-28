@@ -407,6 +407,10 @@ def test_the_cloud_executor_is_the_sandbox_one_and_is_named_as_such() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert "SandboxPaymentExecutor" in constructed
+    #  Both synthetic simulations are composable and neither is a payment rail;
+    #  durable custody changes whether a later process can inspect the effect,
+    #  never what kind of external system the Gate is allowed to reach.
+    assert "DurableSandboxPaymentExecutor" in constructed
     #  The gate and executor identities are this composition's own, and not the
     #  local demo's.  A stored lifecycle names the gate that authorized it, so
     #  two compositions sharing one identity would be two trust boundaries

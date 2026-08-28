@@ -464,6 +464,36 @@ fi
 #  the ordinary run.
 : "${HERO_VERIFY_CASE_REVALIDATION=0}"
 
+#  Ask Stage 90 to inspect and reconcile one execution a previous process left
+#  at its durable boundary.  This is a proof request, not a truthy switch: an
+#  explicit empty value, ``true`` or another almost-boolean spelling must reach
+#  the closed-value refusal below.  Silently replacing one with zero would run
+#  the ordinary hero path, return green, and report nothing about the proof the
+#  operator actually asked for, so ``=`` rather than ``:=`` is load-bearing.
+: "${HERO_VERIFY_GATE_RECONCILIATION=0}"
+
+#  Ask the ordinary Gate run's *simulation* to lose an answer it has already
+#  committed, so that a reconciliation has something to reconcile.
+#
+#  **This is the setup half of the reconciliation proof, not the proof.**  A
+#  normal deployed run finalizes to CONFIRMED, and a reconciliation of an
+#  already-final row establishes nothing -- so without this there is no
+#  operator sequence that reaches the proof at all.  What it produces is a
+#  durable UNCERTAIN row over a synthetic transfer that really did commit; the
+#  next execution then observes it.
+#
+#  It is **not** process death.  The simulated external system commits, this
+#  process raises, and ActionGate.execute records UNCERTAIN through the same
+#  path any raising executor takes.  A Cloud Run task killed between an
+#  acceptance and its own bookkeeping is the *local* demo's proof and stays
+#  local; this one is about a durably unknown outcome in a deployed runtime.
+#
+#  ``=`` rather than ``:=``, for the reason the proof requests above use it:
+#  this is a request to inject a failure, and an operator who wrote ``true`` or
+#  an explicit empty value must reach the closed-value refusal rather than the
+#  ordinary run that would exit zero having simulated nothing.
+: "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=0}"
+
 #  **Every rule about the Gate's configuration, in one function nothing else
 #  calls.**  Sourcing this file must not be able to fail on a Gate-specific
 #  relationship: 10-bootstrap.sh, 70-verify-iam.sh, 99-teardown.sh and the
@@ -513,6 +543,28 @@ muster::require_gate_configuration() {
       ;;
   esac
 
+  case "${HERO_VERIFY_GATE_RECONCILIATION-0}" in
+    0|1) ;;
+    *)
+      echo "HERO_VERIFY_GATE_RECONCILIATION is '${HERO_VERIFY_GATE_RECONCILIATION-}'; expected 0 or 1." >&2
+      echo "It is not a truthy flag: a value other than '1' would otherwise" >&2
+      echo "run the ordinary hero path and report a proof that was not attempted." >&2
+      return 2
+      ;;
+  esac
+
+  case "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE-0}" in
+    0|1) ;;
+    *)
+      echo "HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE is" >&2
+      echo "'${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE-}'; expected 0 or 1." >&2
+      echo "It is not a truthy flag: a value other than '1' would otherwise" >&2
+      echo "run the ordinary hero path, finalize CONFIRMED, and leave no" >&2
+      echo "unknown outcome for the reconciliation proof to observe." >&2
+      return 2
+      ;;
+  esac
+
   if [[ "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" \
         && "${HERO_DATABASE_DEPLOYMENT}" == "EPHEMERAL" ]]; then
     echo "HERO_VERIFY_CASE_REVALIDATION=1 requires durable custody." >&2
@@ -520,11 +572,54 @@ muster::require_gate_configuration() {
     return 2
   fi
 
+  if [[ "${HERO_VERIFY_GATE_RECONCILIATION-0}" == "1" \
+        && "${HERO_DATABASE_DEPLOYMENT}" == "EPHEMERAL" ]]; then
+    echo "HERO_VERIFY_GATE_RECONCILIATION=1 requires durable custody." >&2
+    echo "HERO_DATABASE_DEPLOYMENT=EPHEMERAL keeps no execution between processes." >&2
+    return 2
+  fi
+
   if [[ "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" \
         && ( "${HERO_GATE_REPEAT}" == "1" \
-             || "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ) ]]; then
+             || "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" \
+             || "${HERO_VERIFY_GATE_RECONCILIATION-0}" == "1" ) ]]; then
     echo "HERO_VERIFY_CASE_REVALIDATION=1 cannot be combined with another proof request." >&2
-    echo "Run case revalidation, gate repeat, and gate idempotency one at a time." >&2
+    echo "Run case revalidation, gate reconciliation, gate repeat, and gate idempotency one at a time." >&2
+    return 2
+  fi
+
+  if [[ "${HERO_VERIFY_GATE_RECONCILIATION-0}" == "1" \
+        && ( "${HERO_GATE_REPEAT}" == "1" \
+             || "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" \
+             || "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" ) ]]; then
+    echo "HERO_VERIFY_GATE_RECONCILIATION=1 cannot be combined with another proof request." >&2
+    echo "A reconciliation observes one execution; run every other proof separately." >&2
+    return 2
+  fi
+
+  if [[ "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE-0}" == "1" \
+        && "${HERO_DATABASE_DEPLOYMENT}" != "CLOUD_SQL" ]]; then
+    echo "HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1 requires CLOUD_SQL custody." >&2
+    echo "The simulation it injects is the durable one; in-memory custody has no" >&2
+    echo "external record for a later execution to inspect." >&2
+    return 2
+  fi
+
+  #  The simulation *creates* an unknown outcome; the four proofs above *read*
+  #  durable state.  Combining them is refused rather than ordered, for the
+  #  reason the proofs refuse each other -- and with one term stronger here: a
+  #  reconciliation run carrying this flag would be a run that manufactured the
+  #  state it then reported as observed, which is the single claim this proof
+  #  exists to make and the single one it must not be able to fake.
+  if [[ "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE-0}" == "1" \
+        && ( "${HERO_VERIFY_GATE_RECONCILIATION-0}" == "1" \
+             || "${HERO_GATE_REPEAT}" == "1" \
+             || "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" \
+             || "${HERO_VERIFY_CASE_REVALIDATION-0}" == "1" ) ]]; then
+    echo "HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1 cannot be combined with a proof request." >&2
+    echo "It is the setup run that leaves an UNCERTAIN execution behind." >&2
+    echo "Run it alone, then run HERO_VERIFY_GATE_RECONCILIATION=1 with the" >&2
+    echo "execution id it printed." >&2
     return 2
   fi
 
@@ -555,6 +650,17 @@ muster::require_gate_configuration() {
     if [[ "${HERO_GATE_REPEAT}" == "1" ]]; then
       echo "HERO_GATE_REPEAT=1 requires" >&2
       echo "HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+      return 2
+    fi
+    if [[ "${HERO_VERIFY_GATE_RECONCILIATION-0}" == "1" ]]; then
+      echo "HERO_VERIFY_GATE_RECONCILIATION=1 requires" >&2
+      echo "HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+      return 2
+    fi
+    if [[ "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE-0}" == "1" ]]; then
+      echo "HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1 requires" >&2
+      echo "HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+      echo "An analysis-only run composes no executor to inject anything into." >&2
       return 2
     fi
     return 0
@@ -709,6 +815,7 @@ export HERO_VPC_NETWORK HERO_VPC_SUBNET HERO_VPC_EGRESS HERO_CASE_ID HERO_RAW_OB
 export HERO_GATE_MODE HERO_GATE_CASE_ID HERO_RUN_CASE_ID
 export HERO_GATE_PRINCIPAL HERO_GATE_EXECUTION_ID HERO_GATE_REPEAT
 export HERO_VERIFY_CASE_REVALIDATION
+export HERO_VERIFY_GATE_RECONCILIATION HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE
 export SIGNING_KEY_MOUNT SIGNING_KEY_VERSION UNRESOLVED_AUDIENCE
 export TENANT_ID SITE_AGENT_ID SITE_PRINCIPAL SITE_KEY_REF
 export EMPLOYER_AGENT_ID EMPLOYER_PRINCIPAL EMPLOYER_KEY_REF AGENT_MODEL

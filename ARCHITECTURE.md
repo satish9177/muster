@@ -788,7 +788,7 @@ sanitized artifact
 | Durable semantic revalidation | **No — not run against live Cloud SQL** | Yes — local PostgreSQL, independent OS processes | Stored construction, publications and entries are reverified; Q-12 and replay reproduce the certificate with zero writes and dispatches |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
-| Executor reconciliation | **No — not run against Cloud Run, Cloud SQL or a deployed rail** | Yes — local PostgreSQL, real process death | `DISPATCHED`/`UNCERTAIN` rows reconciled by inspecting the executor, with zero redispatch |
+| Executor reconciliation | **No — not run against Cloud Run, Cloud SQL or a deployed rail** | Yes — local PostgreSQL, real process death | `DISPATCHED`/`UNCERTAIN` rows reconciled by inspecting the executor, with zero redispatch. The two proofs differ: **local** is literal process death; the **live** sequence, implemented and not yet run, is a durably *unknown outcome* — the simulation commits its transfer, loses the answer, and a later execution confirms the `UNCERTAIN` row. Cloud Run process death is not claimed |
 | Durable sandbox rail | **No — not deployed** | Yes — local PostgreSQL schema | Simulated external world. Not a payment provider or payment rail |
 | Payment | — | Sandbox only | No payment rail. No real funds transferred |
 

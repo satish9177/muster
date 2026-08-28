@@ -6,6 +6,7 @@ import ast
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,10 @@ pytestmark = pytest.mark.architecture
 REPOSITORY = Path(__file__).resolve().parents[4]
 CLOUD_HERO = REPOSITORY / "demo" / "cloud_hero.py"
 ENVIRONMENT = REPOSITORY / "infra" / "scripts" / "env.sh"
+
+#: The generated programs below are POSIX shell and are written as such,
+#: whatever the host's line-ending convention is.
+_LF = chr(10)
 HERO_DEPLOYMENT = REPOSITORY / "infra" / "scripts" / "90-hero-job.sh"
 
 
@@ -72,16 +77,34 @@ def _shell_function(text: str, name: str) -> str:
 
 
 def _run_shell(script: str, **environment: str) -> subprocess.CompletedProcess[str]:
+    """Run one generated program, from a file rather than from ``-c``.
+
+    Git Bash truncates a ``-c`` argument past roughly 8191 characters without
+    an error and without a distinguishable exit status, and
+    ``muster::require_gate_configuration`` is already longer than that.  The
+    truncation surfaces as ``unexpected EOF while looking for matching '}'``
+    on a balanced line -- and, worse for these tests, as exit status 2, which
+    is the refusal several of them are checking for.  A temporary file has no
+    such limit, so the contract can keep growing a rule at a time.
+    """
     shell = shutil.which("bash")
     if shell is None:
         pytest.skip("the deployment contract requires bash")
-    return subprocess.run(  # noqa: S603 - resolved interpreter and fixed test program
-        [shell, "-c", script],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, **environment},
-    )
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".sh", delete=False, encoding="utf-8", newline=_LF
+    ) as handle:
+        handle.write(script + _LF)
+        program = handle.name
+    try:
+        return subprocess.run(  # noqa: S603 - resolved interpreter and generated program
+            [shell, Path(program).as_posix()],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, **environment},
+        )
+    finally:
+        os.unlink(program)
 
 
 def test_repeat_configuration_is_defaulted_exported_and_ruled_on_in_the_function() -> None:

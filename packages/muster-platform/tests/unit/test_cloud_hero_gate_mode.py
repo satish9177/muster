@@ -13,6 +13,7 @@ environment variables becomes, or fails to become, a run that can pay somebody.
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
 
@@ -34,6 +35,7 @@ from demo.cloud_hero import (
     CloudFleet,
     CloudGateExecution,
     HeroMode,
+    ReconciledExecution,
     _configuration_lines,
     build_transport,
     cloud_executor,
@@ -49,6 +51,7 @@ from muster.platform.adapters.sql.config import (
     DATABASE_URL,
     DatabaseDeployment,
 )
+from muster.platform.gate.executor import SandboxPaymentExecutor
 
 SERVER_CA = "/var/run/muster/cloud-sql/server-ca.pem"
 CLOUD_SQL_DSN = (
@@ -58,6 +61,22 @@ CLOUD_SQL_DSN = (
 )
 PRINCIPAL = "muster-control-plane@muster-project.iam.gserviceaccount.com"
 EXECUTION_KEY = "3f" * 32
+
+RECONCILIATION_PROOF = ReconciledExecution(
+    execution_key=EXECUTION_KEY,
+    state="CONFIRMED",
+    finality="DEFINITELY_EXECUTED",
+    outcome_code="CONFIRMED",
+    external_reference="sandbox-pay-proof",
+    reconciled_from="DISPATCHED",
+    reconciled_at=1,
+    real_funds=False,
+    gate_id=CLOUD_GATE_ID,
+    executor_id=CLOUD_EXECUTOR_ID,
+    principal_id=PRINCIPAL,
+    dispatch_count=0,
+    inspection_count=1,
+)
 
 
 def _environment(**overrides: str) -> dict[str, str]:
@@ -259,6 +278,50 @@ def test_repeat_flag_needs_no_configured_execution_id(
     assert seen[0].gate_execution_key is None
 
 
+#  ---- the observational reconciliation flag ------------------------------
+
+
+def test_reconciliation_flag_requires_the_named_gate_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fleet = from_environment(
+        _environment(**{DATABASE_DEPLOYMENT: DatabaseDeployment.EPHEMERAL.value})
+    )
+    monkeypatch.setattr("demo.cloud_hero.from_environment", lambda: fleet)
+    monkeypatch.setattr("demo.cloud_hero.open_database", lambda _fleet: MemoryDatabase())
+
+    with pytest.raises(SystemExit, match=HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX.value):
+        main(["--reconcile-gate-execution"])
+
+
+@pytest.mark.parametrize(
+    ("reconciled", "expected"),
+    (
+        (RECONCILIATION_PROOF, 0),
+        (replace(RECONCILIATION_PROOF, reconciled_from=None), 1),
+        (replace(RECONCILIATION_PROOF, finality="OUTCOME_UNKNOWN"), 1),
+        (replace(RECONCILIATION_PROOF, dispatch_count=1), 1),
+    ),
+)
+def test_reconciliation_flag_returns_only_an_established_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    reconciled: ReconciledExecution,
+    expected: int,
+) -> None:
+    fleet = from_environment(_gate_environment(**{GATE_EXECUTION_ID: EXECUTION_KEY}))
+    monkeypatch.setattr("demo.cloud_hero.from_environment", lambda: fleet)
+    monkeypatch.setattr("demo.cloud_hero.open_database", lambda _fleet: MemoryDatabase())
+
+    def reconcile(
+        _database: object, _fleet: CloudFleet
+    ) -> ReconciledExecution:
+        return reconciled
+
+    monkeypatch.setattr("demo.cloud_hero.reconcile_gate_execution", reconcile)
+
+    assert main(["--reconcile-gate-execution"]) == expected
+
+
 #  ---- a fleet built by hand cannot claim what it has not got ---------------
 
 
@@ -314,7 +377,11 @@ def test_the_cloud_executor_is_the_sandbox_and_moves_no_funds() -> None:
     ``transfers_real_funds`` is what the published trace reports, so a
     composition that ever named a real executor could not print ``false``.
     """
-    executor = cloud_executor()
+    fleet = from_environment(
+        _environment(**{DATABASE_DEPLOYMENT: DatabaseDeployment.EPHEMERAL.value})
+    )
+    executor = cloud_executor(fleet)
+    assert isinstance(executor, SandboxPaymentExecutor)
     assert executor.executor_id == CLOUD_EXECUTOR_ID
     assert executor.trusted_gate_id == CLOUD_GATE_ID
     assert executor.transfers_real_funds is False

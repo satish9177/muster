@@ -7,6 +7,7 @@ import copy
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,10 @@ REPOSITORY = Path(__file__).resolve().parents[4]
 CLOUD_HERO = REPOSITORY / "demo" / "cloud_hero.py"
 ENVIRONMENT = REPOSITORY / "infra" / "scripts" / "env.sh"
 HERO_DEPLOYMENT = REPOSITORY / "infra" / "scripts" / "90-hero-job.sh"
+
+#: The generated programs below are POSIX shell and are written as such,
+#: whatever the host's line-ending convention is.
+_LF = chr(10)
 
 
 def _function_source(name: str) -> str:
@@ -61,16 +66,40 @@ def _shell_function(text: str, name: str) -> str:
 
 
 def _run_shell(script: str, **environment: str) -> subprocess.CompletedProcess[str]:
+    """Run one generated program, from a file rather than from ``-c``.
+
+    **``bash -c`` is not usable here, and the reason is a silent truncation.**
+    Git Bash passes the script through the Windows command line, where an
+    argument is cut off past roughly 8191 characters -- without an error, and
+    without a shortened exit status to notice.  What comes back is
+    ``unexpected EOF while looking for matching '}'`` pointing at a line that
+    is perfectly balanced, because the closing half was simply never delivered.
+
+    ``muster::require_gate_configuration`` is already over that boundary, and
+    it grows every time a proof request is added to it.  A harness that fails
+    the moment the *contract it tests* gets one rule longer would be a harness
+    that pushes back on writing the rule down -- and it fails by reporting the
+    refusal it was checking for, which is the shape of a green test that proves
+    nothing.  A temporary file has no such limit.
+    """
     shell = shutil.which("bash")
     if shell is None:
         pytest.skip("the deployment contract requires bash")
-    return subprocess.run(  # noqa: S603 - resolved interpreter and fixed test program
-        [shell, "-c", script],
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, **environment},
-    )
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".sh", delete=False, encoding="utf-8", newline=_LF
+    ) as handle:
+        handle.write(script + _LF)
+        program = handle.name
+    try:
+        return subprocess.run(  # noqa: S603 - resolved interpreter and generated program
+            [shell, Path(program).as_posix()],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, **environment},
+        )
+    finally:
+        os.unlink(program)
 
 
 def _configuration(**overrides: str) -> subprocess.CompletedProcess[str]:
@@ -82,6 +111,7 @@ def _configuration(**overrides: str) -> subprocess.CompletedProcess[str]:
         "HERO_GATE_REPEAT": "0",
         "HERO_VERIFY_GATE_IDEMPOTENCY": "0",
         "HERO_VERIFY_CASE_REVALIDATION": "0",
+        "HERO_VERIFY_GATE_RECONCILIATION": "0",
         "HERO_DATABASE_DEPLOYMENT": "CLOUD_SQL",
     }
     settings.update(overrides)
@@ -136,7 +166,11 @@ def test_ephemeral_revalidation_is_refused() -> None:
 
 @pytest.mark.parametrize(
     "other",
-    ("HERO_GATE_REPEAT", "HERO_VERIFY_GATE_IDEMPOTENCY"),
+    (
+        "HERO_GATE_REPEAT",
+        "HERO_VERIFY_GATE_IDEMPOTENCY",
+        "HERO_VERIFY_GATE_RECONCILIATION",
+    ),
 )
 def test_revalidation_is_mutually_exclusive_with_other_proofs(other: str) -> None:
     result = _configuration(

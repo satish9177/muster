@@ -52,6 +52,30 @@
 #  the stored case, re-verifies its entries and reproduces its certificate.  It
 #  contacts no agent and reports zero writes and zero dispatches.
 #
+#  HERO_VERIFY_GATE_RECONCILIATION=1 runs one observational execution against
+#  a durable Gate row an earlier process left behind.  It reaches the durable
+#  sandbox only through its inspection boundary, dispatches and redispatches
+#  nothing, and requires the execution id that first process printed.
+#
+#  HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1 is the run that leaves such a
+#  row behind, and it is the *setup*, not the proof.  It runs the ordinary hero
+#  path with one substitution in the composition root: the durable sandbox
+#  commits its transfer as always, and this process then loses the answer, so
+#  ActionGate.execute records UNCERTAIN through the same path any raising
+#  executor takes.  The run exits zero on UNCERTAIN -- the state it asked for --
+#  and prints the execution id the reconciliation run then names.
+#
+#  Two executions, in order, and never in one job:
+#
+#      HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE=1 ./90-hero-job.sh KEYS
+#      HERO_VERIFY_GATE_RECONCILIATION=1 \
+#        HERO_GATE_EXECUTION_ID=<the id it printed> ./90-hero-job.sh KEYS
+#
+#  This is not process death.  The killed-process proof is the local demo,
+#  demo/reconcile_ravi.py, against local PostgreSQL; what these two executions
+#  establish in a deployed runtime is that a durably unknown outcome is
+#  reconciled by observation, once, with zero redispatch.
+#
 #  It reaches the agents over **Direct VPC egress**, which is what makes its
 #  call recognisable as internal traffic to a service deployed
 #  ``--ingress=internal``.  That is a default here, not a repair: see the block
@@ -179,6 +203,18 @@ if [[ "${HERO_VERIFY_GATE_IDEMPOTENCY:-0}" == "1" ]]; then
     exit 2
   fi
 fi
+if [[ "${HERO_VERIFY_GATE_RECONCILIATION:-0}" == "1" ]]; then
+  if [[ "${HERO_GATE_MODE}" != "CLOUD_SQL_ACTION_GATE_SANDBOX" ]]; then
+    echo "  the reconciliation proof needs HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX." >&2
+    exit 2
+  fi
+  if [[ -z "${HERO_GATE_EXECUTION_ID}" ]]; then
+    echo "  the reconciliation proof needs HERO_GATE_EXECUTION_ID." >&2
+    echo "  It is the 'execution id' of the durable row whose already-started" >&2
+    echo "  external attempt this fresh process is being asked to inspect." >&2
+    exit 2
+  fi
+fi
 if [[ "${HERO_GATE_REPEAT:-0}" == "1" \
       && "${CONTROL_PLANE_IMAGE}" != *@sha256:* ]]; then
   echo "  the repeat proof requires CONTROL_PLANE_IMAGE pinned with @sha256:." >&2
@@ -207,6 +243,8 @@ env_file="${MUSTER_ENV_FILE}"
   muster::env_entry MUSTER_HERO_GATE_MODE "${HERO_GATE_MODE}"
   muster::env_entry MUSTER_HERO_GATE_PRINCIPAL "${HERO_GATE_PRINCIPAL}"
   muster::env_entry MUSTER_HERO_GATE_EXECUTION_ID "${HERO_GATE_EXECUTION_ID}"
+  muster::env_entry MUSTER_HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE \
+    "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE}"
   muster::env_entry MUSTER_TRACE_PROJECT_ID "${PROJECT_ID}"
   muster::env_entry MUSTER_TRACE_JOB_NAME "${HERO_JOB}"
   muster::env_entry MUSTER_TRACE_CLOUD_RUN_REGION "${REGION}"
@@ -373,6 +411,53 @@ if [[ "${HERO_VERIFY_CASE_REVALIDATION:-0}" == "1" ]]; then
   fi
 
   echo "  durable case certificate reproduced; zero writes and zero dispatches"
+  exit 0
+fi
+
+#  Reconciliation is likewise one execution of the deployed job, but its proof
+#  is about the Gate's external boundary rather than the case.  Four labelled
+#  values are required: without any one of them, a successful process exit is
+#  not enough to say what state was observed or whether inspection redispatched.
+if [[ "${HERO_VERIFY_GATE_RECONCILIATION:-0}" == "1" ]]; then
+  muster::banner "reconciling the durable execution as ${CONTROL_PLANE_SA}"
+  set +e
+  muster::execute_job "${HERO_JOB}" --args="--reconcile-gate-execution"
+  status=$?
+  set -e
+  execution="${MUSTER_EXECUTION}"
+
+  reconciliation_read=1
+  reconciliation_output=""
+  if ! reconciliation_output="$(muster::execution_output "${HERO_JOB}" "${execution}")"; then
+    reconciliation_read=0
+  fi
+  [[ -z "${reconciliation_output}" ]] || printf '%s\n' "${reconciliation_output}"
+
+  if [[ ${status} -eq 2 || ${reconciliation_read} -ne 1 ]]; then
+    echo "  the reconciliation output could not be read; the result is UNDETERMINED" >&2
+    exit 4
+  fi
+  if [[ ${status} -ne 0 ]]; then
+    echo "  the reconciliation proof was not established; read ${execution} above" >&2
+    exit 1
+  fi
+
+  state="$(printf '%s\n' "${reconciliation_output}" | sed -n 's/^[[:space:]]*state[[:space:]]*//p' | tail -n 1)"
+  finality="$(printf '%s\n' "${reconciliation_output}" | sed -n 's/^[[:space:]]*finality[[:space:]]*//p' | tail -n 1)"
+  reconciled_from="$(printf '%s\n' "${reconciliation_output}" | sed -n 's/^[[:space:]]*reconciled from[[:space:]]*//p' | tail -n 1)"
+  dispatches="$(printf '%s\n' "${reconciliation_output}" | sed -n 's/^[[:space:]]*dispatches this run[[:space:]]*//p' | tail -n 1)"
+  if [[ -z "${state}" || -z "${finality}" \
+        || -z "${reconciled_from}" || -z "${dispatches}" ]]; then
+    echo "  the reconciliation output was incomplete; the result is UNDETERMINED" >&2
+    exit 4
+  fi
+  if [[ "${finality}" == "OUTCOME_UNKNOWN" \
+        || "${reconciled_from}" == "none" || "${dispatches}" != "0" ]]; then
+    echo "  the reconciliation output did not establish a final result without redispatch" >&2
+    exit 1
+  fi
+
+  echo "  the durable execution was reconciled from ${reconciled_from} with no redispatch"
   exit 0
 fi
 
@@ -605,7 +690,18 @@ if [[ ${status} -eq 0 ]]; then
   fi
 
   artifact_output="${EVIDENCE_DIR}/case-traces/${execution}.json"
-  ui_output="${REPOSITORY_ROOT}/packages/muster-ui/public/cases/ravi-cloud-execution.json"
+  #  The evidence trace is always captured, because it is this execution's own
+  #  record and an UNCERTAIN one is as real as a CONFIRMED one.  The *UI* copy
+  #  is not: it is the single published trace the demo shows, and the setup run
+  #  deliberately leaves an unresolved execution behind.  Overwriting the
+  #  published trace with the half of a two-run proof that has not finished yet
+  #  would put an unreconciled row in front of an audience as the deployment's
+  #  result.  So the setup run keeps its evidence and publishes nothing.
+  ui_capture=(--ui-output
+    "${REPOSITORY_ROOT}/packages/muster-ui/public/cases/ravi-cloud-execution.json")
+  if [[ "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE:-0}" == "1" ]]; then
+    ui_capture=()
+  fi
   if ! "${MUSTER_PYTHON}" "${REPOSITORY_ROOT}/infra/scripts/capture_case_trace.py" \
     --logs "${trace_logs}" \
     --project "${PROJECT_ID}" \
@@ -615,9 +711,15 @@ if [[ ${status} -eq 0 ]]; then
     --executed-at "${executed_at}" \
     --completed-at "${completed_at}" \
     --output "${artifact_output}" \
-    --ui-output "${ui_output}"; then
+    ${ui_capture[@]+"${ui_capture[@]}"}; then
     echo "  ${execution} succeeded but no valid sanitized case trace was captured" >&2
     exit 4
+  fi
+  if [[ "${HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE:-0}" == "1" ]]; then
+    echo "  the case reached the invariant answer and the Gate row is UNCERTAIN"
+    echo "  read the 'execution id' above, then run the reconciliation:"
+    echo "      HERO_VERIFY_GATE_RECONCILIATION=1 HERO_GATE_EXECUTION_ID=<that id> $0 ${KEY_DIR}"
+    exit 0
   fi
   echo "  the case reached the invariant answer"
   exit 0

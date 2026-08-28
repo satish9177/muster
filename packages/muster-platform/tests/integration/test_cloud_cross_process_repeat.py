@@ -170,6 +170,7 @@ Path(output_name).write_text(
             "state": execution.state,
             "dispatch_count": execution.dispatch_count,
             "execution_count": execution.execution_count,
+            "inspection_count": execution.inspection_count,
             "acquired_count": len(run.reports),
             "transport_requests": transport.requests,
         }
@@ -293,7 +294,10 @@ def test_cloud_repeat_reproduces_and_dispatches_nothing_in_a_second_process(
     assert first["state"] == repeat["state"] == "CONFIRMED"
     assert first["dispatch_count"] == 1
     assert repeat["dispatch_count"] == 0
-    assert repeat["execution_count"] == 0
+    assert first["execution_count"] is None
+    assert repeat["execution_count"] is None
+    assert first["inspection_count"] == 0
+    assert repeat["inspection_count"] == 0
 
     # The counter is live on A, while B's completed acquisition pass had
     # neither an outstanding assignment nor a delivery across the transport.

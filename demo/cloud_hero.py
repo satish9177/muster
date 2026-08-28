@@ -129,6 +129,9 @@ from muster.platform.adapters.sql.config import (  # noqa: E402
     DatabaseDeployment,
     configuration_from_environment,
 )
+from muster.platform.adapters.sql.sandbox_rail import (  # noqa: E402
+    DurableSandboxPaymentExecutor,
+)
 from muster.platform.adapters.sql.schema import (  # noqa: E402
     SchemaNotCurrent,
     require_current_schema,
@@ -169,13 +172,19 @@ from muster.platform.gate.cloud import (  # noqa: E402
     CloudExecutionAuthorityConfiguration,
     resolve_cloud_gate_authority,
 )
-from muster.platform.gate.executor import SandboxPaymentExecutor  # noqa: E402
+from muster.platform.gate.executor import (  # noqa: E402
+    Confirmed,
+    ExecutorDispatch,
+    ExecutorOutcome,
+    SandboxPaymentExecutor,
+)
 from muster.platform.gate.model import (  # noqa: E402
     ExecuteProposal,
     ExecutionKey,
     ExecutionLookup,
     ExecutionRecord,
     ExecutionState,
+    finality,
 )
 from muster.platform.gate.service import ActionGate  # noqa: E402
 from muster.platform.orchestration.decisions import Dispatch  # noqa: E402
@@ -232,6 +241,31 @@ GATE_PRINCIPAL = "MUSTER_HERO_GATE_PRINCIPAL"
 #: anything key-ish in it is a reference or a public half.  A non-secret named
 #: ``..._KEY`` there would spend that rule to save a word.
 GATE_EXECUTION_ID = "MUSTER_HERO_GATE_EXECUTION_ID"
+
+#: **A demo-only outcome simulation, and the only reason it exists.**
+#:
+#: The reconciliation proof needs a durable row whose outcome is genuinely
+#: unknown while the simulated external system has already accepted.  A normal
+#: deployed run cannot produce one: it finalizes to CONFIRMED, and every other
+#: route to an unknown outcome -- a lost connection between acceptance and
+#: finalization, a process killed in that window -- is a fault nobody can
+#: schedule.  So the *simulation* is asked to lose its own answer, after the
+#: acceptance it already committed.
+#:
+#: What this does **not** do is as load-bearing as what it does.  It adds no
+#: Gate state, no transition and no recovery mechanism; it does not touch
+#: ``sandbox_rail`` directly, does not synthesize a transfer, and cannot make
+#: an execution that never happened look like one that did.  The exception it
+#: raises is raised *after* ``DurableSandboxPaymentExecutor.dispatch`` has
+#: returned an acceptance, which is precisely the fact that the external
+#: transaction committed.  ``ActionGate.execute`` then does what it already
+#: does with any executor that raises: records UNCERTAIN.
+#:
+#: It is not process death.  A killed Cloud Run task is the local C-3 proof and
+#: stays local; what this establishes in a deployed runtime is the other half --
+#: that a durably unknown outcome is reconciled by observation, once, with no
+#: redispatch.
+GATE_SIMULATE_UNKNOWN = "MUSTER_HERO_GATE_SIMULATE_UNKNOWN_AFTER_ACCEPTANCE"
 
 #: The width of that identity, checked before ``ExecutionKey`` sees it so a
 #: mistyped variable is a named configuration refusal rather than an
@@ -352,6 +386,12 @@ class CloudFleet:
     #: idempotency read, which is the one mode with no analysis of its own --
     #: and, deliberately, no case head to derive an identity from either.
     gate_execution_key: ExecutionKey | None = None
+    #: Whether this run's *simulation* was asked to lose its own answer after
+    #: the external acceptance it committed.  See ``GATE_SIMULATE_UNKNOWN``.
+    #: Defaulted to ``False`` for the reason every other Gate field is: a fleet
+    #: assembled anywhere but ``from_environment`` is not a deployment, and the
+    #: absence of a decision is never permission to act differently.
+    gate_simulate_unknown: bool = False
 
     def __post_init__(self) -> None:
         """Custody and connection string agree, however the fleet was built.
@@ -381,6 +421,22 @@ class CloudFleet:
             if not self.gate_principal:
                 raise ValueError("the Action Gate mode names the principal it grants")
 
+        #  The outcome simulation is scoped to the one mode that has an
+        #  executor at all.  Closed here as well as in ``from_environment`` and
+        #  in ``muster::require_gate_configuration``, because a fleet built by
+        #  hand must not be able to carry a failure injection into a run whose
+        #  composition never selects the durable simulation -- which would be a
+        #  flag that reads as "on" and silently does nothing.
+        if self.gate_simulate_unknown and (
+            self.gate_mode is not HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX
+            or self.deployment is not DatabaseDeployment.CLOUD_SQL
+        ):
+            raise ValueError(
+                "the unknown-after-acceptance simulation requires the Action Gate "
+                "mode over CLOUD_SQL custody; there is no other composition whose "
+                "executor can be asked to lose an answer it already committed"
+            )
+
     @property
     def hosts(self) -> frozenset[str]:
         """The hosts this deployment will send an authenticated request to.
@@ -396,6 +452,29 @@ class CloudFleet:
             for endpoint in (self.site_endpoint, self.employer_endpoint)
         }
         return frozenset(host for host in found if host)
+
+
+def _closed_flag(source: dict[str, str], name: str) -> bool:
+    """A decision spelled ``0`` or ``1``, or a refusal naming the variable.
+
+    Not ``bool(value)`` and not "anything that is not empty".  The one variable
+    read through here is a *request to inject a failure*, and the failure mode
+    a truthy test would leave open is the one a proof cannot survive: an
+    operator who wrote ``true``, ``yes``, ``2`` or an exported empty string
+    gets the ordinary run and an exit status of **zero** -- a green run that
+    simulated nothing, reported as if it had.
+
+    Presence is checked before the value, so an exported empty variable reaches
+    the refusal instead of being read back as "unset".  That mirrors the ``=``
+    rather than ``:=`` default in ``env.sh``, and for the same reason: the two
+    layers must not disagree about what an empty string means.
+    """
+    if name not in source:
+        return False
+    raw = (source.get(name) or "").strip()
+    if raw not in {"0", "1"}:
+        raise SystemExit(f"muster-cloud-hero: MALFORMED: {name}; expected 0 or 1")
+    return raw == "1"
 
 
 def from_environment(environ: dict[str, str] | None = None) -> CloudFleet:
@@ -464,6 +543,15 @@ def from_environment(environ: dict[str, str] | None = None) -> CloudFleet:
             raise SystemExit(f"muster-cloud-hero: MALFORMED: {name}") from None
 
     gate_mode = mode()
+    simulate_unknown = _closed_flag(source, GATE_SIMULATE_UNKNOWN)
+    if simulate_unknown and gate_mode is not HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
+        #  Named before the fleet is built, for the same reason the custody and
+        #  principal refusals below are: the operator is told which decision is
+        #  missing, rather than which constructor complained.
+        raise SystemExit(
+            f"muster-cloud-hero: GATE REFUSED: {GATE_SIMULATE_UNKNOWN}=1 requires "
+            f"{GATE_MODE}={HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX.value}"
+        )
     if gate_mode is HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
         #  Named before the fleet is built, so the operator is told which
         #  decision is missing rather than which constructor complained.
@@ -491,6 +579,7 @@ def from_environment(environ: dict[str, str] | None = None) -> CloudFleet:
         gate_mode=gate_mode,
         gate_principal=(source.get(GATE_PRINCIPAL) or "").strip() or None,
         gate_execution_key=execution_key(GATE_EXECUTION_ID),
+        gate_simulate_unknown=simulate_unknown,
     )
     for endpoint in (fleet.site_endpoint, fleet.employer_endpoint):
         if not endpoint.startswith("https://"):
@@ -1169,11 +1258,13 @@ class CloudGateExecution:
     Every field is a value the Gate or its executor actually produced: a state
     from the durable row, the idempotency key that *is* the hash of the exact
     authorized intent, the three timestamps the row carries, the synthetic
-    reference the sandbox minted, the outcome code it returned, and the two
-    counters the executor kept.  Nothing here is a label this module chose to
-    believe -- ``real_funds`` in particular is read off the composed executor
-    rather than asserted, so a composition that ever named a real one could not
-    print ``false``.
+    reference the sandbox minted, the outcome code it returned, and whichever
+    process counters the selected simulation actually keeps.  A missing counter
+    is carried as ``None`` rather than replaced with a zero that simulation
+    never measured.  Nothing here is a label this module chose to believe --
+    ``real_funds`` in particular is read off the composed executor rather than
+    asserted, so a composition that ever named a real one could not print
+    ``false``.
 
     **The timestamps are read, never reconstructed.**  ``reserved_at`` is
     always present because a row cannot exist without it; ``dispatched_at`` and
@@ -1205,7 +1296,8 @@ class CloudGateExecution:
     #: How many times *this process* crossed the executor boundary.  The whole
     #: point of the idempotency read is that this is zero on a retry.
     dispatch_count: int
-    execution_count: int
+    execution_count: int | None
+    inspection_count: int | None = None
 
     def lines(self) -> tuple[str, ...]:
         return (
@@ -1223,7 +1315,8 @@ class CloudGateExecution:
             f"outcome code           {self.outcome_code or 'none'}",
             f"real funds             {'true' if self.real_funds else 'false'}",
             f"dispatches this run    {self.dispatch_count}",
-            f"executions this run    {self.execution_count}",
+            f"executions this run    {_count(self.execution_count)}",
+            f"inspections this run   {_count(self.inspection_count)}",
         )
 
 
@@ -1232,20 +1325,98 @@ def _instant(value: int | None) -> str:
     return "none" if value is None else str(value)
 
 
-def cloud_executor() -> SandboxPaymentExecutor:
-    """The one executor a deployed Gate composes: synthetic, and labelled.
+def _count(value: int | None) -> str:
+    """A counter this executor keeps, or the honest absence of one."""
+    return "none" if value is None else str(value)
 
-    No provider, no account, no credential and no network call.  It mints a
-    deterministic reference from the execution key and keeps two counters, and
-    those counters are what the duplicate-prevention proof is read from.
+
+type CloudSandboxExecutor = SandboxPaymentExecutor | DurableSandboxPaymentExecutor
+
+
+class SimulatedUnknownOutcome(RuntimeError):
+    """The demo-only loss of an answer the simulation had already committed.
+
+    Named rather than anonymous so a log reader can tell an injected loss from
+    a genuine adapter fault, and so nothing else can raise it by accident.  The
+    Gate never imports it: ``ActionGate.execute`` catches ``Exception`` at the
+    executor boundary and turns whatever it caught into ``UnknownOutcome``, and
+    that ordinary path -- not a special case for this class -- is what records
+    UNCERTAIN.
     """
+
+
+class _LosesTheAnswerAfterAcceptance(DurableSandboxPaymentExecutor):
+    """Commit the synthetic acceptance, then lose the answer.  Demo-only.
+
+    **The ordering is the whole proof, and it is not this class's to arrange.**
+    ``super().dispatch`` returns only after the simulated external system has
+    committed both its ATTEMPTED marker and its transfer, in transactions of
+    its own.  So the *return* is the evidence that the external effect exists;
+    raising afterwards loses the answer to an effect that already happened,
+    which is exactly the state a process that lost its connection between an
+    acceptance and its own bookkeeping would leave behind.
+
+    Nothing here writes to ``sandbox_rail``, synthesizes a reference, or
+    reaches the Gate.  It subclasses the simulated external system, overrides
+    one method, and adds no state machine.  An acceptance is required before
+    the loss: a definite failure or a refusal is already a final answer, and
+    turning one of those into an unknown would be inventing a durable state the
+    simulation never produced.
+    """
+
+    def dispatch(self, request: ExecutorDispatch) -> ExecutorOutcome:
+        accepted = super().dispatch(request)
+        if not isinstance(accepted, Confirmed):
+            #  Returned, not raised.  The simulation answered definitely, and a
+            #  definite answer is not something this injection may discard.
+            return accepted
+        raise SimulatedUnknownOutcome(
+            "the simulated external system accepted "
+            f"{accepted.external_reference} and this process lost the answer"
+        )
+
+
+def cloud_executor(
+    fleet: CloudFleet, *, accepted_at: Instant = ravi.NOW
+) -> CloudSandboxExecutor:
+    """Compose one of the synthetic executors, none of which moves money.
+
+    Every simulation here has no payment rail and no credential, and every one
+    exposes ``transfers_real_funds`` as ``False``.  The durable simulation is
+    selected only so a *later* process can ask what an execution already did.
+    The Gate still receives an executor protocol and never learns which
+    simulation the composition root selected.
+
+    The unknown-after-acceptance simulation is selected on top of that, and
+    only when the deployment explicitly asked for it.  ``CloudFleet`` has
+    already refused the flag under any other mode or custody, so this is the
+    one place the decision is *read* rather than re-litigated.
+    """
+    if (
+        fleet.gate_mode is HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX
+        and fleet.deployment is DatabaseDeployment.CLOUD_SQL
+        and fleet.postgres
+    ):
+        if fleet.gate_simulate_unknown:
+            return _LosesTheAnswerAfterAcceptance(
+                fleet.postgres,
+                accepted_at=accepted_at,
+                executor_id=CLOUD_EXECUTOR_ID,
+                trusted_gate_id=CLOUD_GATE_ID,
+            )
+        return DurableSandboxPaymentExecutor(
+            fleet.postgres,
+            accepted_at=accepted_at,
+            executor_id=CLOUD_EXECUTOR_ID,
+            trusted_gate_id=CLOUD_GATE_ID,
+        )
     return SandboxPaymentExecutor(
         executor_id=CLOUD_EXECUTOR_ID, trusted_gate_id=CLOUD_GATE_ID
     )
 
 
 def cloud_gate(
-    casework: Casework, fleet: CloudFleet, executor: SandboxPaymentExecutor
+    casework: Casework, fleet: CloudFleet, executor: CloudSandboxExecutor
 ) -> tuple[ActionGate, GateCaller]:
     """Compose the deployed Gate, or end the run saying which decision failed.
 
@@ -1291,7 +1462,7 @@ def cloud_gate(
 
 def _executed(
     record: ExecutionRecord,
-    executor: SandboxPaymentExecutor,
+    executor: CloudSandboxExecutor,
     caller: GateCaller,
 ) -> CloudGateExecution:
     """Project the durable row, field for field, with nothing added.
@@ -1301,6 +1472,19 @@ def _executed(
     There is no default, no ``or`` fallback and no derived timestamp here, so a
     field this prints is a field the database holds.
     """
+    #  "Executions this run" and "inspections this run" are counters two
+    #  different simulations keep.  Printing ``none`` for the counter an
+    #  executor does not keep is the only truthful thing to print; zero would
+    #  claim that this process measured an operation it has no mechanism to
+    #  observe.
+    execution_count: int | None = None
+    inspection_count: int | None = None
+    match executor:
+        case SandboxPaymentExecutor():
+            execution_count = executor.execution_count
+        case DurableSandboxPaymentExecutor():
+            inspection_count = executor.inspection_count
+
     return CloudGateExecution(
         state=record.state.value,
         execution_key=record.execution_key.hex,
@@ -1315,7 +1499,8 @@ def _executed(
         finalized_at=record.finalized_at,
         action_digest=record.intent.action_digest.hex,
         dispatch_count=executor.dispatch_count,
-        execution_count=executor.execution_count,
+        execution_count=execution_count,
+        inspection_count=inspection_count,
     )
 
 
@@ -1351,7 +1536,7 @@ def execute_cloud_gate(
             "muster-cloud-hero: GATE REFUSED: only an invariant action is executable"
         )
 
-    executor = cloud_executor()
+    executor = cloud_executor(fleet)
     gate, caller = cloud_gate(casework, fleet, executor)
     performed = gate.execute(
         caller=caller,
@@ -1447,7 +1632,7 @@ def verify_gate_idempotency(
     if fleet.gate_execution_key is None:
         raise SystemExit(f"muster-cloud-hero: MISSING: {GATE_EXECUTION_ID}")
 
-    executor = cloud_executor()
+    executor = cloud_executor(fleet)
     gate, caller = cloud_gate(build_casework(fleet, database), fleet, executor)
     read = gate.read_authorized_execution(
         caller=caller,
@@ -1478,6 +1663,142 @@ def _print_execution(execution: CloudGateExecution, *, heading: str) -> None:
     print(f"  {SANDBOX_LABEL}")
     print("")
     for line in execution.lines():
+        print(f"  {line}")
+    print("")
+
+
+@dataclass(frozen=True, slots=True)
+class ReconciledExecution:
+    """What one observational reconciliation established about a durable row."""
+
+    execution_key: str
+    state: str
+    finality: str
+    outcome_code: str | None
+    external_reference: str | None
+    reconciled_from: str | None
+    reconciled_at: int | None
+    real_funds: bool
+    gate_id: str
+    executor_id: str
+    principal_id: str
+    dispatch_count: int
+    inspection_count: int | None
+
+    def lines(self) -> tuple[str, ...]:
+        return (
+            f"gate                   {self.gate_id}",
+            f"executor               {self.executor_id}",
+            f"principal              {self.principal_id}",
+            f"principal source       {PRINCIPAL_SOURCE}",
+            f"execution id           {self.execution_key}",
+            f"state                  {self.state}",
+            f"finality               {self.finality}",
+            f"outcome code           {self.outcome_code or 'none'}",
+            f"external reference     {self.external_reference or 'none'}",
+            f"reconciled from        {self.reconciled_from or 'none'}",
+            f"reconciled at          {_instant(self.reconciled_at)}",
+            f"real funds             {'true' if self.real_funds else 'false'}",
+            f"dispatches this run    {self.dispatch_count}",
+            f"inspections this run   {_count(self.inspection_count)}",
+        )
+
+
+def reconcile_gate_execution(
+    database: CaseworkDatabase, fleet: CloudFleet, *, now: Instant = ravi.NOW
+) -> ReconciledExecution:
+    """Observe and reconcile one durable execution, or refuse the request.
+
+    The observation refuses unless ``fleet.gate_mode`` explicitly names
+    ``CLOUD_SQL_ACTION_GATE_SANDBOX`` and ``fleet.deployment`` explicitly names
+    ``CLOUD_SQL``.  It also refuses with a named missing-variable error when no
+    ``MUSTER_HERO_GATE_EXECUTION_ID`` identifies the durable row to inspect.
+
+    It composes ``cloud_executor(fleet)`` and then
+    ``cloud_gate(build_casework(fleet, database), fleet, executor)``: exactly
+    the ordinary cloud composition, including its runtime principal boundary.
+    It calls ``ActionGate.reconcile_execution`` with that caller, tenant, exact
+    execution key, expected case, and observation instant.  An ``Err`` becomes
+    ``GATE RECONCILIATION REFUSED`` carrying only the closed failure value.
+
+    This function never calls ``execute``, ``reserve``, ``begin_dispatch``,
+    ``dispatch``, ``open_case``, ``append_transcript_entry``,
+    ``acquire_outstanding`` or ``case_status``.  Its whole authority is to
+    observe one row an earlier execution already dispatched; it cannot create
+    the effect it was asked to establish.
+    """
+    if fleet.gate_mode is not HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
+        raise SystemExit(
+            "muster-cloud-hero: GATE RECONCILIATION REFUSED: "
+            f"{GATE_MODE}={HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX.value} is required"
+        )
+    if fleet.deployment is not DatabaseDeployment.CLOUD_SQL:
+        raise SystemExit(
+            "muster-cloud-hero: GATE RECONCILIATION REFUSED: "
+            "CLOUD_SQL custody is required"
+        )
+    if fleet.gate_execution_key is None:
+        raise SystemExit(f"muster-cloud-hero: MISSING: {GATE_EXECUTION_ID}")
+    if fleet.gate_simulate_unknown:
+        #  The observation must not be able to compose a failure injection.
+        #  ``inspect`` is not the overridden method, so this would in fact
+        #  behave identically -- and that is precisely why it is refused here
+        #  rather than left to be true by accident.  A reconciliation run that
+        #  carried the injection flag is a run whose operator believes one
+        #  thing about the composition and got another.
+        raise SystemExit(
+            "muster-cloud-hero: GATE RECONCILIATION REFUSED: "
+            f"{GATE_SIMULATE_UNKNOWN}=1 creates unknown outcomes and an "
+            "observation may not create the state it is asked to establish"
+        )
+
+    executor = cloud_executor(fleet)
+    gate, caller = cloud_gate(build_casework(fleet, database), fleet, executor)
+    reconciled = gate.reconcile_execution(
+        caller=caller,
+        tenant_id=fleet.tenant_id,
+        lookup=ExecutionLookup(
+            execution_key=fleet.gate_execution_key,
+            expected_case_id=fleet.case_id,
+        ),
+        now=now,
+    )
+    if isinstance(reconciled, Err):
+        raise SystemExit(
+            "muster-cloud-hero: GATE RECONCILIATION REFUSED: "
+            f"{reconciled.error.failure.value}"
+        )
+    record = reconciled.value
+    inspection_count = (
+        executor.inspection_count
+        if isinstance(executor, DurableSandboxPaymentExecutor)
+        else None
+    )
+    return ReconciledExecution(
+        execution_key=record.execution_key.hex,
+        state=record.state.value,
+        finality=finality(record.state).value,
+        outcome_code=record.outcome_code,
+        external_reference=record.external_reference,
+        reconciled_from=(
+            None if record.reconciled_from is None else record.reconciled_from.value
+        ),
+        reconciled_at=record.reconciled_at,
+        real_funds=executor.transfers_real_funds,
+        gate_id=record.intent.gate_id,
+        executor_id=record.intent.executor_id,
+        principal_id=caller.principal_id,
+        dispatch_count=executor.dispatch_count,
+        inspection_count=inspection_count,
+    )
+
+
+def _print_reconciliation(reconciled: ReconciledExecution, *, heading: str) -> None:
+    print(heading)
+    print("")
+    print(f"  {SANDBOX_LABEL}")
+    print("")
+    for line in reconciled.lines():
         print(f"  {line}")
     print("")
 
@@ -1786,7 +2107,12 @@ def _print_revalidated_case(revalidated: RevalidatedCase, *, heading: str) -> No
 #  ---- entry point ---------------------------------------------------------
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+#  Every mutually exclusive proof flag remains visible in this composition
+#  root because file order is the operator-facing precedence contract Stage 90
+#  mirrors.  Splitting the branches among dispatch tables would lower a metric
+#  while making that ordering implicit, so this one orchestration function is
+#  intentionally longer than an ordinary unit of application logic.
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0915
     parser = argparse.ArgumentParser(description="the worked run, against deployed agents")
     parser.add_argument(
         "--print-configuration",
@@ -1821,6 +2147,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "and exit.  An idempotency read only -- it authorizes nothing, "
             "dispatches nothing, asks no source, runs no check and creates no "
             "row; it requires the Action Gate mode and CLOUD_SQL"
+        ),
+    )
+    parser.add_argument(
+        "--reconcile-gate-execution",
+        action="store_true",
+        help=(
+            "observe one already-dispatched durable execution through the "
+            "executor's read-only inspection boundary, dispatch nothing and "
+            "redispatch nothing, and exit; requires the Action Gate mode, "
+            "CLOUD_SQL and MUSTER_HERO_GATE_EXECUTION_ID"
         ),
     )
     parser.add_argument(
@@ -1890,6 +2226,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
         )
         return 0
+
+    if arguments.reconcile_gate_execution:
+        #  The flag cannot provision the Gate it asks to inspect.  Requiring
+        #  the deployment's explicit mode before composing anything keeps an
+        #  observational request from turning an analysis-only job into an
+        #  execution authority by accident.
+        if fleet.gate_mode is not HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
+            raise SystemExit(
+                "muster-cloud-hero: GATE RECONCILIATION REFUSED: "
+                f"{GATE_MODE}={HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX.value} is required"
+            )
+        reconciled = reconcile_gate_execution(database, fleet)
+        _print_reconciliation(
+            reconciled,
+            heading=(
+                "durable execution, reconciled by a process that did not dispatch it\n"
+                "  (observation only: the executor was inspected and nothing was dispatched)"
+            ),
+        )
+        #  A row that was already final carries no ``reconciled from``, and a
+        #  row this observation left OUTCOME_UNKNOWN is an honest durable state.
+        #  Neither is the proof this flag asked for, just as any dispatch by
+        #  this process would disprove the observation-only claim outright.
+        established = (
+            reconciled.reconciled_from is not None
+            and reconciled.dispatch_count == 0
+            and reconciled.finality != "OUTCOME_UNKNOWN"
+        )
+        return 0 if established else 1
 
     if arguments.repeat_gate_execution:
         if fleet.gate_mode is not HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
@@ -1978,10 +2343,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     #  reached CONFIRMED.  A DISPATCHED or UNCERTAIN row is a legitimate durable
     #  state and an honest one to leave behind -- it is simply not the proof
     #  this mode was asked for, and saying so is what the exit status is for.
+    #
+    #  Under the unknown-after-acceptance simulation the bar moves to UNCERTAIN,
+    #  and moves rather than widens.  That mode asked the simulation to lose an
+    #  answer it had already committed, so UNCERTAIN is the durable state it was
+    #  asked to produce and CONFIRMED would mean the injection never fired --
+    #  which is a failed setup, not a better result.  Exactly one state is
+    #  accepted either way, so no run can satisfy both bars.
     if not run.reached_invariant():
         return 1
     if fleet.gate_mode is HeroMode.CLOUD_SQL_ACTION_GATE_SANDBOX:
-        return 0 if execution is not None and execution.state == "CONFIRMED" else 1
+        requested = "UNCERTAIN" if fleet.gate_simulate_unknown else "CONFIRMED"
+        return 0 if execution is not None and execution.state == requested else 1
     return 0
 
 
@@ -2001,6 +2374,21 @@ def _configuration_lines(fleet: CloudFleet, transport: HttpAcquisitionTransport)
         f"mode       {_mode(fleet.gate_mode)}",
         f"gate       {CLOUD_GATE_ID}  executor {CLOUD_EXECUTOR_ID}",
         f"principal  {fleet.gate_principal or 'not configured'}",
+        #  Printed unconditionally rather than only when it is on.  A failure
+        #  injection that is invisible in the configuration report is one an
+        #  operator can leave switched on, and the line that says "off" is what
+        #  makes the line that says "on" worth reading.
+        f"simulation {_simulation(fleet.gate_simulate_unknown)}",
+    )
+
+
+def _simulation(simulate_unknown: bool) -> str:
+    """What the executor was asked to do to its own answer, in operator words."""
+    if not simulate_unknown:
+        return "none -- the executor reports the outcome it observed"
+    return (
+        "UNKNOWN AFTER ACCEPTANCE -- the sandbox commits its transfer and this "
+        "process then loses the answer, leaving an UNCERTAIN row to reconcile"
     )
 
 
