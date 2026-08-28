@@ -879,7 +879,7 @@ one non-loopback host, a database, a user, a password, an `application_name`, a
 postgresql://ROLE:PASSWORD@PRIVATE_ADDRESS:5432/muster?sslmode=verify-ca&sslrootcert=/var/run/muster/cloud-sql/server-ca.pem&connect_timeout=10&application_name=muster-control-plane
 ```
 
-**5 — Migrate, as the migrator.**
+**5 — Migrate and grant, as the migrator.**
 
 ```bash
 ./infra/scripts/85-database-bootstrap.sh
@@ -888,45 +888,96 @@ postgresql://ROLE:PASSWORD@PRIVATE_ADDRESS:5432/muster?sslmode=verify-ca&sslroot
 A one-shot Cloud Run job under `${MIGRATOR_SA_ID}`, on the same network and
 subnet, `--max-retries=0`, running
 `python /app/demo/database_bootstrap.py --cloud-sql` from the existing
-control-plane image. It applies whatever versions are missing and then re-reads
-the complete ledger to prove it is current, so it is repeatable: a second run
-applies nothing and still proves it. Re-run it after any image that adds a
-migration, and before Stage 90.
+control-plane image. It applies whatever versions are missing, re-reads the
+complete ledger to prove it is current, **grants the runtime role exactly what
+that schema requires, and reads the grants back out of the live catalogue.** It
+is repeatable: a second run applies nothing, grants nothing new, and still
+proves both. Re-run it after any image that adds a migration, and before Stage
+90.
 
-**6 — Grant the runtime role, now that there is a schema to grant on.**
+**6 — The runtime grants are part of step 5, and that is the fix for a real
+failure.**
+
+They used to be a SQL block here, for an operator to re-run by hand after every
+migration. Migration 7 added `sandbox_rail`; the block was not re-run; and the
+deployed control plane could not execute a single statement against the
+simulated external system. The Action Gate handled that exactly as designed — it
+turned the `InsufficientPrivilege` exception into
+`UnknownOutcome("EXECUTOR_EXCEPTION", …)`, recorded a durable `UNCERTAIN` row,
+and refused to redispatch — so the symptom looked like a lifecycle and not like
+a permission, and the live reconciliation proof could not be established at all.
+
+So the list is now data in
+`packages/muster-platform/src/muster/platform/adapters/sql/runtime_grants.py`,
+applied by the bootstrap above, under the one identity that owns these tables:
 
 ```sql
-GRANT USAGE ON SCHEMA store, casework, authority, catalog, action_gate, platform
-  TO muster_runtime;
+GRANT USAGE ON SCHEMA store, casework, authority, catalog,
+  action_gate, sandbox_rail, platform TO muster_runtime;
 GRANT SELECT, INSERT ON store.content,
   casework.transcript_entry, casework.evidence_request,
   casework.case_commitment, authority.registry_snapshot,
-  authority.revocation_snapshot, catalog.agent_snapshot TO muster_runtime;
+  authority.revocation_snapshot, catalog.agent_snapshot,
+  sandbox_rail.transfer TO muster_runtime;
 GRANT SELECT, INSERT, UPDATE ON casework.case_head,
-  authority.publication_state, action_gate.execution TO muster_runtime;
+  authority.publication_state, action_gate.execution,
+  sandbox_rail.attempt TO muster_runtime;
 GRANT SELECT ON platform.schema_migration TO muster_runtime;
 ```
 
 That list is exact: it is every statement the repositories issue and no other.
 `casework.case_head` needs `UPDATE` for its compare-and-set and for
 `SELECT ... FOR UPDATE`; `authority.publication_state` and
-`action_gate.execution` need it for `ON CONFLICT ... DO UPDATE`; everything else
-inserts with `ON CONFLICT DO NOTHING` and never updates.
+`action_gate.execution` need it for `ON CONFLICT ... DO UPDATE`;
+`sandbox_rail.attempt` needs it to seal an attempt as definitively not executed;
+everything else inserts with `ON CONFLICT DO NOTHING` and never updates.
+`sandbox_rail.transfer` gets no `UPDATE`: a synthetic acceptance is written once
+and read forever. Nothing gets `DELETE` or `TRUNCATE`.
 
-**A migration that adds a table does not grant on it.** The grants are
-enumerated rather than defaulted, deliberately — a `GRANT ... ON ALL TABLES`
-would silently widen with the schema — so **step 6 is part of applying any
-future migration, not a one-time step.** Either re-run the block above after
-each Stage 85, or, if you would rather it be automatic, have the migrator set
-default privileges once:
+The role name is configuration — `DATABASE_RUNTIME_ROLE`, default
+`muster_runtime` — and it is a name, not a credential: granting is something the
+owner does *to* a role, so the bootstrap job never reads the runtime password.
+Set it empty to skip granting; the job then says so rather than leaving silence.
+
+They are still enumerated rather than defaulted. `GRANT ... ON ALL TABLES` and
 
 ```sql
-ALTER DEFAULT PRIVILEGES FOR ROLE muster_migrator IN SCHEMA
-  store, casework, authority, catalog, action_gate
-  GRANT SELECT, INSERT, UPDATE ON TABLES TO muster_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE muster_migrator IN SCHEMA … ;
 ```
 
-That trades exactness for not forgetting. Pick one and write down which.
+both widen silently with the schema, and what this role may do is meant to be a
+list somebody read. What replaces the operator's memory is a test rather than a
+default: `tests/architecture/test_runtime_grants.py` walks `MIGRATIONS` and
+fails if any table a migration creates is not named in the grant list, and
+`tests/integration/test_runtime_role_privileges.py` runs the whole
+unknown-outcome-and-reconciliation sequence as a role holding exactly these
+grants — and, separately, reproduces the migration-7 failure with a role that
+holds everything except `sandbox_rail`.
+
+**Reading it back without changing anything:**
+
+```bash
+BOOTSTRAP_REPORT_ONLY=1 ./infra/scripts/85-database-bootstrap.sh
+```
+
+No migration, no grant: it prints one line per privilege, including the ones the
+role must *not* hold, with the catalogue's answer beside each.
+
+The questions it puts are the whole vocabulary rather than the grant list, which
+is what makes "exactly the enumerated set" a measurement. For every runtime
+table: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`,
+`TRIGGER` — the enumerated ones must be present and **every other one must be
+absent**, so a stray `GRANT UPDATE ON sandbox_rail.transfer` is a `WRONG` line
+and not a silence. For every runtime schema: `USAGE` present, `CREATE` absent.
+For every schema and table: that the role does not effectively own it. And once
+for the database: no `CREATE`, which is `CREATE SCHEMA` and the one path to
+persistent objects that narrow table grants say nothing about. Every answer
+comes from `has_*_privilege`/`pg_has_role`, so a privilege inherited through
+role membership or `PUBLIC` counts exactly as the executor would find it.
+
+The report never revokes. A privilege that is present and unenumerated fails the
+bootstrap and is left in place: whether it was a mistake or a decision is not
+something a deploy job should settle.
 
 **7 — Prove the runtime cannot do DDL.** As `muster_runtime`, against the
 provisioned database:

@@ -333,6 +333,33 @@ DATABASE_CA_FILE="${DATABASE_CA_MOUNT}/server-ca.pem"
 MIGRATOR_SA="${MIGRATOR_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 : "${BOOTSTRAP_JOB:=muster-database-bootstrap}"
 
+#  ---- the runtime role the migrator grants -------------------------------
+#
+#  A PostgreSQL role *name*, and deliberately not a credential: the runtime's
+#  password lives in ${DATABASE_DSN_SECRET} and is read by Cloud Run into the
+#  hero job alone.  Granting is something the owner does *to* a role, so the
+#  bootstrap job needs the name and nothing else -- which is why this can be an
+#  ordinary environment value and appear in a log line.
+#
+#  **It exists because a migration that adds a table does not grant on it.**
+#  Migration 7 added ``sandbox_rail``; the grant block in infra/README.md was a
+#  step an operator re-ran by hand; it was not re-run; and the durable sandbox
+#  executor's first statement failed with SQLSTATE 42501.  The Action Gate did
+#  the right thing with that -- EXECUTOR_EXCEPTION, a durable UNCERTAIN row and
+#  no redispatch -- which is exactly why nothing pointed at the cause.  So the
+#  grant list is now data in ``adapters.sql.runtime_grants``, applied by
+#  85-database-bootstrap.sh in the same run that applies the migrations, and
+#  read back afterwards from the live catalogue.
+#
+#  Set it empty to skip granting entirely.  The bootstrap then says so out loud
+#  rather than leaving silence where a decision was.
+: "${DATABASE_RUNTIME_ROLE=muster_runtime}"
+if [[ -n "${DATABASE_RUNTIME_ROLE}" && ! "${DATABASE_RUNTIME_ROLE}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+  echo "DATABASE_RUNTIME_ROLE is '${DATABASE_RUNTIME_ROLE}';" >&2
+  echo "expected a plain unquoted PostgreSQL identifier, or empty to skip granting." >&2
+  exit 2
+fi
+
 #  Fail closed on the mount, exactly as muster::require_signing_key_version
 #  does, and for the same reason: 'latest' resolves at every cold start, so a
 #  rotation nobody reviewed would reach a deployment that was reviewed.  Takes
@@ -825,7 +852,7 @@ export DATABASE_DSN_SECRET DATABASE_DSN_SECRET_VERSION
 export DATABASE_SERVER_CA_SECRET DATABASE_SERVER_CA_SECRET_VERSION
 export DATABASE_MIGRATION_DSN_SECRET DATABASE_MIGRATION_DSN_SECRET_VERSION
 export DATABASE_CA_MOUNT DATABASE_CA_FILE
-export MIGRATOR_SA_ID MIGRATOR_SA BOOTSTRAP_JOB
+export MIGRATOR_SA_ID MIGRATOR_SA BOOTSTRAP_JOB DATABASE_RUNTIME_ROLE
 export REPOSITORY_ROOT FIXTURES EVIDENCE_DIR MUSTER_PYTHON
 
 #  ---- how a Cloud Run resource is told what it is -------------------------

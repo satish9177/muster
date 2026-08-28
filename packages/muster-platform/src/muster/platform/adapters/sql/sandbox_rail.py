@@ -269,6 +269,57 @@ class DurableSandboxPaymentExecutor:
         return NotExecuted(*_negative_evidence(attempt))
 
 
+@dataclass(frozen=True, slots=True)
+class SandboxRailEvidence:
+    """What the simulated external system holds for one key, read and nothing else.
+
+    An operator asking "did the external effect actually happen before that
+    reconciliation" is asking a question about this schema and no other, and the
+    honest way to answer it is to read the two rows rather than to infer them
+    from a Gate state the reconciliation itself wrote.  So this is a *read*: no
+    marker is established, nothing is sealed, and the connection is read-only,
+    which is what makes it safe to run against a database whose proof is in
+    progress.  :meth:`DurableSandboxPaymentExecutor.inspect` deliberately writes
+    negative evidence and is therefore not this.
+    """
+
+    idempotency_key: str
+    attempt: SandboxRailAttempt | None
+    transfer: SandboxRailTransfer | None
+    transfer_count: int
+
+    def lines(self) -> tuple[str, ...]:
+        attempt = self.attempt
+        transfer = self.transfer
+        return (
+            f"idempotency key        {self.idempotency_key}",
+            f"attempt row            {'present' if attempt else 'absent'}",
+            f"attempt outcome        {attempt.outcome if attempt else 'none'}",
+            f"attempt failure code   {(attempt.failure_code if attempt else None) or 'none'}",
+            f"transfer row           {'present' if transfer else 'absent'}",
+            f"external reference     {transfer.external_reference if transfer else 'none'}",
+            f"accepted at            {transfer.accepted_at if transfer else 'none'}",
+            f"transfer count         {self.transfer_count}",
+        )
+
+
+def external_effect_evidence(dsn: str, idempotency_key: str) -> SandboxRailEvidence:
+    """Read the simulated external world for one key.  Writes nothing, ever."""
+    with psycopg.connect(dsn) as connection:
+        connection.read_only = True
+        attempt_row = connection.execute(_SELECT_ATTEMPT, (idempotency_key,)).fetchone()
+        transfer_row = connection.execute(_SELECT_TRANSFER, (idempotency_key,)).fetchone()
+        counted = connection.execute(_COUNT, (idempotency_key,)).fetchone()
+    if counted is None or not isinstance(counted[0], int):
+        raise InvariantViolation("the simulated external transfer count is absent")
+    return SandboxRailEvidence(
+        idempotency_key,
+        None if attempt_row is None else _attempt(attempt_row),
+        None if transfer_row is None else _transfer(transfer_row),
+        counted[0],
+    )
+
+
 def _invalid_inquiry(
     inquiry: ExecutorInquiry, *, executor_id: str, trusted_gate_id: str
 ) -> StillUnknown | None:

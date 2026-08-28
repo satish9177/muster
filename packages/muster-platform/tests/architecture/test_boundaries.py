@@ -116,7 +116,10 @@ ALLOWED: dict[str, frozenset[str]] = {
     "adapters.sql.migrations": frozenset(),
     "adapters.sql.config": frozenset(),
     "adapters.sql.schema": frozenset({"adapters.sql.migrations"}),
-    "adapters.sql.bootstrap": frozenset({"adapters.sql.schema"}),
+    "adapters.sql.runtime_grants": frozenset(),
+    "adapters.sql.bootstrap": frozenset(
+        {"adapters.sql.schema", "adapters.sql.runtime_grants"}
+    ),
     "adapters.sql.content": frozenset({"casework.ports"}),
     "adapters.sql.transcript": frozenset({"casework.ports"}),
     "adapters.sql.head": frozenset({"casework.ports"}),

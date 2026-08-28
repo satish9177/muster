@@ -291,7 +291,16 @@ def main() -> int:
     parser.add_argument("--executed-at", required=True)
     parser.add_argument("--completed-at", required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--ui-output", type=Path, required=True)
+    #  Optional, because one caller deliberately does not pass it.  The setup
+    #  half of the reconciliation proof leaves an UNCERTAIN row behind on
+    #  purpose, and 90-hero-job.sh omits --ui-output for exactly that run so the
+    #  published trace is not overwritten with the unfinished half of a two-run
+    #  proof.  Declared ``required`` this was a contradiction between the caller
+    #  and the callee: the run succeeded in the cloud and the capture then
+    #  refused its own arguments, so the setup exited 4 and the proof could not
+    #  be completed.  Absent, the evidence copy is still written; only the
+    #  published copy is skipped.
+    parser.add_argument("--ui-output", type=Path, default=None)
     arguments = parser.parse_args()
 
     artifact = capture_case_trace(
@@ -305,8 +314,11 @@ def main() -> int:
     )
     content = canonical_json(artifact)
     write_artifact(arguments.output, content)
-    write_artifact(arguments.ui_output, content)
     print(f"  case trace {arguments.output}")
+    if arguments.ui_output is None:
+        print("  UI replay  not published for this run")
+        return 0
+    write_artifact(arguments.ui_output, content)
     print(f"  UI replay  {arguments.ui_output}")
     return 0
 

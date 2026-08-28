@@ -840,10 +840,34 @@ payloads and key material are in Secret Manager and appear nowhere in the tree.
 
 Two roles, neither holding `cloudsqlsuperuser`: `muster_migrator` owns the
 database and is the only identity that performs DDL, and `muster_runtime`
-connects with `SELECT`/`INSERT` on the immutable tables, `UPDATE` on the three
-that compare-and-set, and `SELECT` on the migration ledger — no `DELETE`, no
-`TRUNCATE`, no `CREATE`, no ownership. PostgreSQL refuses each of those to the
-runtime role with SQLSTATE `42501`.
+connects with `SELECT`/`INSERT` on the immutable tables, `UPDATE` on the four
+that compare-and-set or seal, and `SELECT` on the migration ledger — no
+`DELETE`, no `TRUNCATE`, no `CREATE`, no ownership. PostgreSQL refuses each of
+those to the runtime role with SQLSTATE `42501`.
+
+That list is enumerated in
+`adapters/sql/runtime_grants.py` and applied by the bootstrap job, not by an
+operator following a runbook. It is written down there because the runbook
+version failed: migration 7 added the `sandbox_rail` schema and the grant block
+was not re-run, so the durable sandbox executor's first statement was refused
+with `42501`, the Action Gate recorded `EXECUTOR_EXCEPTION` and a durable
+`UNCERTAIN` row with no redispatch — correct, fail-closed, and completely
+opaque about the cause. An architecture test now walks the migrations and fails
+on any created table the grant list does not name.
+
+The absences above are measured rather than asserted, and measured as the
+complement of the list rather than as a second list. After granting, the
+bootstrap asks the live catalogue about the whole privilege vocabulary for every
+runtime object — `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`,
+`REFERENCES`, `TRIGGER` on each table, `USAGE` and `CREATE` on each schema,
+`CREATE` on the database, and whether the role effectively owns any of it — and
+fails if a privilege outside the list is present. That is what makes a stray
+`GRANT UPDATE ON sandbox_rail.transfer` a refusal rather than a silence:
+`UPDATE` is legitimate on four other tables, so a check written as
+"required present, `DELETE`/`TRUNCATE` absent" has no question it fails. The
+answers come from `has_*_privilege` and `pg_has_role`, so a privilege inherited
+through role membership or `PUBLIC` counts. Nothing is revoked: a widening fails
+the deploy and is left for a person to decide about.
 
 **What this verifies, precisely.** Execution `-tsjds` wrote the case; execution
 `-zzs9w`, a separate Cloud Run execution in a separate process, read back an

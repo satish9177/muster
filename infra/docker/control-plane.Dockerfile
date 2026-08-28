@@ -63,6 +63,12 @@ WORKDIR /app
 COPY demo/cloud_hero.py /app/demo/cloud_hero.py
 COPY demo/case_trace_artifact.py /app/demo/case_trace_artifact.py
 COPY demo/database_bootstrap.py /app/demo/database_bootstrap.py
+#  The read-only forensic half of the same operator story: it answers "did the
+#  synthetic external effect exist before that reconciliation" out of
+#  ``sandbox_rail`` alone, on a read-only connection, and touches no MUSTER
+#  custody at all.  Shipped here because the database has a private address and
+#  a Cloud Run job in the VPC is the only thing that can ask it.
+COPY demo/sandbox_rail_evidence.py /app/demo/sandbox_rail_evidence.py
 COPY demo/stable_keys.py /app/demo/stable_keys.py
 COPY packages/muster-platform/tests/support /app/packages/muster-platform/tests/support
 COPY packages/muster-kernel/fixtures /app/packages/muster-kernel/fixtures
