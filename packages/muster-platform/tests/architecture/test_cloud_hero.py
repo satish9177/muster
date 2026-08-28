@@ -513,6 +513,26 @@ def test_the_control_plane_image_carries_the_explicit_migration_command() -> Non
     assert "/app/demo/database_bootstrap.py" in executable
 
 
+def test_the_control_plane_image_carries_every_local_demo_import() -> None:
+    """Repository-local modules imported by the entrypoint must ship with it."""
+    copies: set[tuple[str, str]] = set()
+    for line in CONTROL_PLANE_IMAGE.read_text(encoding="utf-8").splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[0] == "COPY":
+            copies.add((fields[1], fields[2]))
+
+    required: set[tuple[str, str]] = set()
+    for module in _imports():
+        if not module.startswith("demo."):
+            continue
+        source = f"{module.replace('.', '/')}.py"
+        if (REPOSITORY / source).is_file():
+            required.add((source, f"/app/{source}"))
+
+    missing = required - copies
+    assert not missing, f"control-plane image omits local demo imports: {sorted(missing)}"
+
+
 #  ---- the secrets a deployment asks Cloud Run for -------------------------
 
 
