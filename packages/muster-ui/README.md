@@ -4,7 +4,7 @@ The UI-1 case viewer is a local TypeScript/React application. It renders a
 typed platform-facing read model and never imports, duplicates, or evaluates
 kernel policy semantics.
 
-The viewer first requests the ignored, Stage-90-generated
+The viewer first requests the tracked, sanitized Stage-90-generated
 `public/cases/ravi-cloud-execution.json` artifact and adapts it into the UI-1
 read model. A verified artifact is labeled `verified-cloud-execution` and is
 always shown as a replay, never live telemetry.
@@ -26,11 +26,12 @@ deterministic sandbox execution path is labeled separately from the verified
 Google Cloud execution replay. No real funds are transferred.
 
 `ravi-cloud-execution.json` proves the observed model, IAM result, candidate
-facts, Q-12 checks, and deterministic result from the verified Stage-90 cloud
-execution. `ravi-evidence-proof.json` is a separate implementation audit: it
-proves the committed request shape and modalities and is not runtime telemetry.
+facts, Q-12 checks, and deterministic result from the tracked analysis-only
+Stage-90 cloud execution. `ravi-evidence-proof.json` is a separate
+implementation audit: it proves the committed request shape and modalities and
+is not runtime telemetry.
 The Worker Agent path accepts text and includes Gemini interpretation, but that
-agent was not rerun in the verified Stage-90 cloud hero.
+agent was not rerun in the tracked analysis-only Stage-90 cloud hero.
 
 Validation:
 

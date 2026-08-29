@@ -198,8 +198,8 @@ In this integration, the model tier follows the trust tier:
 The default `python demo/hero.py` remains deterministic and offline. Only the
 explicit `--live` mode constructs hosted models; the Worker Developer backend
 reads its API key from the environment and no key is stored in MUSTER
-configuration. The verified Stage-90 cloud run remains the keyless Vertex AI
-Employer/Site path and did not rerun the Worker Agent.
+configuration. The tracked analysis-only Stage-90 cloud run remains the keyless
+Vertex AI Employer/Site path and did not rerun the Worker Agent.
 
 ## Why Gemini Is Essential for Institutional Evidence
 
@@ -301,34 +301,49 @@ Both the local demo and the deployed Cloud SQL composition use a **synthetic
 sandbox executor**. There is no payment provider and no credential for one, and
 no real funds are transferred in any mode.
 
-**Cloud Action Gate support is implemented, not deployed/verified.** It is
-covered by the local suite -- including PostgreSQL duplicate-prevention and
-concurrency proofs -- and has not been run against Google Cloud. The Action Gate
-was not part of the verified Stage-90 cloud execution, and this sentence stays
-until a real run replaces it.
+**The Cloud SQL sandbox Action Gate and executor reconciliation are now
+live-verified.** In the final GCP proof, a synthetic executor accepted one action
+and deliberately lost the answer, so the Gate durably recorded `UNCERTAIN`. An
+independent read found the simulated external transfer before reconciliation; a
+fresh Cloud Run process reconciled it to `CONFIRMED` with zero redispatch; an
+exact execution-key read dispatched nothing; and the final external-world read
+still found exactly one transfer. This was unknown after acceptance, not Cloud
+Run process death. The literal process-death proof remains local in
+`demo/reconcile_ravi.py`.
 
-**Executor reconciliation is likewise not live-verified.** It is proved locally
-over PostgreSQL, real process death and concurrent contenders. It has **not**
-been run on Cloud Run, against Cloud SQL reconciliation, against a deployed
-sandbox rail, in a deployed runtime, or against any real payment provider.
+**SANDBOX ONLY. NO REAL FUNDS TRANSFERRED.** The deployed proof used a simulated
+external system, not a payment provider or payment rail. See
+[ARCHITECTURE.md](ARCHITECTURE.md#final-live-unknown-after-acceptance-and-reconciliation-proof)
+for the immutable build provenance and the five named proof executions.
 
-## Verified Google Cloud Execution
+## Verified Google Cloud Executions
 
-The Stage-90 hero was verified in project `muster-agentic-2026-9177`:
+The analysis-only trace and the later final Gate proof were verified in project
+`muster-agentic-2026-9177`:
 
 | Item | Verified value |
 |---|---|
 | Cloud Run / Cloud Storage region | `asia-south1` |
 | Vertex AI | Gemini 3.7 Flash at `global` |
 | Cloud Run services | `muster-site-agent`, `muster-employer-agent` |
-| Cloud Run job | `muster-control-plane-hero` |
-| Verified execution | `muster-control-plane-hero-htkpt` |
+| Cloud Run jobs | `muster-control-plane-hero`, `muster-database-bootstrap`, `muster-control-plane-probe` |
+| Tracked analysis-only trace | `muster-control-plane-hero-tsjds` |
+| Final Gate proof case | `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |
+| Final Gate execution id | `6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80` |
+| Deployed source commit | `af1359c828d70e9e860f10ae076f225b006e5693` |
+| Cloud Build | `4f7f281f-5373-43db-addd-496cd2c546fe` (`SUCCESS`) |
+| Immutable image digest | `sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73` |
 
-That execution verified the Employer Agent, Site Agent, genuine Gemini
+The analysis-only trace verified the Employer Agent, Site Agent, genuine Gemini
 interpretation, the Control Plane IAM 403, Q-12 admission, deterministic
 `INVARIANT`, and certificate rebuild. It did **not** rerun the Worker Agent or
 run the Action Gate, local PostgreSQL, procurement proof, or local Vite UI. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the exact cloud/local boundary.
+
+The separate final Gate case verified unknown-after-acceptance handling,
+independent external-world evidence before reconciliation, reconciliation from
+a fresh Cloud Run process with zero redispatch, an exact durable idempotency read
+with zero dispatches, and one unchanged synthetic transfer afterward.
 
 ## Google Cloud Services Used
 
@@ -352,8 +367,10 @@ What that verifies, and what it does not:
 |---|---|
 | Persistence across independent Cloud Run executions | **verified** |
 | Control Plane denied raw Site-A evidence (HTTP 403) | **verified** |
-| Semantic restart / resume / cross-process re-validation | **verified locally on PostgreSQL across independent OS processes; live Cloud SQL not yet** |
-| Cloud Action Gate | **implemented, not deployed/verified** |
+| Durable semantic revalidation | **verified locally and on the earlier deployed Cloud Run proof `CASE-RAVI-SAT-CLOUD-GATE-U5B`; not repeated on final `af1359c` image** |
+| Cross-process / full repeat | **verified locally and on that earlier deployed Cloud Run proof; not repeated on final `af1359c` image** |
+| Cloud Action Gate | **verified with the synthetic Cloud SQL sandbox executor** |
+| Cloud executor reconciliation | **verified for deliberate unknown after acceptance; zero redispatch** |
 | Real funds transferred | **no** |
 
 Stage 90 still defaults to `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`; durable custody
@@ -362,8 +379,11 @@ is named explicitly with `CLOUD_SQL` and never fallen back to.
 The local U4 proof re-admits the stored construction, re-verifies every stored
 entry and pinned authority publication, reruns Q-12, replays the transcript and
 reproduces the certificate from a fresh interpreter. It opens only a database
-read scope and reports zero writes and zero dispatches. No deployed Cloud Run
-or live Cloud SQL execution has established that U4 property yet.
+read scope and reports zero writes and zero dispatches. The earlier deployed
+Cloud Run proof `CASE-RAVI-SAT-CLOUD-GATE-U5B`, whose durable execution identity
+begins `bfa1d0ba`, also established durable case revalidation and the
+cross-process/full repeat. The final `af1359c` provenance run did not repeat
+those demonstrations.
 
 ## Repository Structure
 
@@ -406,8 +426,11 @@ when intentionally running those integration paths.
 ## Limitations / Scope
 
 The submission uses synthetic enterprise fixtures. Action execution is a
-sandbox with no real payment rail; the Action Gate and PostgreSQL were not part
-of the verified Stage-90 cloud run, and cloud Action Gate support is
-implemented, not deployed/verified. The UI currently runs locally. Cloud Run
-and Cloud Storage are in `asia-south1`, while Vertex inference uses the
-`global` location. These are the current submission boundaries.
+sandbox with no real payment rail. The final Cloud Action Gate proof used Cloud
+Run, Cloud SQL and a simulated external system; it did not transfer real funds
+and did not kill the Cloud Run process. Literal process death remains the local
+PostgreSQL proof. Durable revalidation and full re-derivation repeat were
+established on an earlier deployed Cloud Run proof but were not repeated on the
+final `af1359c` image. The UI currently runs locally. Cloud Run and Cloud Storage
+are in `asia-south1`, while Vertex inference uses the `global` location. These
+are the current submission boundaries.

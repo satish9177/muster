@@ -128,12 +128,12 @@ flowchart TB
   EVAL -->|"narrow attestation<br/>scheduled RAVI,SAT = true"| Q12
   SVAL -->|"narrow attestations<br/>present_on_site = true<br/>on_site_duration >= 508 min"| Q12
 
-  subgraph Z4["ACTION GATE — deterministic code, NOT an AI agent · local"]
+  subgraph Z4["ACTION GATE — deterministic code, NOT an AI agent · sandbox"]
     direction LR
     BIND["exact action binding<br/>+ execution authority"]:::exec
-    PG[("PostgreSQL · LOCAL<br/>durable reservation<br/>idempotency + finality")]:::exec
+    PG[("PostgreSQL / Cloud SQL<br/>durable reservation<br/>idempotency + finality")]:::exec
     LIFE["RESERVED → DISPATCHED →<br/>CONFIRMED | FAILED | UNCERTAIN"]:::exec
-    DONE["EXECUTED ONCE<br/>local sandbox executor<br/>no real funds transferred"]:::exec
+    DONE["SYNTHETIC ACTION ACCEPTED ONCE<br/>sandbox executor<br/>no real funds transferred"]:::exec
     BIND --> PG --> LIFE --> DONE
   end
 
@@ -242,9 +242,9 @@ not as a general security theorem:
   and execution eligibility.
 
 The default local hero remains deterministic and offline. The Worker Gemma
-integration does not change the verified Stage-90 cloud execution: Stage-90
-used Gemini 3.7 Flash on Vertex AI for Employer and Site and replayed, rather
-than reran, the Worker claim.
+integration does not change the tracked analysis-only Stage-90 cloud execution,
+which used Gemini 3.7 Flash on Vertex AI for Employer and Site and replayed,
+rather than reran, the Worker claim.
 
 Site-A's evidence is a photograph of an attendance board and a comma-separated
 gate log — a picture and a table, about the same shift, in two different shapes.
@@ -351,9 +351,12 @@ Deployed Google Cloud components:
 
 - **Cloud Run services** — `muster-site-agent`, `muster-employer-agent`
   (`--ingress=internal`)
-- **Cloud Run job** — `muster-control-plane-hero`
+- **Cloud Run jobs** — `muster-control-plane-hero`,
+  `muster-database-bootstrap`, `muster-control-plane-probe`
 - **Service accounts** — `muster-control-plane`, `muster-site-agent`,
-  `muster-employer-agent`, `muster-build`
+  `muster-employer-agent`, `muster-build`, `muster-database-migrator`
+- **Cloud SQL for PostgreSQL** — private durable custody and the synthetic
+  `sandbox_rail` external-world schema used by the final proof
 - **Cloud Storage** — the private evidence bucket described above
 - **Secret Manager** — `muster-site-signing-key`, `muster-employer-signing-key`,
   each accessible by exactly one service account
@@ -679,36 +682,95 @@ dispatch from starting. That separation and ordering are the point: the rail
 survives the death of the Gate process independently of MUSTER's custody, which
 is what makes a real process-death proof possible at all.
 
-> The sandbox rail is a **simulated external system**, not infrastructure. It
-> transfers **no real funds**. It is **not a payment provider and not a payment
-> rail**; it holds no account and no credential for one, and it must not be
+> The sandbox rail is a **simulated external system**, not production financial
+> infrastructure. It transfers **no real funds**. It is **not a payment
+> provider and not a payment rail**; it holds no account and no credential for
+> one, and it must not be
 > presented as production financial infrastructure. It exists so that "the
 > external world already accepted this" is something a test can make durably
 > true and then observe from a different process.
 
-The Action Gate was **not** part of the verified Stage-90 cloud execution. That
-run stops at the analysis by design: no gate, nothing authorized, nothing
-settled, and that remains the default for every Stage-90 run.
+The default Stage-90 path remains analysis-only: no gate, nothing authorized and
+nothing executed. The tracked sanitized cloud trace described below is that
+analysis-only proof. A separate, explicitly selected Cloud SQL sandbox mode has
+now been deployed and verified without changing the default or the historical
+trace.
 
-> **Cloud Action Gate support is implemented, not deployed/verified.** A
-> deliberate `HERO_GATE_MODE=CLOUD_SQL_ACTION_GATE_SANDBOX` runs the same
-> deterministic Gate over Cloud SQL custody against the same synthetic sandbox
-> executor. The earlier retry mode names an execution key and only reads the
-> recorded lifecycle. The repeat mode accepts no key: a second execution of the
-> same digest-pinned job reconstructs the stable synthetic officer, authority
-> publisher, catalog publisher and fixture-source identities, replays the full
-> hero case,
-> re-derives the identical intent and calls `ActionGate.execute()` again. The
-> deployed agents' source keys remain the real configured source keys; derived
-> fixture-source keys are confined to the synthetic hero population and are
-> never minted under deployed references. The repeat re-applies
-> authority/catalog publication and case admission, so it is not a pure read,
-> but an exact confirmed execution row is returned without redispatch. This is
-> covered locally across PostgreSQL and
-> separate OS processes and has not been run against Google Cloud, so nothing in
-> this document claims a verified cloud execution of it. The mode is refused
-> under ephemeral custody and runs its own case, so the verified analysis-only
-> case stays untouched.
+### Final live unknown-after-acceptance and reconciliation proof
+
+The final proof ran in project `muster-agentic-2026-9177`, region
+`asia-south1`, tenant `BETA`, from source commit
+`af1359c828d70e9e860f10ae076f225b006e5693`. Cloud Build
+`4f7f281f-5373-43db-addd-496cd2c546fe` completed with status `SUCCESS` and
+produced the immutable control-plane image:
+
+```
+asia-south1-docker.pkg.dev/muster-agentic-2026-9177/muster/muster-control-plane@sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73
+```
+
+The deployed-image source remains the commit above. A later documentation-only
+commit or worktree state is not the source of this image.
+
+The proof used case `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` and one durable
+execution identity throughout:
+`6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80`.
+The five independently named Cloud Run executions established this sequence:
+
+| Step | Cloud Run execution | Read or transition observed |
+|---|---|---|
+| Setup / unknown after acceptance | `muster-control-plane-hero-z2m6k` | `UNCERTAIN`, outcome code `EXECUTOR_EXCEPTION`, no external reference, one dispatch, zero inspections, `real funds false` |
+| Independent external-world evidence before reconciliation | `muster-database-bootstrap-jkr7k` | Read-only: attempt present as `ATTEMPTED`; transfer present with external reference `sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80`, accepted at `1760000000000000`; transfer count `1` |
+| Fresh reconciliation | `muster-control-plane-hero-hdfv2` | `CONFIRMED`, finality `DEFINITELY_EXECUTED`, outcome code `CONFIRMED`, the same external reference, `reconciled_from UNCERTAIN`, `reconciled_at 1760000000000000`, zero dispatches, one inspection, `real funds false` |
+| Exact durable idempotency read | `muster-control-plane-hero-pv2f2` | `CONFIRMED`, the same external reference, zero dispatches, zero inspections |
+| Final external-world check | `muster-database-bootstrap-kpz8p` | Read-only: attempt present as `ATTEMPTED`; transfer present with the same external reference; transfer count still `1` |
+
+Both external-world reads used the execution id as the idempotency key and
+reported: "the simulated external world was read; nothing was written". The
+fresh reconciliation reported that the durable execution was reconciled from
+`UNCERTAIN` with no redispatch. The idempotency read reported that the durable
+execution was already `CONFIRMED`, and nothing was dispatched.
+
+The setup was a deliberate **unknown-after-acceptance simulation**: the
+synthetic executor committed acceptance, then the answer was deliberately lost.
+The Cloud Run process was not killed, and this proof does not claim process
+death. Independent read-only evidence established that the synthetic external
+effect already existed before reconciliation. A fresh Cloud Run process then
+resolved the durable uncertainty by observation with zero redispatch; the later
+idempotency read caused zero dispatches and zero inspections; and the final
+external-world read still found exactly one transfer.
+
+> **Final defensible live claim.** A synthetic external action was accepted
+> exactly once. The control plane deliberately lost the answer and durably
+> recorded uncertainty instead of guessing. A fresh Cloud Run process later
+> reconciled the outcome by observation with zero redispatch. Re-reading the
+> execution caused zero additional dispatch, and independent external-world
+> evidence still showed exactly one transfer.
+
+> **SANDBOX ONLY. NO REAL FUNDS TRANSFERRED.** The durable sandbox rail is a
+> simulated external system, not a payment provider or payment rail.
+
+This GCP proof and the local process-death proof are deliberately distinct.
+`demo/reconcile_ravi.py` is the literal process-death proof. The GCP proof is the
+unknown-after-acceptance sequence above; it must not be described as killing a
+Cloud Run process.
+
+Two earlier attempts are excluded from the final proof. Durable execution
+`61bd22835140d6d899dc31def00d35e8eb8f7f8b0c763a2ac51d316be91c9b63`
+is historical `UNCERTAIN` evidence from missing `sandbox_rail` runtime
+privileges; it has no attempt row and no transfer row and must not be reconciled
+or rewritten. It is not an unknown-after-acceptance proof. Case
+`CASE-RAVI-SAT-CLOUD-GATE-FINAL-AF1359C` stopped before the Gate when the Site
+Agent abstained with `INTERPRETER_UNAVAILABLE`; it is not part of the final
+proof.
+
+The full re-derivation repeat mode remains a separate workflow: it accepts no
+execution key, reconstructs the stable synthetic identities and case, and calls
+`ActionGate.execute()` again. It is covered locally across PostgreSQL and
+separate OS processes and was also established on the earlier deployed Cloud
+Run proof `CASE-RAVI-SAT-CLOUD-GATE-U5B`, whose durable execution identity
+begins `bfa1d0ba`. The final `af1359c` provenance run above used the exact
+durable idempotency read and did not repeat that separate full-repeat
+demonstration.
 
 The local convergence path is `demo/hero.py --postgres --gate`: the ordinary
 worked case runs over PostgreSQL, the same Action Gate reaches `CONFIRMED`, and
@@ -768,11 +830,15 @@ bundle. No model and no cloud execution is used for it.
 
 ## 11. Verified Cloud Execution vs Local Demo
 
-Verified execution: `muster-control-plane-hero-htkpt`, captured in the tracked
-sanitized artifact
+The tracked sanitized evidence-acquisition trace is execution
+`muster-control-plane-hero-tsjds` in
 [`packages/muster-ui/public/cases/ravi-cloud-execution.json`](packages/muster-ui/public/cases/ravi-cloud-execution.json).
+It remains the analysis-only UI replay. The later final Action Gate proof is the
+five-execution sequence for case `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C`
+recorded in [Section 9](#final-live-unknown-after-acceptance-and-reconciliation-proof);
+it does not rewrite the earlier trace.
 
-| Component | Verified Stage-90 cloud execution | Local demo / replay | Notes |
+| Component | Verified Google Cloud evidence | Local demo / replay | Notes |
 |---|---|---|---|
 | Employer Agent | Yes — Cloud Run, real Gemini call | Yes | Attested `scheduled(RAVI,SAT)`, key `key-hr-payroll-cloud-1` |
 | Site Agent | Yes — Cloud Run, real Gemini call | Yes | Attested `present_on_site` + `on_site_duration`, key `key-site-a-cloud-1` |
@@ -783,14 +849,15 @@ sanitized artifact
 | Q-12 | Yes — passed on all three attestations | Yes | Same admission function on both paths |
 | Kernel result | Yes — `INVARIANT` | Yes — `INVARIANT` | Identical outcome, identical unresolved set |
 | Certificate rebuild | Yes — `certificate_reproduced: true` | Yes | Determinism class `REPRODUCIBLE` |
-| Action Gate | **No — not executed in any verified run** | Yes | The captured cloud trace records `NOT_EXECUTED`. Cloud Gate support is implemented and not deployed/verified |
-| PostgreSQL | **Yes — private Cloud SQL** | Yes — local Docker | Durable custody verified in execution `-tsjds`; a second execution read the identical identity back |
-| Durable semantic revalidation | **No — not run against live Cloud SQL** | Yes — local PostgreSQL, independent OS processes | Stored construction, publications and entries are reverified; Q-12 and replay reproduce the certificate with zero writes and dispatches |
+| Action Gate | **Yes — final sandbox proof on Cloud Run + Cloud SQL** | Yes | The earlier tracked trace records `NOT_EXECUTED`; the separate final case reached `UNCERTAIN` after one accepted synthetic dispatch and later reconciled to `CONFIRMED` |
+| PostgreSQL | **Yes — private Cloud SQL** | Yes — local Docker | Final-image bootstrap verified migrations 1–7 and the exact runtime grant set before the final proof |
+| Durable semantic revalidation | **Yes — earlier deployed Cloud Run proof; not repeated on final `af1359c` image** | Yes — local PostgreSQL, independent OS processes | `CASE-RAVI-SAT-CLOUD-GATE-U5B` (durable execution identity begins `bfa1d0ba`) established durable case revalidation in Cloud Run |
+| Cross-process / full repeat | **Yes — earlier deployed Cloud Run proof; not repeated on final `af1359c` image** | Yes — local PostgreSQL, independent OS processes | The separate U5B proof re-derived the same durable execution across Cloud Run processes; the final provenance run used an exact execution-key read instead |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
 | UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
-| Executor reconciliation | **No — not run against Cloud Run, Cloud SQL or a deployed rail** | Yes — local PostgreSQL, real process death | `DISPATCHED`/`UNCERTAIN` rows reconciled by inspecting the executor, with zero redispatch. The two proofs differ: **local** is literal process death; the **live** sequence, implemented and not yet run, is a durably *unknown outcome* — the simulation commits its transfer, loses the answer, and a later execution confirms the `UNCERTAIN` row. Cloud Run process death is not claimed |
-| Durable sandbox rail | **No — not deployed** | Yes — local PostgreSQL schema | Simulated external world. Not a payment provider or payment rail |
-| Payment | — | Sandbox only | No payment rail. No real funds transferred |
+| Executor reconciliation | **Yes — fresh Cloud Run process, Cloud SQL, deployed sandbox rail** | Yes — local PostgreSQL, real process death | GCP deliberately lost the answer after synthetic acceptance and reconciled `UNCERTAIN` by one inspection with zero redispatch. Local is literal process death; Cloud Run process death is not claimed |
+| Durable sandbox rail | **Yes — deployed in Cloud SQL for the final proof** | Yes — local PostgreSQL schema | Simulated external world. Independent reads before and after reconciliation found one transfer. Not a payment provider or payment rail |
+| Payment | Sandbox only | Sandbox only | **No real funds transferred** |
 
 The demo and the acceptance suite call the same functions. There is no branch
 that a demo takes and a deployment does not, no answer written down in advance,
@@ -807,11 +874,14 @@ and no path that skips authorization.
 | Vertex AI model | `gemini-3.7-flash` |
 | Vertex AI location | `global` |
 | Cloud Run services | `muster-site-agent`, `muster-employer-agent` |
-| Cloud Run job | `muster-control-plane-hero` |
-| Verified execution | `muster-control-plane-hero-htkpt` |
+| Cloud Run jobs | `muster-control-plane-hero`, `muster-database-bootstrap`, `muster-control-plane-probe` |
+| Analysis-only evidence trace | `muster-control-plane-hero-tsjds` |
+| Final Gate proof case | `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |
+| Final Gate execution id | `6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80` |
 
-**Services used:** Cloud Run, Cloud Storage, IAM, Secret Manager, Vertex AI.
-Artifact Registry and Cloud Build support the image pipeline.
+**Services used:** Cloud Run, Cloud Storage, IAM, Secret Manager, Vertex AI and
+Cloud SQL for PostgreSQL. Artifact Registry and Cloud Build support the image
+pipeline.
 
 The region and the model location are configured separately and ship as
 different values. The Cloud Run services and the sources' material are regional;
@@ -828,10 +898,13 @@ provisioned and exercised end to end; the provenance below is enough to audit it
 | Project | `muster-agentic-2026-9177` |
 | Region | `asia-south1` |
 | Instance | `muster-control-plane-db`, PostgreSQL 16, private IP only, no public IPv4, `sslMode=ENCRYPTED_ONLY` |
-| Source commit | `6fa34c0025cfde69386aa73d0467402507cf38ac` |
-| Control-plane image | `sha256:d4139a5f4c48b81357263f3863c91ad2e590a784690752b80cf0b785796b6c31` |
-| Stage-90 execution | `muster-control-plane-hero-tsjds` |
-| Persistence verification | `muster-s90-verify-temp-zzs9w` |
+| Deployed source commit | `af1359c828d70e9e860f10ae076f225b006e5693` |
+| Cloud Build | `4f7f281f-5373-43db-addd-496cd2c546fe` (`SUCCESS`) |
+| Immutable control-plane image | `asia-south1-docker.pkg.dev/muster-agentic-2026-9177/muster/muster-control-plane@sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73` |
+| Final tenant / case | `BETA` / `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |
+| Final execution id | `6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80` |
+| Final-image database bootstrap | `muster-database-bootstrap-gs54f` |
+| Final proof executions | `muster-control-plane-hero-z2m6k`, `muster-database-bootstrap-jkr7k`, `muster-control-plane-hero-hdfv2`, `muster-control-plane-hero-pv2f2`, `muster-database-bootstrap-kpz8p` |
 
 The instance's private address is deliberately not written down here — no
 internal address appears anywhere in this repository's documentation, and an
@@ -845,15 +918,29 @@ that compare-and-set or seal, and `SELECT` on the migration ledger — no
 `DELETE`, no `TRUNCATE`, no `CREATE`, no ownership. PostgreSQL refuses each of
 those to the runtime role with SQLSTATE `42501`.
 
+Immediately before the final proof, bootstrap execution
+`muster-database-bootstrap-gs54f` ran from the final image and reported
+`applied=none`, current migrations `1,2,3,4,5,6,7`, runtime role
+`muster_runtime` present, `granted=20`, and `privileges asked=126`,
+`privileges wrong=0`. It verified every required table permission and the
+absence of every permission not enumerated, including unwanted `SELECT`,
+`INSERT` and `UPDATE` where not enumerated; `DELETE`, `TRUNCATE`, `REFERENCES`,
+`TRIGGER`; schema `CREATE`; schema/table ownership; and database `CREATE`. Its
+conclusions were "runtime privileges are exactly the enumerated set" and "the
+schema is current; 90-hero-job.sh may now run with CLOUD_SQL".
+
 That list is enumerated in
 `adapters/sql/runtime_grants.py` and applied by the bootstrap job, not by an
 operator following a runbook. It is written down there because the runbook
 version failed: migration 7 added the `sandbox_rail` schema and the grant block
 was not re-run, so the durable sandbox executor's first statement was refused
-with `42501`, the Action Gate recorded `EXECUTOR_EXCEPTION` and a durable
-`UNCERTAIN` row with no redispatch — correct, fail-closed, and completely
-opaque about the cause. An architecture test now walks the migrations and fails
-on any created table the grant list does not name.
+with `42501`. Historical execution
+`61bd22835140d6d899dc31def00d35e8eb8f7f8b0c763a2ac51d316be91c9b63`
+therefore recorded `EXECUTOR_EXCEPTION` and a durable `UNCERTAIN` row with no
+attempt row and no transfer row — correct, fail-closed, and completely opaque
+about the cause. It is preserved as historical uncertainty and must not be
+reconciled or rewritten. An architecture test now walks the migrations and
+fails on any created table the grant list does not name.
 
 The absences above are measured rather than asserted, and measured as the
 complement of the list rather than as a second list. After granting, the
@@ -875,15 +962,16 @@ identical revision digest, certificate digest, construction digest,
 authorization-context digest, transcript count and transcript-membership digest.
 Those two recorded cloud executions establish **persistence across process
 termination** and nothing more: the second execution re-verified nothing. U4
-now composes process-stable synthetic officer, publisher and fixture-source
-trust and proves semantic revalidation locally with real PostgreSQL and
-independent OS processes. That local proof does not retroactively turn the
-earlier Cloud Run read into revalidation, and U4 has not been run against live
-Cloud SQL or a deployed Cloud Run job.
+also proves semantic revalidation locally with real PostgreSQL and independent
+OS processes. Separately, the earlier deployed Cloud Run proof
+`CASE-RAVI-SAT-CLOUD-GATE-U5B`, whose durable execution identity begins
+`bfa1d0ba`, established durable case revalidation and the cross-process/full
+repeat in Cloud Run. The final `af1359c` provenance run did not repeat those
+demonstrations.
 
 Deployment is scripted end to end in `infra/scripts/` (`00-enable-apis` through
 `99-teardown`), and the IAM posture is verified by `70-verify-iam.sh`, whose
-output is committed as evidence.
+output is captured locally under the ignored `infra/evidence/` directory.
 
 ---
 
@@ -923,13 +1011,13 @@ MUSTER does **not**:
    validated and signed by the source before Q-12 evaluates authority;
 4. make a real payment — the executor is a synthetic sandbox and no payment rail
    exists in this repository;
-5. run the Action Gate in the verified cloud execution — the Stage-90 run stops
-   at the analysis, and the cloud Gate mode is implemented, not
-   deployed/verified;
-6. claim a live cloud run *resumes* or *re-validates* a case across executions —
-   U4 proves that property locally over PostgreSQL and independent OS processes,
-   while the recorded Cloud SQL executions establish persistence of durable
-   identity only;
+5. run the Action Gate in the tracked analysis-only execution — that historical
+   trace stops at the analysis; the later final Gate proof used its own `BETA`
+   case and durable execution identity;
+6. claim the final `af1359c` run repeated the separate durable-revalidation or
+   full-repeat demonstrations — those were established on the earlier deployed
+   Cloud Run proof `CASE-RAVI-SAT-CLOUD-GATE-U5B`, whose durable execution
+   identity begins `bfa1d0ba`;
 7. claim procurement ran in the cloud — it is a local deterministic proof;
 8. claim the Worker Agent reran during Stage-90 — the committed ADK path exists
    but was not deployed, and the claim was replayed from the fixture;
@@ -937,10 +1025,10 @@ MUSTER does **not**:
    raw PNG bytes, is sent to Vertex AI at the `global` location by the
    authorized source agent;
 10. claim the UI is cloud-deployed — it is a local Vite application;
-11. claim executor reconciliation has been live-verified — it is proved locally
-    over PostgreSQL and real process death, and has **not** been run on Cloud
-    Run, against Cloud SQL reconciliation, against a deployed sandbox rail, in a
-    deployed runtime, or against any real payment provider.
+11. claim the GCP reconciliation proof killed a Cloud Run process — the
+    synthetic executor committed acceptance and then deliberately lost the
+    answer; literal process death is established only by the local
+    `demo/reconcile_ravi.py` proof.
 
 The system is a hackathon implementation over synthetic fixtures. It is not
 represented as hardened for production use.

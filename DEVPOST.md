@@ -51,9 +51,11 @@ Vertex AI. Cloud Run hosts those source agents in `asia-south1`; Cloud Storage
 holds synthetic evidence; IAM isolates identities; and Secret Manager holds
 their signing keys.
 
-A local PostgreSQL Action Gate provides durable reservation, idempotency, and
-finality. A React and TypeScript UI separates verified cloud replay from the
-local execution sandbox.
+A PostgreSQL Action Gate provides durable reservation, idempotency, and
+finality. The browser demo uses local PostgreSQL; the final GCP sandbox proof
+used Cloud Run and Cloud SQL to reconcile a deliberate
+unknown-after-acceptance result with zero redispatch. A React and TypeScript UI
+keeps its tracked cloud replay separate from the local execution sandbox.
 
 Institutional evidence also does not have to arrive in one synchronous prompt.
 The local durability demo persists a case, exits one Python process, and resumes
@@ -125,8 +127,9 @@ redispatches an uncertain outcome.
 - Admitted signed attestations through Q-12 institutional authority checks.
 - Reached and rebuilt a deterministic `INVARIANT` result while exact duration
   remained unresolved.
-- Built a durable local PostgreSQL Action Gate with concurrency, idempotency,
-  and finality controls; the sandbox transfers no real funds.
+- Built a durable PostgreSQL Action Gate with concurrency, idempotency and
+  finality controls, then verified the sandbox unknown-after-acceptance and
+  reconciliation sequence on Cloud Run + Cloud SQL; no real funds transferred.
 - Demonstrated the same kernel across workforce and procurement policies.
 - Collected 2,359 tests; the latest complete validation accounts for 2,075
   passed, 284 environment-dependent skips, and 0 unresolved failures.
@@ -141,9 +144,10 @@ binding, durable state, and honest treatment of uncertain finality.
 ## What's Next
 
 Future work can add enterprise source adapters, richer policy bundles,
-production system integrations, and more institutional domains. The local
-Action Gate can move to a managed durable cloud deployment while preserving its
-deterministic boundary and reconciliation-first finality model.
+production system integrations, and more institutional domains. The verified
+managed-cloud Action Gate remains a synthetic sandbox; any production executor
+integration would have to preserve its deterministic boundary and
+reconciliation-first finality model.
 
 ## Try It Out
 
