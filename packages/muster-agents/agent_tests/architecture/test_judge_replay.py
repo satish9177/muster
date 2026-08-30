@@ -101,14 +101,20 @@ def test_the_image_builds_the_replay_only_bundle() -> None:
 
 def test_the_server_refuses_everything_that_is_not_a_read() -> None:
     nginx = directives(NGINX)
-    assert re.search(r"limit_except\s+GET\s+HEAD\s*\{\s*deny all;\s*\}", nginx)
+    read_only = r"limit_except\s+GET\s+HEAD\s*\{\s*deny all;\s*\}"
+    locations = ("/assets/", "/cases/", "/api/", "/")
+    for location in locations:
+        assert re.search(rf"location\s+{re.escape(location)}\s*\{{\s*{read_only}", nginx)
+    #  All four restrictions are accounted for inside locations, so there is
+    #  no fifth (invalid) ``limit_except`` directly inside ``server``.
+    assert nginx.count("limit_except") == len(locations)
     assert "autoindex off;" in nginx
     #  Not one route, anywhere, that forwards a request onward. This is the
     #  single line that would turn the page into a way to reach something else.
     assert "proxy_pass" not in nginx
     #  A stale client asking for the demo API gets an honest 404 rather than
     #  the SPA fallback answering 200 with a page.
-    assert re.search(r"location /api/ \{\s*return 404;", nginx)
+    assert re.search(rf"location\s+/api/\s*\{{\s*{read_only}\s*return 404;", nginx)
 
 
 def test_the_served_page_carries_no_credential_material() -> None:

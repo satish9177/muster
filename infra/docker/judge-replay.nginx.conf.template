@@ -20,11 +20,8 @@ server {
     #  Do not advertise the version to anyone scanning.
     server_tokens off;
 
-    #  This build has no mutation. Say so at the listener, not only in the
-    #  application: anything that is not a read is refused before it is routed.
-    limit_except GET HEAD {
-        deny all;
-    }
+    #  This build has no mutation. Each route admits only reads, so anything
+    #  else is refused by nginx in the selected location.
 
     #  The page is self-contained: its own scripts and styles, its own JSON,
     #  and no third party. Nothing here needs to be framed or to frame anyone.
@@ -35,6 +32,9 @@ server {
 
     #  Hashed asset names, so they may be cached hard.
     location /assets/ {
+        limit_except GET HEAD {
+            deny all;
+        }
         expires 1y;
         add_header Cache-Control "public, immutable" always;
     }
@@ -43,18 +43,27 @@ server {
     #  they change when the proof record changes, so they are revalidated
     #  rather than pinned.
     location /cases/ {
+        limit_except GET HEAD {
+            deny all;
+        }
         add_header Cache-Control "no-cache" always;
         default_type application/json;
     }
 
     #  No API is served here. A request for one is a 404, never a fallback.
     location /api/ {
+        limit_except GET HEAD {
+            deny all;
+        }
         return 404;
     }
 
     #  Single page application: unknown paths render the app, not a listing.
     autoindex off;
     location / {
+        limit_except GET HEAD {
+            deny all;
+        }
         try_files $uri $uri/ /index.html;
     }
 }
