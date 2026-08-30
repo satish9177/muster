@@ -11,6 +11,13 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import {
+  ADMISSIBLE_ENVELOPE,
+  HINGE,
+  INERT_CLAIM,
+  REACHABLE_ACTIONS,
+  kernelOutcomeTerm,
+} from "../data/plainLanguage";
 import { procurementCaseClient } from "../data/procurementClient";
 import type {
   ProcurementCaseViewModel,
@@ -59,6 +66,7 @@ export function ProcurementCase() {
   }
 
   const invariant = model.result.outcome === "INVARIANT";
+  const outcome = kernelOutcomeTerm(model.result.outcome);
   return (
     <div className="procurement-shell">
       <section className="procurement-heading">
@@ -71,6 +79,12 @@ export function ProcurementCase() {
           <Scale size={18} aria-hidden="true" />
           <span><strong>Deterministic cross-domain proof</strong>Same MUSTER kernel · no Gemini/cloud claim</span>
         </div>
+        {/*
+          Said here as well as in the footer, because the product bar no longer
+          says it for every screen: this one is a local kernel proof and was
+          never a Google Cloud replay.
+        */}
+        <span className="view-provenance">{model.provenance.label}</span>
       </section>
 
       <main className="procurement-workspace">
@@ -95,7 +109,7 @@ export function ProcurementCase() {
                 </div>
                 <small>
                   {source.relation === "CLAIM"
-                    ? "CLAIM ONLY · NOT AUTHORITATIVE"
+                    ? INERT_CLAIM.plain
                     : "LOWER BOUND · NOT FINAL QUANTITY"}
                 </small>
               </article>
@@ -112,7 +126,9 @@ export function ProcurementCase() {
             <div><dt>Tenant</dt><dd>{model.case.tenant_id}</dd></div>
             <div><dt>Authority scope</dt><dd>PURCHASE_ORDER / {model.case.po_id}</dd></div>
             <div>
-              <dt>Admissible envelope</dt>
+              <dt className="stacked-term" title={ADMISSIBLE_ENVELOPE.technical}>
+                {ADMISSIBLE_ENVELOPE.plain}
+              </dt>
               <dd>Warehouse floor {model.uncertainty.lower_bound.quantity} · PO ceiling {model.uncertainty.upper_bound.quantity}</dd>
             </div>
           </dl>
@@ -176,11 +192,14 @@ export function ProcurementCase() {
           <div className="proc-result">
             {invariant ? <CheckCircle2 size={26} aria-hidden="true" /> : <CircleDotDashed size={26} aria-hidden="true" />}
             <span>RESULT</span>
-            <strong>{model.result.outcome}</strong>
+            <strong title={outcome.technical}>{outcome.plain}</strong>
+            <small className="term-technical">{outcome.technical}</small>
+            <em className="term-explanation">{outcome.explanation}</em>
           </div>
           <div className="reachable-result">
-            <span>REACHABLE CONSEQUENTIAL ACTIONS</span>
+            <span title={REACHABLE_ACTIONS.technical}>{REACHABLE_ACTIONS.plain}</span>
             <strong>{model.result.reachable_action_count}</strong>
+            <small className="term-technical">{REACHABLE_ACTIONS.technical}</small>
           </div>
           <div className="evidence-result">
             <span>NEXT EVIDENCE REQUEST</span>
@@ -188,7 +207,7 @@ export function ProcurementCase() {
           </div>
           {model.result.additional_evidence.hinge && (
             <div className="hinge-result">
-              <span>HINGE</span>
+              <span title={HINGE.technical}>{HINGE.plain}</span>
               <strong>{model.result.additional_evidence.hinge.label}</strong>
               <small>NEXT AUTHORIZED SOURCE · {model.result.additional_evidence.hinge.permitted_source_classes.join(" · ")}</small>
             </div>

@@ -13,7 +13,12 @@ describe("transformRaviEvidence", () => {
     const result = transformRaviEvidence(artifactSpecimen, proofPayload);
 
     expect(result.worker.modalities).toEqual(["TEXT"]);
-    expect(result.worker.captureStatus).toContain("NOT RERUN IN CLOUD CAPTURE");
+    //  The Worker card's status is about *this* execution, and says so: the
+    //  claim was replayed from the tracked record and no Worker model ran.
+    expect(result.worker.captureStatus).toContain("WORKER CLAIM");
+    expect(result.worker.captureStatus).toContain(
+      "NOT RERUN IN THIS VERIFIED CLOUD EXECUTION",
+    );
     expect(result.worker.candidateFacts).toEqual(["present_on_site(RAVI,SAT) = true"]);
     expect(result.employer.candidateFacts).toEqual(["scheduled(RAVI,SAT) = true"]);
     expect(result.site.modalities).toEqual(["IMAGE", "TEXT"]);
@@ -42,7 +47,18 @@ describe("transformRaviEvidence", () => {
       "IMPLEMENTATION AUDIT · ravi-evidence-proof.json",
     );
     expect(evidenceComponentSource).toContain("not runtime telemetry");
-    expect(evidenceComponentSource).toContain("WORKER NOT RERUN");
+    expect(evidenceComponentSource).toContain(
+      "NO WORKER MODEL RAN IN THIS VERIFIED CLOUD EXECUTION",
+    );
+    //  The Worker's step is not a Gemini step. Saying "GEMINI PATH COMMITTED"
+    //  there put the institutional model's name on the one card whose model
+    //  did not run at all, in the same typeface as the two cards where it did.
+    expect(evidenceComponentSource).not.toContain("GEMINI PATH COMMITTED");
+    expect(evidenceComponentSource).toContain("NO MODEL RERUN HERE");
+    //  The optional hosted Worker path is named as implementation context and
+    //  is a different model on a different backend from the two above it.
+    expect(evidenceComponentSource).toContain("Google ADK + Gemma 4");
+    expect(evidenceComponentSource).toContain("gemma-4-26b-a4b-it");
   });
 
   it("takes IAM status, model identity, and candidate facts from the execution artifact", () => {

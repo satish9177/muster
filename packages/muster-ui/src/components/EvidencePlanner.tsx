@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { evidencePlanClient } from "../data/evidencePlanClient";
 import type { EvidencePlanReadModel } from "../data/evidencePlanReadModel";
+import { REACHABLE_ACTIONS, kernelOutcomeTerm } from "../data/plainLanguage";
 
 export function EvidencePlanner() {
   const [model, setModel] = useState<EvidencePlanReadModel | null>(null);
@@ -20,6 +21,7 @@ export function EvidencePlanner() {
   if (error) return <main className="planner-state">{error}</main>;
   if (!model) return <main className="planner-state">Loading evidence plan…</main>;
 
+  const outcome = kernelOutcomeTerm(model.summary.outcome);
   return (
     <main className="planner-workspace">
       <section className="planner-heading">
@@ -62,10 +64,17 @@ export function EvidencePlanner() {
 
         <aside className="planner-summary">
           <Target size={20} aria-hidden="true" />
-          <span>REACHABLE CONSEQUENTIAL ACTIONS</span>
+          <span title={REACHABLE_ACTIONS.technical}>{REACHABLE_ACTIONS.plain}</span>
           <strong className="action-count">{model.summary.reachable_action_count}</strong>
+          <small className="term-technical">{REACHABLE_ACTIONS.technical}</small>
           <dl>
-            <div><dt>Outcome</dt><dd>{model.summary.outcome}</dd></div>
+            <div>
+              <dt>Outcome</dt>
+              <dd title={outcome.technical}>
+                {outcome.plain}
+                <small className="term-technical">{outcome.technical}</small>
+              </dd>
+            </div>
             <div><dt>Exact duration</dt><dd>{model.summary.exact_duration_status}</dd></div>
             <div><dt>Recipient</dt><dd>{model.summary.action.fields.recipient?.display}</dd></div>
             <div><dt>Corrected total</dt><dd>{model.summary.action.fields.amount?.display}</dd></div>

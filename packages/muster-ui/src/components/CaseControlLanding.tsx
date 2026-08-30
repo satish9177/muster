@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 
 import { buildCaseCatalog, type CaseCatalogViewModel } from "../data/caseCatalog";
 import { heroCaseClient } from "../data/caseClient";
+import { HEADLINE_IDEAS, SYSTEM_BOUNDARY, kernelOutcomeTerm } from "../data/plainLanguage";
 import { procurementCaseClient } from "../data/procurementClient";
 import type { CaseKind } from "./CaseSelector";
 
@@ -68,8 +69,14 @@ export function CaseControlLanding({ onOpen }: CaseControlLandingProps) {
           <span className="landing-kicker">ENTERPRISE CASE CONTROL</span>
           <h1>Consequential decisions,<br />proved before action.</h1>
           <p>
-            One control surface for source authority, pinned policy, deterministic proof,
-            and exactly authorized execution.
+            High-impact agents act over records that belong to different institutions.
+            Centralizing raw records into one control plane is unsafe — and so is blindly
+            retrying an irreversible action whose outcome is unknown.
+          </p>
+          <p className="landing-boundary" aria-label="System boundary">
+            {SYSTEM_BOUNDARY.map((line) => (
+              <span key={line}>{line}</span>
+            ))}
           </p>
         </div>
         <div className="landing-assurance" aria-label="Product assurances">
@@ -77,6 +84,20 @@ export function CaseControlLanding({ onOpen }: CaseControlLandingProps) {
           <span><CheckCircle2 size={16} aria-hidden="true" /> Outcomes reproduced</span>
           <span><CloudCog size={16} aria-hidden="true" /> Site-A IAM boundary verified</span>
         </div>
+      </section>
+
+      {/*
+        The two ideas the rest of the product exists to make checkable. A judge
+        who reads nothing else should still leave with these, so they sit above
+        the catalog rather than behind a case.
+      */}
+      <section className="landing-ideas" aria-label="What MUSTER does differently">
+        {HEADLINE_IDEAS.map((idea, index) => (
+          <article key={idea}>
+            <span aria-hidden="true">{index + 1}</span>
+            <p>{idea}</p>
+          </article>
+        ))}
       </section>
 
       <section className="case-catalog" aria-labelledby="case-catalog-title">
@@ -90,10 +111,19 @@ export function CaseControlLanding({ onOpen }: CaseControlLandingProps) {
             <span className="catalog-icon"><HardHat size={20} aria-hidden="true" /></span>
             <span className="catalog-domain">{catalog.workforce.domain}</span>
             <strong>{catalog.workforce.title}</strong>
+            <span className="catalog-question">
+              Can {catalog.workforce.actionAmount} be safely authorized without the central
+              Control Plane ever reading Ravi&rsquo;s raw site records?
+            </span>
             <span className="catalog-result">
-              <b>{catalog.workforce.outcome}</b>
+              <b title={kernelOutcomeTerm(catalog.workforce.outcome).technical}>
+                {kernelOutcomeTerm(catalog.workforce.outcome).plain}
+              </b>
               <i aria-hidden="true" />
               <b>{catalog.workforce.actionAmount}</b>
+            </span>
+            <span className="catalog-technical">
+              {kernelOutcomeTerm(catalog.workforce.outcome).technical}
             </span>
             <small className={catalog.workforce.verifiedCloud ? "verified" : ""}>
               <CloudCog size={13} aria-hidden="true" /> {catalog.workforce.provenance}
@@ -105,10 +135,18 @@ export function CaseControlLanding({ onOpen }: CaseControlLandingProps) {
             <span className="catalog-icon"><Boxes size={20} aria-hidden="true" /></span>
             <span className="catalog-domain">{catalog.procurement.domain}</span>
             <strong>{catalog.procurement.title}</strong>
+            <span className="catalog-question">
+              Same unresolved quantity, two pinned policies — does the action change?
+            </span>
             <span className="catalog-result">
-              <b>{catalog.procurement.outcome}</b>
+              <b title={kernelOutcomeTerm(catalog.procurement.outcome).technical}>
+                {kernelOutcomeTerm(catalog.procurement.outcome).plain}
+              </b>
               <i aria-hidden="true" />
               <b>TOLERANCE PROOF</b>
+            </span>
+            <span className="catalog-technical">
+              {kernelOutcomeTerm(catalog.procurement.outcome).technical}
             </span>
             <small><ShieldCheck size={13} aria-hidden="true" /> {catalog.procurement.provenance}</small>
             <span className="catalog-open">OPEN CASE <ArrowRight size={15} aria-hidden="true" /></span>

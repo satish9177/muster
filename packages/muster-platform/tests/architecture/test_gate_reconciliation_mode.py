@@ -6,13 +6,14 @@ import ast
 import builtins
 import copy
 import os
-import shutil
 import subprocess
 import tempfile
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
+from support.shell import posix_shell
 
 pytestmark = pytest.mark.architecture
 
@@ -91,7 +92,7 @@ def _run_shell(script: str, **environment: str) -> subprocess.CompletedProcess[s
     refusal it was checking for, which is the shape of a green test that proves
     nothing.  A temporary file has no such limit.
     """
-    shell = shutil.which("bash")
+    shell = posix_shell()
     if shell is None:
         pytest.skip("the deployment contract requires bash")
     with tempfile.NamedTemporaryFile(

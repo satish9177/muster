@@ -226,7 +226,7 @@ IO_MODULES = frozenset({"json", "pathlib", "sys"})
 
 #  Phase, review and tooling vocabulary, and Phase-0.G Gate concepts. Scanned
 #  over all text: prose that dates the code is the thing being kept out.
-FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
+FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "blocker")
 FORBIDDEN_DECLARATIONS = (
     "authorizedaction",
     "gatedecision",

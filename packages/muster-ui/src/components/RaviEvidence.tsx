@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { evidenceClient } from "../data/evidenceClient";
+import { INERT_CLAIM, authorityTerm } from "../data/plainLanguage";
 import type {
   EvidenceAgentViewModel,
   RaviEvidenceViewModel,
@@ -75,7 +76,7 @@ export function RaviEvidence() {
         </dl>
       </section>
 
-      <section className="evidence-agents" aria-label="Gemini evidence paths">
+      <section className="evidence-agents" aria-label="Evidence interpretation paths">
         <EvidenceAgentCard agent={model.worker} kind="worker" modelName={model.execution.modelName} />
         <EvidenceAgentCard agent={model.employer} kind="employer" modelName={model.execution.modelName} />
         <EvidenceAgentCard
@@ -133,7 +134,7 @@ function EvidenceAgentCard({ agent, kind, modelName, boundary }: EvidenceAgentCa
 
       <div className="capture-note">
         {kind === "worker"
-          ? "TEXT INPUT · COMMITTED ADK PATH · WORKER NOT RERUN IN VERIFIED STAGE-90 CLOUD HERO"
+          ? "TEXT INPUT · WORKER CLAIM REPLAYED FROM THE TRACKED RECORD · NO WORKER MODEL RAN IN THIS VERIFIED CLOUD EXECUTION"
           : kind === "employer"
             ? "STAGE-90 CLOUD RESULT VERIFIED · TEXT/PLAIN REQUEST SHAPE AUDITED"
             : "STAGE-90 CLOUD RESULT VERIFIED · RAW PNG + TEXT ADK REQUEST SHAPE AUDITED"}
@@ -162,11 +163,24 @@ function EvidenceAgentCard({ agent, kind, modelName, boundary }: EvidenceAgentCa
 
       <div className="agent-pipeline" aria-label={`${agent.label} interpretation pipeline`}>
         <span>{agent.runtime}</span><i>↓</i>
-        <span className="gemini-step">
-          <Sparkles size={12} /> {kind === "worker" ? "GEMINI PATH COMMITTED" : `${modelName} OBSERVED`}
+        <span className={kind === "worker" ? "gemini-step not-rerun" : "gemini-step"}>
+          <Sparkles size={12} /> {kind === "worker" ? "NO MODEL RERUN HERE" : `${modelName} OBSERVED`}
         </span><i>↓</i>
         <span>{kind === "worker" ? "UNSIGNED CLAIM" : "STRUCTURED CANDIDATE"}</span>
       </div>
+      {/*
+        Secondary implementation context, and only that. The Worker's optional
+        hosted path is a different model on a different backend from the two
+        institutional agents above, and naming it beside a card that did not
+        rerun keeps it from being read as something that ran here.
+      */}
+      {kind === "worker" && (
+        <p className="worker-live-implementation">
+          Optional <code>--live</code> implementation: Google ADK + Gemma 4
+          (<code>gemma-4-26b-a4b-it</code>, Gemini Developer API). Not run in this
+          verified cloud execution.
+        </p>
+      )}
 
       <section className="candidate-block">
         <span className="evidence-mini-label">
@@ -176,12 +190,18 @@ function EvidenceAgentCard({ agent, kind, modelName, boundary }: EvidenceAgentCa
         </span>
         {agent.candidateFacts.map((fact) => <code key={fact}>{fact}</code>)}
         {kind === "worker" ? (
-          <b className="claim-only">CLAIM ONLY — INERT</b>
+          <b className="claim-only" title={INERT_CLAIM.technical}>
+            {INERT_CLAIM.plain}
+            <small className="term-technical">{INERT_CLAIM.technical}</small>
+          </b>
         ) : (
           <div className="trust-rail" aria-label="Post-model deterministic controls">
             <span>VALIDATED</span><i>→</i>
             <span>SIGNED · {agent.signerKeys.join(", ")}</span><i>→</i>
-            <span>{agent.q12Passed ? "Q-12 PASSED" : "Q-12 REFUSED"}</span>
+            <span title={authorityTerm(agent.q12Passed).technical}>
+              {authorityTerm(agent.q12Passed).plain}
+              <small className="term-technical">{authorityTerm(agent.q12Passed).technical}</small>
+            </span>
           </div>
         )}
       </section>

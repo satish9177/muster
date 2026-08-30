@@ -417,10 +417,18 @@ function actionEvent(
       actor: "Proposed action",
       eyebrow: "Authorization handoff",
       title: `${artifact.result.action.kind} ${recipient} ${formatValue(amount)}`,
-      summary: "The captured cloud replay stops at proposal; local sandbox execution is shown separately.",
-      result: execution.status.replace("_", " "),
+      //  The single most misreadable line on this screen. This artifact is the
+      //  earlier analysis-only cloud run, which stopped at the proposal and
+      //  never opened the Gate -- and a reader who takes "NOT EXECUTED" as the
+      //  system's final answer has drawn the opposite conclusion from the one
+      //  the evidence supports. So the sentence names which run this is, and
+      //  points at the separate, finished execution proof.
+      summary:
+        "This analysis-only cloud run stopped at the proposal and never opened the Action Gate. " +
+        "The separate final Google Cloud execution proof is in the Action view of this case.",
+      result: "NOT EXECUTED IN THIS RUN",
       result_tone: "pending",
-      tags: ["CLOUD TRACE: NOT EXECUTED"],
+      tags: ["ANALYSIS-ONLY RUN", "GATE NOT OPENED HERE"],
       inspector: {
         source_class: "DETERMINISTIC CASE RESULT",
         source_identity: "MUSTER Control Plane",
@@ -431,7 +439,9 @@ function actionEvent(
         q12_result: "Source authority validated upstream",
         model_interpretation: "No",
         deterministic_decision: `Yes — proposed from ${artifact.result.outcome} analysis`,
-        provenance_note: "The cloud action state remains NOT_EXECUTED; local sandbox Gate state is a separate API read model.",
+        provenance_note:
+          "This run's action state is NOT_EXECUTED because it is the analysis-only capture. " +
+          "It is not the final cloud state: the final Gate proof is a separate case and execution.",
       },
     });
   }

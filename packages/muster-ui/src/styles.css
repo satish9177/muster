@@ -2406,15 +2406,197 @@ button:focus-visible {
   font-size: 11px;
 }
 
-.workforce-overview {
+/*  ---- the two views that are taller than a viewport ---------------------
+ *
+ *  `.app-shell` is one viewport tall and clips, which is right for the views
+ *  that are fitted panels: Evidence, Decision and Durable case each lay out
+ *  against a definite height and scroll internally where they need to.
+ *
+ *  Overview and Action are not that. The Google Cloud proof is taller than a
+ *  viewport on its own, and the first attempt at this gave the view its own
+ *  `overflow-y: auto` box inside the clipped shell. That box scrolled under the
+ *  wheel and nowhere else: the document never grew, so there was no browser
+ *  scrollbar to drag, and PageDown, End and the space bar -- which scroll the
+ *  *document* -- did nothing at all. At a 1648x928 desktop viewport the final
+ *  receipt was simply unreachable, which is how it was found.
+ *
+ *  So these two views let the page scroll. The shell keeps a one-viewport
+ *  minimum and grows past it, `.product-shell` and `body` grow with it, and the
+ *  ordinary document scrollbar appears. Wheel, trackpad, PageDown, End and the
+ *  scrollbar then all work, because there is only one scroller and it is the
+ *  one the browser and the keyboard already know about.
+ *
+ *  `.trace-list` is the one thing that has to change with them: it sizes its
+ *  rows against a percentage of a definite height and would collapse against
+ *  an auto one, so inside a scrolling shell it stacks at its natural height
+ *  instead -- the same fallback the narrow-viewport rules already use.
+ */
+.app-shell.shell-scrolls {
+  height: auto;
+  min-height: calc(100vh - 52px);
+  overflow: visible;
+}
+
+.workforce-overview,
+.workforce-action {
   min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
 }
 
-.workforce-overview .case-workspace {
-  flex: 1;
+.shell-scrolls .workforce-overview,
+.shell-scrolls .workforce-action,
+.shell-scrolls .case-workspace {
+  overflow: visible;
+}
+
+.shell-scrolls .case-workspace {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 420px;
+}
+
+.shell-scrolls .trace-list {
+  height: auto;
+  display: block;
+}
+
+.shell-scrolls .trace-button {
+  min-height: 74px;
+}
+
+/*  ---- Overview: the claim-to-decision story -----------------------------
+ *
+ *  The beats read left to right in the order the case happened, and each one
+ *  is a summary of an event in the trace directly underneath it. Nothing here
+ *  is the ending: the finished execution proof is its own view.
+ */
+.case-narrative {
+  padding: 15px 28px 4px;
+  border-bottom: 1px solid var(--soft-line);
+  background: var(--paper);
+}
+
+.narrative-heading h2 {
+  margin: 3px 0 0;
+  color: var(--navy);
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.narrative-heading p {
+  margin: 4px 0 0;
+  max-width: 96ch;
+  color: #6b7688;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.narrative-beats {
+  margin: 13px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  list-style: none;
+}
+
+.narrative-beat {
+  min-width: 0;
+  padding: 10px 12px 12px;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  grid-template-rows: auto auto auto;
+  align-items: start;
+  gap: 3px 8px;
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-top: 2px solid #c3cbd6;
+}
+
+.narrative-beat-icon {
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  color: #7d879a;
+}
+
+.narrative-beat-label {
+  grid-column: 2;
+  color: #7d879a;
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  line-height: 1.35;
+}
+
+.narrative-beat strong {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+  color: var(--navy);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.narrative-beat p {
+  grid-column: 2;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #6b7688;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.narrative-beat.inert { border-top-color: #94a0b3; }
+.narrative-beat.deterministic { border-top-color: var(--blue); }
+.narrative-beat.denied { border-top-color: var(--red); }
+.narrative-beat.verified { border-top-color: var(--purple); }
+.narrative-beat.invariant { border-top-color: var(--green); }
+
+.narrative-beat.denied .narrative-beat-icon { color: var(--red); }
+.narrative-beat.verified .narrative-beat-icon { color: var(--purple); }
+.narrative-beat.invariant .narrative-beat-icon { color: var(--green); }
+.narrative-beat.deterministic .narrative-beat-icon { color: var(--blue); }
+
+/*  ---- per-screen provenance, in the view nav ----------------------------
+ *
+ *  Beside the tab it qualifies, because what a screen is differs per screen
+ *  and a single product-bar banner cannot say it for all of them.
+ */
+.view-provenance {
+  margin-left: auto;
+  padding-left: 16px;
+  display: flex;
+  align-items: center;
+  max-width: 42ch;
+  color: #7d879a;
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
+  text-align: right;
+  text-wrap: balance;
+}
+
+@media (max-width: 1250px) {
+  .narrative-beats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 880px) {
+  .case-narrative {
+    padding-inline: 18px;
+  }
+
+  .narrative-beats {
+    grid-template-columns: 1fr;
+  }
+
+  .view-provenance {
+    display: none;
+  }
 }
 
 .evidence-view {
@@ -2685,6 +2867,28 @@ button:focus-visible {
   gap: 4px;
   color: var(--purple);
   background: var(--purple-soft);
+}
+
+/*  The Worker's step, which is not a model step at all in this replay. It
+    keeps the shape of the rail so the three cards stay comparable, and loses
+    the interpretation colour so it cannot be skimmed as one. */
+.gemini-step.not-rerun {
+  color: #6b7484;
+  background: #eceef2;
+}
+
+.worker-live-implementation {
+  margin: 0 0 6px;
+  color: #707b8d;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.worker-live-implementation code {
+  color: #4c5666;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9.5px;
 }
 
 .candidate-block {
@@ -3039,4 +3243,595 @@ button:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*  ---- plain-English pairing -------------------------------------------
+ *
+ *  Every one of these is a *secondary* line under a plain-English headline.
+ *  The technical term is never removed and never hidden from a screen reader;
+ *  it is simply smaller than the sentence a first-time reader needs.
+ */
+
+.term-technical {
+  display: block;
+  margin-top: 2px;
+  color: #8992a0;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.term-explanation {
+  display: block;
+  margin-top: 4px;
+  max-width: 300px;
+  color: #6b7688;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-transform: none;
+}
+
+.status-chip.invariant {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.status-chip.invariant .term-technical {
+  font-size: 7px;
+}
+
+.case-question {
+  max-width: 640px;
+  margin: 8px 0 0;
+  color: #5c6779;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/*  ---- persistent build / replay label ----------------------------------
+ *
+ *  A fourth cell in the product bar rather than a floated badge, so it cannot
+ *  wrap onto a second row and cover the brand -- which is what it did the first
+ *  time, on the one screen that must never look broken.
+ */
+
+.product-bar {
+  grid-template-columns: 300px 1fr auto auto;
+}
+
+.product-mode {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 16px;
+  gap: 1px;
+  color: #ffd9a8;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  white-space: nowrap;
+  border-left: 1px solid #253249;
+}
+
+.product-mode small {
+  color: #7f8ca1;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+
+/*  ---- landing: the two ideas and the system boundary -------------------- */
+
+.landing-boundary {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+}
+
+.landing-boundary span {
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.landing-boundary span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin: 0 9px 3px 0;
+  border-radius: 50%;
+  background: #a9b0bb;
+}
+
+.landing-ideas {
+  margin-top: 26px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.landing-ideas article {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 15px 17px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+}
+
+.landing-ideas article span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  border: 1px solid #c4d4f5;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.landing-ideas article p {
+  margin: 0;
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.catalog-question {
+  grid-column: 1 / 4;
+  margin-top: 2px;
+  color: #6b7688;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.catalog-technical {
+  grid-column: 1 / 4;
+  color: #99a2b0;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+
+/*  ---- replay-only Action Gate notice ------------------------------------ */
+
+.action-gate-panel.replay-only {
+  grid-template-columns: 300px minmax(320px, 1fr);
+}
+
+.gate-replay-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #6b7688;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.gate-replay-note svg {
+  flex: none;
+  color: var(--amber);
+}
+
+.gate-replay-note strong {
+  display: block;
+  color: var(--navy);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+/*  ---- the final Google Cloud Action Gate proof --------------------------
+ *
+ *  This panel is the one a judge is most likely to screenshot, so the safety
+ *  language is part of the layout rather than a footnote: the sandbox line
+ *  sits under the amount, and the replay badge is pinned opposite the title
+ *  where it cannot be cropped away from the numbers it qualifies.
+ */
+
+.gate-proof-panel {
+  padding: 20px 28px 22px;
+  background: #fbfcfd;
+  border-bottom: 1px solid var(--line);
+}
+
+.gate-proof-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.gate-proof-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.gate-proof-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--blue);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.gate-proof-identity h2 {
+  margin: 7px 0 5px;
+  color: var(--navy);
+  font-size: clamp(22px, 2.4vw, 30px);
+  letter-spacing: -0.035em;
+}
+
+.gate-proof-sandbox {
+  margin: 0;
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+}
+
+.gate-proof-replay-badge {
+  max-width: 320px;
+  padding: 9px 13px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid #e6d3a0;
+}
+
+.gate-proof-replay-badge span {
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.gate-proof-replay-badge small {
+  display: block;
+  margin-top: 3px;
+  color: #7c6a3c;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.gate-proof-claims {
+  margin: 15px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  list-style: none;
+}
+
+.gate-proof-claims li {
+  padding: 4px 8px;
+  color: #5d6a7e;
+  background: #eef1f5;
+  border: 1px solid #d9dfe7;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.gate-proof-timeline {
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  list-style: none;
+}
+
+.gate-proof-step {
+  display: grid;
+  grid-template-columns: 26px 30px 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 3px solid #b8c1cf;
+}
+
+.gate-proof-step.uncertain {
+  border-left-color: var(--amber);
+}
+
+.gate-proof-step.external {
+  border-left-color: var(--purple);
+}
+
+.gate-proof-step.reconciled {
+  border-left-color: var(--green);
+}
+
+.gate-proof-step.idempotent {
+  border-left-color: var(--blue);
+}
+
+.gate-proof-ordinal {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--navy);
+  background: #eef1f5;
+  border: 1px solid #d9dfe7;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.gate-proof-step-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--navy);
+  background: #f5f7fa;
+  border: 1px solid var(--soft-line);
+}
+
+.gate-proof-step.uncertain .gate-proof-step-icon {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: #e6d3a0;
+}
+
+.gate-proof-step.external .gate-proof-step-icon {
+  color: var(--purple);
+  background: var(--purple-soft);
+  border-color: #dbcbee;
+}
+
+.gate-proof-step.reconciled .gate-proof-step-icon {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #abd7c7;
+}
+
+.gate-proof-step.idempotent .gate-proof-step-icon {
+  color: var(--blue);
+  background: var(--blue-soft);
+  border-color: #b7cbf5;
+}
+
+.gate-proof-step-body > strong {
+  display: block;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.045em;
+}
+
+.gate-proof-step-body > p {
+  margin: 5px 0 0;
+  max-width: 720px;
+  color: #5c6779;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gate-proof-facts {
+  margin: 9px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  list-style: none;
+  color: #6b7688;
+  font-size: 11px;
+}
+
+.gate-proof-facts b {
+  color: var(--navy);
+  font-size: 12px;
+}
+
+.gate-proof-technical {
+  margin: 10px 0 0;
+  padding: 9px 11px 7px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  background: #f7f9fb;
+  border: 1px solid var(--soft-line);
+}
+
+.gate-proof-technical div {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.gate-proof-technical dt {
+  color: #8992a0;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.gate-proof-technical dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.gate-proof-technical code,
+.gate-proof-provenance code {
+  overflow-wrap: anywhere;
+  color: #384357;
+  font-family: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.gate-proof-result {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: #cfe4d9;
+  border: 1px solid #abd7c7;
+}
+
+.gate-proof-result div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 15px;
+  background: var(--green-soft);
+}
+
+.gate-proof-result svg {
+  flex: none;
+  color: var(--green);
+}
+
+.gate-proof-result span {
+  color: #2c6353;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.gate-proof-result strong {
+  margin-left: auto;
+  color: var(--green);
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.gate-proof-provenance {
+  margin-top: 14px;
+}
+
+.gate-proof-provenance > summary {
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.gate-proof-provenance dl {
+  margin: 11px 0 0;
+  display: grid;
+  gap: 7px;
+  padding: 13px 15px;
+  background: #fff;
+  border: 1px solid var(--line);
+}
+
+.gate-proof-provenance dl div {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.gate-proof-provenance dt {
+  color: #8992a0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.gate-proof-provenance dd {
+  margin: 0;
+  min-width: 0;
+  color: #46516a;
+  font-size: 11px;
+}
+
+@media (max-width: 880px) {
+  .gate-proof-panel {
+    padding-inline: 18px;
+  }
+
+  .gate-proof-step {
+    grid-template-columns: 22px 1fr;
+  }
+
+  .gate-proof-step-icon {
+    display: none;
+  }
+
+  .gate-proof-provenance dl div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .action-gate-panel.replay-only {
+    grid-template-columns: 1fr;
+  }
+
+  .product-mode {
+    display: none;
+  }
+}
+
+/*  ---- plain-English pairing, where the host layout needs help -----------
+ *
+ *  Three places where a longer, clearer label does not fit the grid it landed
+ *  in. The fix is local to those grids: nothing here changes what any other
+ *  label says, only where the second line goes.
+ */
+
+/*  `.proc-result` is a two-column grid with the icon spanning both rows, so a
+ *  third and fourth child land beside the headline instead of under it. */
+.proc-result {
+  grid-template-rows: auto auto auto;
+}
+
+.proc-result .term-technical,
+.proc-result .term-explanation {
+  grid-column: 2;
+}
+
+/*  A flex row with the count pushed right; the technical term belongs under
+ *  the plain one, not between them. */
+.reachable-result {
+  flex-wrap: wrap;
+}
+
+.reachable-result > span {
+  flex: 1 1 auto;
+}
+
+.reachable-result .term-technical {
+  flex-basis: 100%;
+  order: 3;
+  margin-top: 4px;
+  color: #7d879a;
+}
+
+/*  An 82px label column cannot hold a sentence. The long labels stack above
+ *  their value instead of being squeezed into a six-line column. */
+.source-facts div:has(> dt.stacked-term) {
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+
+.source-facts dt.stacked-term {
+  line-height: 1.35;
 }

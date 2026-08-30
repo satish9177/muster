@@ -749,6 +749,18 @@ external-world read still found exactly one transfer.
 > **SANDBOX ONLY. NO REAL FUNDS TRANSFERRED.** The durable sandbox rail is a
 > simulated external system, not a payment provider or payment rail.
 
+The same five executions are transcribed once, as named constants, in
+`demo/gate_proof_artifact.py`, which emits the tracked, sanitized record at
+`packages/muster-ui/public/cases/ravi-cloud-gate-proof.json`
+(schema `muster.action-gate-proof/v1`). That record is what the judge-facing
+proof panel renders; it carries only the observations above and states
+explicitly that it is sandbox-only, moves no real funds, is a replay rather than
+live telemetry, and claims no Cloud Run process death. An acceptance test checks
+the record against those constants and against the identifiers in this section,
+so the published numbers cannot drift from the ones observed. A field that a
+given execution did not report is `null` in that record rather than carried
+forward from a neighbouring stage.
+
 This GCP proof and the local process-death proof are deliberately distinct.
 `demo/reconcile_ravi.py` is the literal process-death proof. The GCP proof is the
 unknown-after-acceptance sequence above; it must not be described as killing a
@@ -898,7 +910,7 @@ provisioned and exercised end to end; the provenance below is enough to audit it
 | Project | `muster-agentic-2026-9177` |
 | Region | `asia-south1` |
 | Instance | `muster-control-plane-db`, PostgreSQL 16, private IP only, no public IPv4, `sslMode=ENCRYPTED_ONLY` |
-| Deployed source commit | `af1359c828d70e9e860f10ae076f225b006e5693` |
+| Deployed source commit — built and ran this proof | `af1359c828d70e9e860f10ae076f225b006e5693` |
 | Cloud Build | `4f7f281f-5373-43db-addd-496cd2c546fe` (`SUCCESS`) |
 | Immutable control-plane image | `asia-south1-docker.pkg.dev/muster-agentic-2026-9177/muster/muster-control-plane@sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73` |
 | Final tenant / case | `BETA` / `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |

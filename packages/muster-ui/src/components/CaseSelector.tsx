@@ -1,5 +1,7 @@
 import { Boxes, Grid2X2, HardHat } from "lucide-react";
 
+import { runtimeMode } from "../data/runtimeMode";
+
 export type CaseKind = "cases" | "workforce" | "procurement";
 
 interface CaseSelectorProps {
@@ -28,6 +30,18 @@ export function CaseSelector({ active, onSelect }: CaseSelectorProps) {
           <Boxes size={13} aria-hidden="true" /> Procurement
         </button>
       </nav>
+      {/*
+        The build, and only the build. Nothing here is live, but *what* each
+        screen is differs: two of them replay a finished Google Cloud execution
+        and the others are local proofs that never touched GCP. Labelling all of
+        them "verified replay" from the product bar would make a cloud claim on
+        behalf of screens that cannot support one, so provenance is stated per
+        screen instead and this badge says which bundle is running.
+      */}
+      <span className="product-mode" title={runtimeMode.label}>
+        {runtimeMode.label}
+        <small>NOT LIVE TELEMETRY</small>
+      </span>
     </header>
   );
 }

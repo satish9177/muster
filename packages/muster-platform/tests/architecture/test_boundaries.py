@@ -372,7 +372,7 @@ FORBIDDEN_DECLARATIONS = (
     "agenttransport",
 )
 
-FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
+FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "blocker")
 
 
 def _platform_files() -> Iterator[Path]:

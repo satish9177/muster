@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { SOURCE_AUTHORITY_VERIFIED } from "../data/plainLanguage";
 import type { HeroCaseViewModel, TraceEvent } from "../data/readModel";
 import { TraceIcon } from "./TraceIcon";
 
@@ -79,7 +80,7 @@ export function Inspector({ event, model }: InspectorProps) {
       <div className="operation-checks">
         <OperationCheck
           icon={<ShieldCheck size={15} aria-hidden="true" />}
-          label="Q-12 authority"
+          label={`${SOURCE_AUTHORITY_VERIFIED.plain} (${SOURCE_AUTHORITY_VERIFIED.technical})`}
           value={detail.q12Result}
           tone={detail.q12Result.includes("PASSED") ? "pass" : "plain"}
         />
@@ -101,7 +102,7 @@ export function Inspector({ event, model }: InspectorProps) {
         <div className="unresolved-note">
           <CircleEllipsis size={15} aria-hidden="true" />
           <span>
-            <strong>Still unresolved</strong>
+            <strong>Facts still unknown — and why they no longer matter</strong>
             {model.unresolved.join(" · ")}
           </span>
         </div>

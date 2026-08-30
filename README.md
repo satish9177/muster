@@ -2,6 +2,64 @@
 
 > **When records disagree, MUSTER proves only what matters — and acts only on what can be proved.**
 
+**The problem.** High-impact enterprise agents act over records that belong to
+different institutions — payroll, a site's attendance board, a worker's own
+account. Centralizing every raw record into one control plane is unsafe. And when an
+irreversible action has already been sent and its outcome is unknown, blindly
+retrying it is unsafe too.
+
+**The twist.** MUSTER asks only for evidence capable of changing the
+consequence. Its deterministic kernel enumerates every action still reachable
+under pinned policy; when they all agree, acquisition stops and the exact fact
+stays unknown. Asking for less is the safety property, not a shortcut.
+
+**The security boundary is real.** In the verified cloud run, the central
+Control Plane was genuinely denied Site-A's raw evidence — a real GCP IAM
+**HTTP 403**. Only the authorized, source-local Site Agent read it, and only
+narrow signed attestations came back.
+
+**The model boundary.**
+
+```text
+Gemma / Gemini interpret.
+Sources attest.
+Deterministic MUSTER authorizes.
+```
+
+Gemma 4 is used only by the optional local `--live` Worker claim-intake path.
+Its output is unsigned and institutionally inert. Gemma was **not** part of the
+verified Stage-90 institutional cloud execution or the final GCP Action Gate
+proof, both of which ran Gemini 3.7 Flash on Vertex AI for the Employer and
+Site source agents only.
+
+**The execution proof.** On Cloud Run and Cloud SQL, a synthetic external
+action was accepted exactly once and its answer was deliberately lost. MUSTER
+recorded `UNCERTAIN` rather than guessing. An independent read of the external
+system found the transfer already there. A fresh Cloud Run process reconciled
+the same execution to `CONFIRMED` by observation, and an exact repeat returned
+that record without dispatching:
+
+| Transfer before reconcile | Reconciliation dispatches | Exact repeat dispatches | Final transfer count |
+|---|---|---|---|
+| 1 | 0 | 0 | 1 |
+
+**SANDBOX ONLY. NO REAL FUNDS TRANSFERRED.** The rail is a simulated external
+system, not a payment provider. This was *unknown after acceptance*; no Cloud
+Run process was killed, and no screen here is live telemetry.
+
+## Start here
+
+| | |
+|---|---|
+| **Hosted replay** | *Not deployed yet.* Build and deploy with `infra/scripts/95-judge-replay.sh`; it serves the tracked replay read-only, with no backend. |
+| **Demo video** | *Not recorded yet.* |
+| **Repository** | <https://github.com/satish9177/muster> |
+| **Architecture** | [Diagram](assets/muster-architecture.png) · [ARCHITECTURE.md](ARCHITECTURE.md) |
+| **Final proof receipt** | [The five named executions](ARCHITECTURE.md#final-live-unknown-after-acceptance-and-reconciliation-proof) · tracked record: `packages/muster-ui/public/cases/ravi-cloud-gate-proof.json` |
+| **60-second local proof** | `.\.venv\Scripts\python.exe demo\hero.py` — deterministic, offline, no model call |
+
+---
+
 MUSTER is a consequence-sensitive evidence and execution system for enterprise
 agents. A worker says a Saturday shift should be paid, while payroll, schedule,
 and site evidence belong to different institutional sources. Rather than
@@ -13,17 +71,6 @@ institutional authority, apply pinned policy, reproduce the consequence, and
 authorize execution separately. The result is not a claim that MUSTER proved
 objectively that Ravi worked; it is a defensible decision that Saturday is
 payable under the pinned policy on authorized attested grounds.
-
-**Fastest local proof:** with Python 3.12 and the packages installed, run
-`.\.venv\Scripts\python.exe demo\hero.py` from the repository root. It is
-deterministic and makes no network or model call.
-
-```text
-Gemini interprets.
-Sources attest.
-Policy determines consequences.
-Deterministic controls authorize execution.
-```
 
 ## Why This Is Different
 
@@ -86,6 +133,10 @@ py -3.12 -m venv .venv
 [Open or download the full-size SVG](assets/muster-architecture.svg) ·
 [Read the authoritative architecture document](ARCHITECTURE.md)
 
+The SVG is the source and the PNG is derived from it. Regenerate the PNG with
+`assets/render-architecture.sh`, which renders the SVG through headless Chrome
+at a pinned size and scale so the two cannot drift apart.
+
 ## Full Interactive Demo
 
 Prerequisites: Python 3.12, Docker, and Node.js/npm. From the repository root,
@@ -126,6 +177,26 @@ npm.cmd run dev
 
 Open <http://127.0.0.1:5173>.
 
+### Replay-only judge build
+
+`npm run build` produces the **replay-only** bundle by default: no `/api/demo`
+call, no Action Gate mutation control, no database and no credential. It needs
+no backend at all, and it is the bundle the hosted page serves.
+
+```powershell
+Set-Location packages\muster-ui
+npm.cmd run build
+Set-Location dist
+python -m http.server 5000    # or any static server
+```
+
+`npm run dev` keeps the local PostgreSQL Action Gate controls, because the mode
+resolves from the build kind and fails closed. To be explicit either way, build
+with `VITE_MUSTER_LOCAL_GATE=true` or `=false`.
+
+To host it later — **not deployed yet** — see
+[the public judge-replay page](infra/README.md#the-public-judge-replay-page).
+
 ### Safe demo reset
 
 Stop the API first. Then, from the repository root, run:
@@ -157,6 +228,14 @@ The policy needs at least 240 minutes. Every admissible duration therefore
 produces the same action, so the result is `INVARIANT` even though exact
 duration stays unresolved. The proposal is `PAY RAVI INR 5,100`, the corrected
 weekly total: six payable days at INR 850.
+
+**What the amount means.** The fixture also records INR 4,250 already paid for
+the week, and the sandbox action represents the *corrected weekly payroll
+instruction* rather than a top-up of the difference. A production payroll
+adapter would need an explicit replace-versus-delta settlement contract before
+either reading could be called correct. What the sandbox proof demonstrates is
+execution and reconciliation safety — one external effect, zero redispatch —
+not production payroll settlement accounting.
 
 ### Procurement PO-4821
 
@@ -330,7 +409,7 @@ The analysis-only trace and the later final Gate proof were verified in project
 | Tracked analysis-only trace | `muster-control-plane-hero-tsjds` |
 | Final Gate proof case | `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |
 | Final Gate execution id | `6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80` |
-| Deployed source commit | `af1359c828d70e9e860f10ae076f225b006e5693` |
+| Deployed source commit — built and ran this proof | `af1359c828d70e9e860f10ae076f225b006e5693` |
 | Cloud Build | `4f7f281f-5373-43db-addd-496cd2c546fe` (`SUCCESS`) |
 | Immutable image digest | `sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73` |
 
@@ -399,11 +478,48 @@ ARCHITECTURE.md            authoritative architecture and claim boundaries
 
 ## Testing
 
-The current tree collects **2,359 tests**. The latest complete validation
-accounts for **2,075 passed, 284 skipped, 0 unresolved failures**. The skipped
-cases are environment-dependent PostgreSQL, cloud, and live-model tests that
-require the appropriate DSN, credentials, or environment; they do not indicate
-broken or unfinished behavior.
+`pytest --collect-only` reports **7,706 collected tests** — items, which is
+what pytest runs and counts, so a parametrized test contributes one per case.
+**0 fail in either environment recorded here.** How many of the 7,706 *run* is
+a property of the machine rather than of the tree, so the counts are given per
+environment rather than as one number:
+
+| Environment | Passed | Skipped | Failed |
+|---|---|---|---|
+| Windows 11 · Python 3.12 · a POSIX shell on `PATH` (Git Bash) | 7,318 | 388 | 0 |
+| Windows 11 · Python 3.12 · no POSIX shell on `PATH` (PowerShell) | 7,210 | 496 | 0 |
+| `ubuntu-24.04` via `.github/workflows/verify.yml` | *not yet run* | *not yet run* | *not yet run* |
+
+Each Windows row is one complete `python -m pytest` of the whole tree. Neither
+has a DSN or cloud credentials, so both skip the PostgreSQL, cloud and
+live-model suites; those are reported as skips rather than hidden and do not
+indicate broken behavior. **The two rows differ by exactly 108 tests, and the
+difference is the shell.** Many suites drive the deployment scripts through a
+real `bash` and resolve one by running it (see the note below); where no POSIX
+shell answers the probe, those 108 skip instead of failing. That is the whole
+of the gap.
+
+**No Linux run is recorded in this repository yet**, and none is claimed.
+`.github/workflows/verify.yml` runs ruff, mypy, all three import-linter
+configurations and pytest on `ubuntu-24.04`, plus the UI's three commands, and
+is the intended source of a supported-platform number. Until GitHub has
+actually run it after a push, the third row stays empty.
+
+The UI has **119 Vitest tests across 11 files**, all passing, alongside
+`npm run typecheck` and `npm run build`.
+
+**A note on the platform, because the counts depend on it.** Many suites drive
+the deployment shell scripts through a real `bash`, and on Windows the first
+`bash` on `PATH` is usually a WSL launcher — `System32\bash.exe` or the
+`WindowsApps` alias — which starts a Linux distribution whose filesystem is not
+this one. Handed a script named `C:/…/drive.sh`, it fails, and a hundred tests
+fail with it for a reason that has nothing to do with the scripts. The suites
+now resolve a shell by *running* one: candidates are tried in `PATH` order and
+the first that executes a probe script named by a real path is used. On a
+machine with no POSIX shell at all, those suites **skip** rather than fail, and
+say so — which is exactly why the two Windows rows above differ, and why
+reporting one universal pass/skip pair for this tree would be false on at
+least one of them.
 
 Install the pinned developer tools once, then run the suite:
 
@@ -414,12 +530,15 @@ Install the pinned developer tools once, then run the suite:
 
 Coverage includes deterministic kernel behavior, authority and Q-12, Action
 Gate concurrency/finality/idempotency, PostgreSQL integration, agent
-integrations, the procurement tolerance flip, and architecture/import
-contracts. Set `MUSTER_TEST_DSN` and the documented live-model environment only
-when intentionally running those integration paths.
+integrations, the procurement tolerance flip, the tracked final Gate proof
+record, the replay-only hosting properties, and architecture/import contracts.
+Set `MUSTER_TEST_DSN` and the documented live-model environment only when
+intentionally running those integration paths.
 
 ## Demo / Submission
 
+- Hosted replay: not deployed yet — see
+  [the public judge-replay page](infra/README.md#the-public-judge-replay-page)
 - Demo video: [to be added before submission]
 - Devpost: [to be added before submission]
 

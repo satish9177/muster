@@ -1,4 +1,5 @@
 import type { HeroCaseViewModel, ResultTone } from "./readModel";
+import { runtimeMode } from "./runtimeMode";
 
 export const ACTION_GATE_SCHEMA_VERSION = "muster.action-gate-demo/v1" as const;
 
@@ -92,6 +93,14 @@ export class HttpActionGateClient implements ActionGateClient {
   }
 
   private async request(url: string, init: RequestInit): Promise<ActionGateReadModel> {
+    //  The last of three guards, and the only one a refactor cannot walk past.
+    //  The callers are guarded and the control is absent in a judge build, but
+    //  the property that has to hold is "this bundle makes no request to a
+    //  mutation endpoint" -- so the request itself refuses rather than trusting
+    //  that nobody upstream forgot.
+    if (runtimeMode.replayOnly) {
+      throw new Error("This build exposes no Action Gate endpoint");
+    }
     const response = await fetch(url, init);
     if (!response.ok) {
       throw new Error(`Local sandbox Action Gate refused the request (${response.status})`);

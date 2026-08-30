@@ -1,0 +1,117 @@
+#  One clean run on a supported platform.
+#
+#  The public test claim in README.md is a claim about a *platform*, and until
+#  this existed the only evidence for it came from a Windows laptop -- where the
+#  shell suites depend on which `bash` happens to be first on `PATH`. That is a
+#  fine place to develop and a poor place to make a claim from. Ubuntu with a
+#  real `/bin/bash` is the environment the deployment scripts are written for,
+#  so it is the environment the number should come from.
+#
+#  Deliberately small. This runs the gates the repository already defines --
+#  ruff, mypy, the three import-linter configurations, pytest, and the UI's own
+#  three commands -- and adds none of its own. A CI file that invents checks
+#  becomes a second definition of "clean".
+#
+#  Every step below runs a command that is already written down somewhere in
+#  this repository: the tool table in ``pyproject.toml`` pins the four Python
+#  gates, each ``importlinter*.ini`` header states its own invocation, and the
+#  UI's three are its own ``package.json`` scripts. Nothing here configures a
+#  check; it only runs the ones that exist, so a gate cannot be stricter or
+#  looser in CI than it is on a developer's machine.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the workspace and the pinned developer tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./packages/muster-kernel \
+                      -e ./packages/muster-platform \
+                      -e ./packages/muster-agents
+          pip install --group dev
+
+      - name: ruff
+        run: ruff check .
+
+      #  The whole tree, under the ``[tool.mypy]`` table in pyproject.toml.
+      #  No arguments: a subset run resolves imports differently from the
+      #  configured one and is a different check wearing the same name.
+      - name: mypy
+        run: mypy
+
+      #  Three configurations, three graphs. Each is checked with only the
+      #  distributions its own contracts are about importable, which is what
+      #  makes "the kernel imports no database" a fact about a graph the
+      #  control plane is not in. Run as three steps rather than one loop so a
+      #  failure names which matrix broke.
+      - name: import-linter (kernel)
+        run: lint-imports --config importlinter.ini
+        env:
+          PYTHONPATH: packages/muster-kernel/src
+
+      - name: import-linter (control plane)
+        run: lint-imports --config importlinter-platform.ini
+        env:
+          PYTHONPATH: packages/muster-kernel/src:packages/muster-platform/src
+
+      - name: import-linter (agent fleet)
+        run: lint-imports --config importlinter-agents.ini
+        env:
+          PYTHONPATH: packages/muster-kernel/src:packages/muster-agents/src
+
+      - name: pytest
+        #  No DSN and no cloud credentials are provided, so the PostgreSQL,
+        #  cloud and live-model suites skip. That is the honest shape of a run
+        #  on a machine that has none of those things, and the summary line
+        #  says how many skipped rather than hiding them.
+        run: pytest -q
+
+  ui:
+    name: ui
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/muster-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/muster-ui/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      #  The default build is the replay-only bundle -- the one that gets
+      #  hosted. Building it here is what keeps "it builds without a backend"
+      #  a checked fact rather than a remembered one.
+      - run: npm run build

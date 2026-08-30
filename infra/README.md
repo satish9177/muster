@@ -31,6 +31,10 @@ PROJECT_ID=your-project ./infra/scripts/80-smoke.sh        # from inside the pro
 PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys   # the worked run
 ```
 
+`95-judge-replay.sh` is deliberately not in that sequence: it deploys the public
+read-only replay page and is described under
+[the public judge-replay page](#the-public-judge-replay-page).
+
 That order runs the hero with `HERO_DATABASE_DEPLOYMENT=EPHEMERAL`, the default:
 in-memory custody for the length of one execution, which is the shape of the run
 already verified in this project and needs no database. Durable custody is an
@@ -44,6 +48,48 @@ export DATABASE_SERVER_CA_SECRET_VERSION=<pinned>
 PROJECT_ID=your-project ./infra/scripts/85-database-bootstrap.sh   # DDL, as the migrator
 PROJECT_ID=your-project ./infra/scripts/90-hero-job.sh /tmp/muster-keys
 ```
+
+## The public judge-replay page
+
+`95-judge-replay.sh` is separate from every script above, and it is the only one
+that deploys something the public can reach:
+
+```
+PROJECT_ID=your-project ./infra/scripts/95-judge-replay.sh
+```
+
+It builds `infra/docker/judge-replay.Dockerfile` through
+`infra/cloudbuild-judge-replay.yaml` and deploys the result to Cloud Run as
+`muster-judge-replay` with `--allow-unauthenticated`.
+
+**What makes that safe is the image, not the flag.** It is a static React bundle
+and a GET-only nginx: no Python, no control plane, no database, no DSN secret,
+no signing key, no bucket grant, and no mutation endpoint.
+
+**And it runs as an identity that was chosen rather than inherited.** The script
+creates `muster-judge-replay`, a service account of its own, and deploys with
+`--service-account=muster-judge-replay@$PROJECT_ID.iam.gserviceaccount.com`.
+Naming it is the point: a `gcloud run deploy` with no `--service-account` does
+not run with no identity, it runs as the project's *default compute* service
+account — which carries `roles/editor` unless an organisation policy says
+otherwise. That account is granted nothing, anywhere: no project role, no Cloud
+SQL access, no Storage or evidence access, no Secret Manager access, no signing
+key, and no mutation authority. It exists only so that the one container on the
+public internet is the one that can reach nothing.
+
+The Action Gate controls are absent from the bundle because the UI
+fails closed — an ordinary `npm run build` produces the replay-only build, and
+the Dockerfile sets `VITE_MUSTER_LOCAL_GATE=false` as well. What it serves is
+the tracked, sanitized replay artifacts under `packages/muster-ui/public/cases`.
+
+It is built through its own Cloud Build config on purpose. `infra/cloudbuild.yaml`
+builds the agent and control-plane pair, and the digest of that control-plane
+image is the provenance recorded for the final GCP proof; a documentation or UI
+change must not be able to produce a new build of the images that proof names.
+
+If a future change to this page needs a secret, a VPC connector or a Cloud SQL
+instance, that is the signal that it has stopped being a replay page and should
+stop being public.
 
 ## The deliberate Action Gate mode
 
@@ -103,7 +149,7 @@ the deployed image, not of any later documentation-only commit:
 | Item | Final value |
 |---|---|
 | Project / region | `muster-agentic-2026-9177` / `asia-south1` |
-| Deployed source commit | `af1359c828d70e9e860f10ae076f225b006e5693` |
+| Deployed source commit — built and ran this proof | `af1359c828d70e9e860f10ae076f225b006e5693` |
 | Cloud Build | `4f7f281f-5373-43db-addd-496cd2c546fe` — `SUCCESS` |
 | Immutable control-plane image | `asia-south1-docker.pkg.dev/muster-agentic-2026-9177/muster/muster-control-plane@sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73` |
 | Tenant / case | `BETA` / `CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C` |

@@ -1,0 +1,32 @@
+#  Build the public judge-replay image, on its own.
+#
+#  Deliberately a separate submission from infra/cloudbuild.yaml, which builds
+#  the agent and control-plane pair.  That pair is what the final GCP proof was
+#  run from, and its provenance -- source commit, build id, image digest -- is
+#  recorded in ARCHITECTURE.md and in the tracked proof artifact.  Adding a
+#  third image to that config would mean a documentation or UI change could
+#  produce a new build of the images the proof names, and the recorded
+#  provenance would start describing a build that is not the proved one.
+#
+#  This image contains no MUSTER code that decides anything: it is a static web
+#  page and a web server, and it is the only image here meant to be reachable
+#  without authentication.
+#
+#  `_JUDGE_REPLAY_IMAGE` is substituted by infra/scripts/95-judge-replay.sh.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: judge-replay
+    args:
+      - build
+      - --file=infra/docker/judge-replay.Dockerfile
+      - --tag=${_JUDGE_REPLAY_IMAGE}
+      - .
+
+images:
+  - ${_JUDGE_REPLAY_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s

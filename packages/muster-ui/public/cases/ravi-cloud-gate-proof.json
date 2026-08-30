@@ -1,0 +1,118 @@
+{
+  "schema_version": "muster.action-gate-proof/v1",
+  "provenance": {
+    "project_id": "muster-agentic-2026-9177",
+    "region": "asia-south1",
+    "tenant_id": "BETA",
+    "case_id": "CASE-RAVI-SAT-CLOUD-GATE-FINAL-B-AF1359C",
+    "execution_id": "6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+    "deployed_source_commit": "af1359c828d70e9e860f10ae076f225b006e5693",
+    "documentation_commit": "f03f6207f4911c33ec7342bcfb2b88471ef1c1b8",
+    "cloud_build_id": "4f7f281f-5373-43db-addd-496cd2c546fe",
+    "image_digest": "sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73",
+    "control_plane_image": "asia-south1-docker.pkg.dev/muster-agentic-2026-9177/muster/muster-control-plane@sha256:77e0060833b982b471b7b7e272ee37eb438e3e551e79ba004cb41e94ca2e9d73"
+  },
+  "claims": {
+    "sandbox_only": true,
+    "real_funds": false,
+    "live_telemetry": false,
+    "cloud_run_process_death_claimed": false
+  },
+  "action": {
+    "kind": "PAY",
+    "recipient": "RAVI",
+    "amount": {
+      "unit": "INR",
+      "scale": 2,
+      "minor": 510000,
+      "display": "INR 5,100.00"
+    }
+  },
+  "external_reference": "sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+  "least_privilege": {
+    "cloud_run_execution": "muster-database-bootstrap-gs54f",
+    "runtime_role": "muster_runtime",
+    "runtime_grants": 20,
+    "privilege_questions": 126,
+    "privilege_answers_wrong": 0,
+    "migrations_applied": "none",
+    "migrations_current": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "stages": [
+    {
+      "id": "unknown_after_acceptance",
+      "ordinal": 1,
+      "kind": "control_plane",
+      "cloud_run_execution": "muster-control-plane-hero-z2m6k",
+      "state": "UNCERTAIN",
+      "finality": null,
+      "outcome_code": "EXECUTOR_EXCEPTION",
+      "external_reference": null,
+      "reconciled_from": null,
+      "reconciled_at": null,
+      "dispatches": 1,
+      "inspections": 0,
+      "real_funds": false
+    },
+    {
+      "id": "pre_reconciliation_external_read",
+      "ordinal": 2,
+      "kind": "external_world",
+      "cloud_run_execution": "muster-database-bootstrap-jkr7k",
+      "attempt": "ATTEMPTED",
+      "transfer_present": true,
+      "external_reference": "sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+      "transfer_count": 1,
+      "read_only": true
+    },
+    {
+      "id": "reconciliation",
+      "ordinal": 3,
+      "kind": "control_plane",
+      "cloud_run_execution": "muster-control-plane-hero-hdfv2",
+      "state": "CONFIRMED",
+      "finality": "DEFINITELY_EXECUTED",
+      "outcome_code": "CONFIRMED",
+      "external_reference": "sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+      "reconciled_from": "UNCERTAIN",
+      "reconciled_at": 1760000000000000,
+      "dispatches": 0,
+      "inspections": 1,
+      "real_funds": false
+    },
+    {
+      "id": "exact_idempotency_read",
+      "ordinal": 4,
+      "kind": "control_plane",
+      "cloud_run_execution": "muster-control-plane-hero-pv2f2",
+      "state": "CONFIRMED",
+      "finality": null,
+      "outcome_code": null,
+      "external_reference": "sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+      "reconciled_from": null,
+      "reconciled_at": null,
+      "dispatches": 0,
+      "inspections": 0,
+      "real_funds": null
+    },
+    {
+      "id": "final_external_read",
+      "ordinal": 5,
+      "kind": "external_world",
+      "cloud_run_execution": "muster-database-bootstrap-kpz8p",
+      "attempt": "ATTEMPTED",
+      "transfer_present": true,
+      "external_reference": "sandbox-pay-6e9de1415fb0056e7c2e41b4b3d1d15008a980e0b19a7afde70c86f0642d5b80",
+      "transfer_count": 1,
+      "read_only": true
+    }
+  ]
+}

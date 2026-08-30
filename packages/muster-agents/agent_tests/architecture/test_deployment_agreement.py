@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -36,6 +35,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from agent_tests.support.shell import posix_shell
 from muster.agents.config import (
     DEFAULT_MATERIAL_REGION,
     DEFAULT_MODEL,
@@ -697,7 +697,7 @@ def _serialise(values: Mapping[str, str], tmp_path: Path) -> subprocess.Complete
     be a second implementation of the thing under test, and would agree with the
     first one right up until the moment either was wrong.
     """
-    bash = shutil.which("bash")
+    bash = posix_shell()
     assert bash is not None
     lines = [
         "#!/usr/bin/env bash",
@@ -734,7 +734,7 @@ def _deploy_calls() -> list[list[str]]:
     ]
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_every_value_survives_serialisation_exactly(tmp_path: Path) -> None:
     """Written by the script, read back by a YAML parser, compared byte for byte.
 
@@ -754,7 +754,7 @@ def test_every_value_survives_serialisation_exactly(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_value_that_cannot_be_written_stops_the_deployment(tmp_path: Path) -> None:
     """The one thing an entry-per-line file cannot carry, refused rather than folded.
 
@@ -1554,7 +1554,7 @@ def _fake_environment(tmp_path: Path, **overrides: str) -> dict[str, str]:
 
 def _drive(body: str, tmp_path: Path, **overrides: str) -> subprocess.CompletedProcess[str]:
     """Source env.sh over the fake gcloud and run one fragment against it."""
-    bash = shutil.which("bash")
+    bash = posix_shell()
     assert bash is not None
     script = "\n".join(
         (
@@ -1589,7 +1589,7 @@ muster::execution_output "${HERO_JOB}" "${MUSTER_EXECUTION}" || echo "NOTHING PR
 """
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_the_fixture_would_hand_back_the_older_executions_lines(tmp_path: Path) -> None:
     """The regression test's own premise, asserted before it is relied on.
 
@@ -1610,7 +1610,7 @@ def test_the_fixture_would_hand_back_the_older_executions_lines(tmp_path: Path) 
     assert "outcome    INVARIANT" in done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_only_the_lines_of_the_execution_this_run_created_are_printed(tmp_path: Path) -> None:
     """The defect, run rather than read.
 
@@ -1629,7 +1629,7 @@ def test_only_the_lines_of_the_execution_this_run_created_are_printed(tmp_path: 
     assert OLDER_EXECUTION not in done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_every_read_names_the_execution_that_was_created(tmp_path: Path) -> None:
     """Checked on the filters themselves, not only on what came back.
 
@@ -1646,7 +1646,7 @@ def test_every_read_names_the_execution_that_was_created(tmp_path: Path) -> None
         assert 'resource.labels.job_name="muster-control-plane-hero"' in filter_text
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_the_execution_name_is_read_from_either_representation(tmp_path: Path) -> None:
     """gcloud spells it ``metadata.name`` or ``name``, depending on its version.
 
@@ -1663,7 +1663,7 @@ def test_the_execution_name_is_read_from_either_representation(tmp_path: Path) -
     assert STALE_LINE not in done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_an_unnamed_execution_prints_nothing_rather_than_something(tmp_path: Path) -> None:
     """The fallback that would restore the defect, refused.
 
@@ -1680,7 +1680,7 @@ def test_an_unnamed_execution_prints_nothing_rather_than_something(tmp_path: Pat
     assert not filters.exists(), "a read was attempted with no execution to scope it to"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_failed_execution_still_names_itself_so_its_output_can_be_read(tmp_path: Path) -> None:
     """The run worth reading is the one that failed, so the name has to survive it.
 
@@ -1792,7 +1792,7 @@ echo "PROCEEDED"
 """
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_subnet_that_already_has_it_is_left_alone(tmp_path: Path) -> None:
     """Idempotent, and visibly so: the deployment is re-run far more often than not."""
     done = _drive(PRIVATE_ACCESS, tmp_path)
@@ -1802,7 +1802,7 @@ def test_a_subnet_that_already_has_it_is_left_alone(tmp_path: Path) -> None:
     assert "update" not in calls, "a subnet that already had it was written to anyway"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_subnet_without_it_has_it_established(tmp_path: Path) -> None:
     """The hidden manual step, taken by the script that needs it.
 
@@ -1818,7 +1818,7 @@ def test_a_subnet_without_it_has_it_established(tmp_path: Path) -> None:
     assert calls.count("describe") == 2, "the subnet was not read back after being updated"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_prerequisite_that_cannot_be_established_stops_the_deployment(tmp_path: Path) -> None:
     """Fail closed, before anything exists, naming the exact command.
 
@@ -1837,7 +1837,7 @@ def test_a_prerequisite_that_cannot_be_established_stops_the_deployment(tmp_path
     assert "compute.subnetworks.setPrivateIpGoogleAccess" in done.stderr
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_subnet_that_is_not_there_stops_the_deployment(tmp_path: Path) -> None:
     """A named network that does not exist fails at the deploy, eleven steps in.
 
@@ -1853,7 +1853,7 @@ def test_a_subnet_that_is_not_there_stops_the_deployment(tmp_path: Path) -> None
     assert "subnets list" in done.stderr
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_the_diagnostic_path_and_private_ranges_are_left_to_fail_their_own_way(
     tmp_path: Path,
 ) -> None:
@@ -1907,7 +1907,7 @@ def _expanded_mappings(script: Path, tmp_path: Path, **overrides: str) -> list[t
     return mappings
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 @pytest.mark.parametrize("script", ("90-hero-job.sh", "85-database-bootstrap.sh"))
 def test_no_deployment_mounts_two_secrets_in_one_directory(script: str, tmp_path: Path) -> None:
     """The expansion, grouped exactly the way gcloud groups it."""
@@ -1923,7 +1923,7 @@ def test_no_deployment_mounts_two_secrets_in_one_directory(script: str, tmp_path
         assert len(secrets) == 1, f"{directory} would be handed {sorted(secrets)}"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 @pytest.mark.parametrize("script", ("90-hero-job.sh", "85-database-bootstrap.sh"))
 def test_a_deployment_mounts_only_a_certificate_and_never_a_private_key(
     script: str, tmp_path: Path
@@ -1940,7 +1940,7 @@ def test_a_deployment_mounts_only_a_certificate_and_never_a_private_key(
             assert key.endswith("DATABASE_URL"), key
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_stage_ninety_demands_pinned_versions_only_for_the_custody_it_runs(
     tmp_path: Path,
 ) -> None:
@@ -1983,7 +1983,7 @@ def test_stage_ninety_demands_pinned_versions_only_for_the_custody_it_runs(
     assert "PROCEEDED" in pinned.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_custody_that_is_neither_stops_the_deployment(tmp_path: Path) -> None:
     """Two kinds, and a typo is not silently one of them."""
     done = _drive("echo PROCEEDED", tmp_path, HERO_DATABASE_DEPLOYMENT="FIRESTORE")
@@ -2008,7 +2008,7 @@ def test_a_custody_that_is_neither_stops_the_deployment(tmp_path: Path) -> None:
 #  be right is what the argument *becomes*.
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_container_path_survives_argument_conversion(tmp_path: Path) -> None:
     """The exact ``C:/Program Files/Git/app/...`` class, asserted as absent.
 
@@ -2034,7 +2034,7 @@ def test_a_container_path_survives_argument_conversion(tmp_path: Path) -> None:
     assert ":/" not in printed.split("=", 1)[1]
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_the_container_arg_helper_does_not_change_the_operators_shell(tmp_path: Path) -> None:
     """Scoped to one invocation.  A deployment script is not a place to export."""
     body = 'muster::gcloud_container_args true\necho "AFTER=[${MSYS2_ARG_CONV_EXCL:-unset}]"'
@@ -2044,7 +2044,7 @@ def test_the_container_arg_helper_does_not_change_the_operators_shell(tmp_path: 
     assert "AFTER=[unset]" in done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_an_existing_conversion_exclusion_is_preserved(tmp_path: Path) -> None:
     """An operator who set one meant it, so it is appended to and then restored."""
     body = "\n".join(
@@ -2099,7 +2099,7 @@ def test_every_container_path_argument_goes_through_the_helper() -> None:
 #  ---- the local interpreter ------------------------------------------------
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_an_interpreter_is_established_by_running_one(tmp_path: Path) -> None:
     """Found by execution, not by ``command -v``: on Windows they differ."""
     done = _drive('muster::require_python\necho "CHOSE=[${MUSTER_PYTHON}]"', tmp_path)
@@ -2109,7 +2109,7 @@ def test_an_interpreter_is_established_by_running_one(tmp_path: Path) -> None:
     assert "CHOSE=[]" not in done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_a_present_but_unrunnable_interpreter_is_refused(tmp_path: Path) -> None:
     """The Windows App Execution Alias, reproduced.
 
@@ -2144,7 +2144,7 @@ def test_a_present_but_unrunnable_interpreter_is_refused(tmp_path: Path) -> None
     assert "REFUSED" in done.stdout, done.stdout
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the deployment scripts are bash")
+@pytest.mark.skipif(posix_shell() is None, reason="the deployment scripts are bash")
 def test_an_explicit_interpreter_that_does_not_run_stops_the_deployment(
     tmp_path: Path,
 ) -> None:

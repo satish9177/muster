@@ -2,6 +2,56 @@
 
 > **When records disagree, MUSTER proves only what matters — and acts only on what can be proved.**
 
+**The problem.** High-impact enterprise agents act over records that belong to
+different institutions — payroll, a site's attendance board, a worker's own
+account. Centralizing every raw record into one control plane is unsafe. And when an
+irreversible action has already been sent and its outcome is unknown, blindly
+retrying it is unsafe too.
+
+**The twist.** MUSTER asks only for evidence capable of changing the
+consequence. Its deterministic kernel enumerates every action still reachable
+under pinned policy; when they all agree, acquisition stops and the exact fact
+stays unknown.
+
+**The security boundary is real.** In the verified cloud run, the central
+Control Plane was genuinely denied Site-A's raw evidence — a real GCP IAM
+**HTTP 403**. Only the authorized, source-local Site Agent read it, and only
+narrow signed attestations came back.
+
+**The model boundary.**
+
+```text
+Gemma / Gemini interpret.
+Sources attest.
+Deterministic MUSTER authorizes.
+```
+
+Gemma 4 is used only by the optional local `--live` Worker claim-intake path.
+Its output is unsigned and institutionally inert. Gemma was **not** part of the
+verified Stage-90 institutional cloud execution or the final GCP Action Gate
+proof, both of which ran Gemini 3.7 Flash on Vertex AI for the Employer and
+Site source agents only.
+
+**The execution proof.** On Cloud Run and Cloud SQL, a synthetic external
+action was accepted exactly once and its answer was deliberately lost. MUSTER
+recorded `UNCERTAIN` rather than guessing. An independent read of the external
+system found the transfer already there. A fresh Cloud Run process reconciled
+the same execution to `CONFIRMED` by observation, and an exact repeat returned
+that record without dispatching:
+
+| Transfer before reconcile | Reconciliation dispatches | Exact repeat dispatches | Final transfer count |
+|---|---|---|---|
+| 1 | 0 | 0 | 1 |
+
+**SANDBOX ONLY. NO REAL FUNDS TRANSFERRED.** The rail is a simulated external
+system, not a payment provider. This was *unknown after acceptance*; no Cloud
+Run process was killed, and nothing shown is live telemetry.
+
+**Start here.** Hosted replay: *not deployed yet*. Demo video: *not recorded
+yet*. Repository: <https://github.com/satish9177/muster> ·
+[Architecture](https://github.com/satish9177/muster/blob/main/ARCHITECTURE.md) ·
+[Final proof receipt](https://github.com/satish9177/muster/blob/main/ARCHITECTURE.md#final-live-unknown-after-acceptance-and-reconciliation-proof)
+
 ## Inspiration / Problem
 
 A worker says a Saturday shift should be payable. Payroll knows the rate and
@@ -33,6 +83,13 @@ authorize the corrected weekly payout without acquiring an exact duration. It
 concludes that Saturday is payable under pinned policy on authorized attested
 grounds; it does not claim to prove objectively that Ravi worked. The proposal
 is `PAY RAVI INR 5,100`, the corrected weekly total.
+
+The fixture also records INR 4,250 already paid for the week, and the sandbox
+action represents the corrected weekly payroll *instruction* rather than a
+top-up of the difference. A production payroll adapter would need an explicit
+replace-versus-delta settlement contract. What the sandbox proof demonstrates is
+execution and reconciliation safety, not production payroll settlement
+accounting.
 
 The judge-facing Evidence Plan makes the stopping rule visible: MUSTER
 determines which unresolved facts can still change the action before requesting
@@ -75,10 +132,12 @@ oracle, not the production decider.
 ## Google AI Models / Google Cloud
 
 Model tier follows trust tier in this integration. Gemma 4 handles the
-unverified human narrative, but its candidate still passes deterministic claim
-validation and has no signature, source authority, Q-12 path, or decision
-power. Gemini 3.7 Flash handles institutional source material through Vertex
-AI; validated and signed source attestations then face Q-12. Deterministic
+unverified human narrative in the optional local `--live` path only — it was
+not part of the verified Stage-90 cloud execution or the final GCP Action Gate
+proof — and its candidate still passes deterministic claim validation and has
+no signature, source authority, Q-12 path, or decision power. Gemini 3.7 Flash
+handles institutional source material through Vertex AI; validated and signed
+source attestations then face Q-12. Deterministic
 MUSTER controls own authority, policy, consequence evaluation, and execution
 eligibility.
 
@@ -131,8 +190,19 @@ redispatches an uncertain outcome.
   finality controls, then verified the sandbox unknown-after-acceptance and
   reconciliation sequence on Cloud Run + Cloud SQL; no real funds transferred.
 - Demonstrated the same kernel across workforce and procurement policies.
-- Collected 2,359 tests; the latest complete validation accounts for 2,075
-  passed, 284 environment-dependent skips, and 0 unresolved failures.
+- Collected 7,706 Python tests, with **0 failures in either environment
+  recorded**. How many of them run is a property of the machine: many suites
+  drive the deployment shell scripts through a real `bash` and skip where no
+  POSIX shell answers a probe, so the counts are reported per environment
+  rather than as one number. Two complete runs on Windows 11 / Python 3.12,
+  with no database DSN and no cloud credentials: **7,318 passed / 388 skipped**
+  with a POSIX shell on `PATH` (Git Bash), and **7,210 passed / 496 skipped**
+  without one (PowerShell) — a difference of exactly the 108 shell-driven
+  tests. The UI adds 119 passing Vitest tests. **No Linux run is recorded yet
+  and none is claimed**; a minimal GitHub Actions workflow runs ruff, mypy, all
+  three import-linter configurations, pytest and the UI's three commands on
+  `ubuntu-24.04`, and is the intended source of a supported-platform number
+  once GitHub has run it.
 
 ## What We Learned
 
@@ -152,6 +222,7 @@ reconciliation-first finality model.
 ## Try It Out
 
 - Repository: <https://github.com/satish9177/muster>
+- Hosted replay: [not deployed yet — read-only, no backend, no credentials]
 - Demo video: [to be added before submission]
 - Architecture image: [PNG](assets/muster-architecture.png) ·
   [full-size SVG](assets/muster-architecture.svg)

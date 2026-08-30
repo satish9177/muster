@@ -8,7 +8,7 @@
   "worker": {
     "label": "Worker Agent",
     "agent_runtime": "Google ADK ClaimAgent",
-    "capture_status": "COMMITTED PATH · NOT RERUN IN CLOUD CAPTURE",
+    "capture_status": "WORKER CLAIM — REPLAYED / NOT RERUN IN THIS VERIFIED CLOUD EXECUTION",
     "source_material": [
       {
         "ref": "ravi-account",

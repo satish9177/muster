@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import ast
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 import pytest
+
+from support.shell import posix_shell
 
 pytestmark = pytest.mark.architecture
 
@@ -87,7 +88,7 @@ def _run_shell(script: str, **environment: str) -> subprocess.CompletedProcess[s
     is the refusal several of them are checking for.  A temporary file has no
     such limit, so the contract can keep growing a rule at a time.
     """
-    shell = shutil.which("bash")
+    shell = posix_shell()
     if shell is None:
         pytest.skip("the deployment contract requires bash")
     with tempfile.NamedTemporaryFile(

@@ -137,6 +137,24 @@ answer written down in advance, and no path that skips authorization. The
 acceptance suite calls the same function and asserts on what it returns, so the
 run demonstrated and the run checked on every commit are one code path.
 
+## The final Gate proof record
+
+`gate_proof_artifact.py` is the one file here that runs nothing. The final GCP
+unknown-after-acceptance and reconciliation proof happened in five named Cloud
+Run executions, in a project this repository cannot reach, from an image built
+at `af1359c`; those observations are transcribed there once, as named
+constants, and written out as the tracked judge-facing record:
+
+```
+python demo/gate_proof_artifact.py
+```
+
+That writes `packages/muster-ui/public/cases/ravi-cloud-gate-proof.json`, which
+the UI renders and an acceptance test checks against both the constants and the
+identifiers in `ARCHITECTURE.md`. It is a separate document from
+`ravi-cloud-execution.json`, which is the earlier analysis-only run and still
+correctly says `NOT_EXECUTED`.
+
 ## Modes
 
 | | |

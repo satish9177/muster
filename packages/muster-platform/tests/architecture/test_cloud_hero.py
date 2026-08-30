@@ -29,11 +29,12 @@ from __future__ import annotations
 import ast
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from support.shell import posix_shell
 
 pytestmark = pytest.mark.architecture
 
@@ -554,7 +555,7 @@ def _sourcing(script: str, **environment: str) -> subprocess.CompletedProcess[st
     PATH instead of trusting a partial executable path; the deployment scripts
     are checked for their ``bash`` shebang elsewhere.
     """
-    shell = shutil.which("bash")
+    shell = posix_shell()
     if shell is None:
         pytest.skip("this asserts what sourcing env.sh does, which needs a shell")
     return subprocess.run(  # noqa: S603 - a resolved interpreter and a fixed argv
@@ -1059,7 +1060,7 @@ def _sandboxed(inner: str) -> str:
 
 
 def _run_shell(script: str, **environment: str) -> subprocess.CompletedProcess[str]:
-    shell = shutil.which("bash")
+    shell = posix_shell()
     if shell is None:
         pytest.skip("this asserts what a deployment branch does, which needs a shell")
     return subprocess.run(  # noqa: S603 - a resolved interpreter and a fixed argv

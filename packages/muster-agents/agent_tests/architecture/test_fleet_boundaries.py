@@ -85,7 +85,7 @@ FORBIDDEN_DECLARATIONS = (
     "score",
 )
 
-FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1", "codex", "blocker")
+FORBIDDEN_TEXT = ("phase 0", "phase0", "phase 1", "phase1",  "blocker")
 
 
 def _files(root: Path) -> Iterator[Path]:

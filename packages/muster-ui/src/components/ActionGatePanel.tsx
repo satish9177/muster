@@ -1,14 +1,47 @@
-import { AlertTriangle, Check, CircleDashed, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, CircleDashed, FileLock2, ShieldCheck, X } from "lucide-react";
 
 import type { ActionGateReadModel, GateLifecycleStep } from "../data/actionGate";
 import { reconciliationRequired, wasReconciled } from "../data/actionGate";
+import { runtimeMode, type RuntimeMode } from "../data/runtimeMode";
 
 interface ActionGatePanelProps {
   gate: ActionGateReadModel | null;
   unavailableReason: string | null;
+  /** Injectable so both builds' surfaces are reachable from one test run. */
+  mode?: RuntimeMode;
 }
 
-export function ActionGatePanel({ gate, unavailableReason }: ActionGatePanelProps) {
+export function ActionGatePanel({
+  gate,
+  unavailableReason,
+  mode = runtimeMode,
+}: ActionGatePanelProps) {
+  //  In the hosted judge build there is no local Action Gate to be unavailable.
+  //  Reporting "NOT EXECUTED / sandbox unavailable" there would be a broken
+  //  promise dressed as a result: it reads as a failed execution of the case,
+  //  when in fact nothing was ever meant to execute in this bundle. Say what is
+  //  true instead, and point at the proof that actually applies.
+  if (mode.replayOnly) {
+    return (
+      <section className="action-gate-panel replay-only" aria-label="Local Action Gate availability">
+        <div className="gate-provenance">
+          <span className="section-label">LOCAL ACTION GATE</span>
+          <strong>{mode.label}</strong>
+          <span>No mutation endpoint is exposed.</span>
+        </div>
+        <div className="gate-replay-note">
+          <FileLock2 size={17} aria-hidden="true" />
+          <span>
+            <strong>NOTHING TO EXECUTE HERE</strong>
+            The interactive PostgreSQL Action Gate is a local developer demo. See the
+            verified Google Cloud Action proof in this tab; it is complete and needs no
+            backend.
+          </span>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="action-gate-panel" aria-label="Action Gate execution proof">
       <div className="gate-provenance">
