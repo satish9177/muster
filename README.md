@@ -51,12 +51,14 @@ Run process was killed, and no screen here is live telemetry.
 
 | | |
 |---|---|
-| **Hosted replay** | *Not deployed yet.* Build and deploy with `infra/scripts/95-judge-replay.sh`; it serves the tracked replay read-only, with no backend. |
+| **Hosted replay** | [Public Cloud Run replay](https://muster-judge-replay-867434431401.asia-south1.run.app) — read-only verified replay, not live telemetry, with no backend or mutation endpoint. |
 | **Demo video** | *Not recorded yet.* |
 | **Repository** | <https://github.com/satish9177/muster> |
 | **Architecture** | [Diagram](assets/muster-architecture.png) · [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Final proof receipt** | [The five named executions](ARCHITECTURE.md#final-live-unknown-after-acceptance-and-reconciliation-proof) · tracked record: `packages/muster-ui/public/cases/ravi-cloud-gate-proof.json` |
 | **60-second local proof** | `.\.venv\Scripts\python.exe demo\hero.py` — deterministic, offline, no model call |
+
+Hosted UI provenance is source commit `c464d1527d7aee6d6903c652be69c979e69b48b4`, Cloud Build `9236f768-2e0a-4ae4-99af-d9b676c18fd7`, and Cloud Run revision `muster-judge-replay-00002-vs8`; it is separate from the frozen Action Gate proof provenance at source commit `af1359c828d70e9e860f10ae076f225b006e5693`.
 
 ---
 
@@ -537,8 +539,7 @@ intentionally running those integration paths.
 
 ## Demo / Submission
 
-- Hosted replay: not deployed yet — see
-  [the public judge-replay page](infra/README.md#the-public-judge-replay-page)
+- Hosted replay: [public read-only verified replay](https://muster-judge-replay-867434431401.asia-south1.run.app) — not live telemetry, with no backend or mutation endpoint
 - Demo video: [to be added before submission]
 - Devpost: [to be added before submission]
 

@@ -47,10 +47,12 @@ that record without dispatching:
 system, not a payment provider. This was *unknown after acceptance*; no Cloud
 Run process was killed, and nothing shown is live telemetry.
 
-**Start here.** Hosted replay: *not deployed yet*. Demo video: *not recorded
+**Start here.** Hosted replay: [public read-only verified replay](https://muster-judge-replay-867434431401.asia-south1.run.app) — not live telemetry, with no backend or mutation endpoint. Demo video: *not recorded
 yet*. Repository: <https://github.com/satish9177/muster> ·
 [Architecture](https://github.com/satish9177/muster/blob/main/ARCHITECTURE.md) ·
 [Final proof receipt](https://github.com/satish9177/muster/blob/main/ARCHITECTURE.md#final-live-unknown-after-acceptance-and-reconciliation-proof)
+
+Hosted UI provenance is source commit `c464d1527d7aee6d6903c652be69c979e69b48b4`, Cloud Build `9236f768-2e0a-4ae4-99af-d9b676c18fd7`, and Cloud Run revision `muster-judge-replay-00002-vs8`; it is separate from the frozen Action Gate proof provenance at source commit `af1359c828d70e9e860f10ae076f225b006e5693`.
 
 ## Inspiration / Problem
 
@@ -222,7 +224,7 @@ reconciliation-first finality model.
 ## Try It Out
 
 - Repository: <https://github.com/satish9177/muster>
-- Hosted replay: [not deployed yet — read-only, no backend, no credentials]
+- Hosted replay: [public read-only verified replay](https://muster-judge-replay-867434431401.asia-south1.run.app) — not live telemetry, with no backend or mutation endpoint
 - Demo video: [to be added before submission]
 - Architecture image: [PNG](assets/muster-architecture.png) ·
   [full-size SVG](assets/muster-architecture.svg)
