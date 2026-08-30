@@ -186,5 +186,9 @@ ignore_missing_imports = true
 #  module allowed to hold one -- and the port it satisfies is ours, so no
 #  untyped value reaches anything above it.
 [[tool.mypy.overrides]]
-module = ["google.cloud.*"]
+module = [
+    "google.cloud.*",
+    "google.api_core",
+    "google.api_core.*",
+]
 ignore_missing_imports = true
