@@ -62,6 +62,15 @@ It builds `infra/docker/judge-replay.Dockerfile` through
 `infra/cloudbuild-judge-replay.yaml` and deploys the result to Cloud Run as
 `muster-judge-replay` with `--allow-unauthenticated`.
 
+**It uploads its own build context.** The root `.gcloudignore` describes the
+context of the proved agent and control-plane images and ends by excluding
+`packages/muster-ui/`, because the frontend is in neither of those containers.
+This image is nothing but that frontend, so the submission passes
+`--ignore-file=infra/judge-replay.gcloudignore` instead — an allowlist holding
+the UI package and the two `infra/docker/judge-replay.*` files, and nothing
+else. Widening the root file would have fixed this build by widening the proved
+one, which is the wrong direction.
+
 **What makes that safe is the image, not the flag.** It is a static React bundle
 and a GET-only nginx: no Python, no control plane, no database, no DSN secret,
 no signing key, no bucket grant, and no mutation endpoint.

@@ -57,10 +57,32 @@ else
   echo "  created ${JUDGE_REPLAY_SA_ID}"
 fi
 
+#  **A build context of its own, and it is not optional.**  The root
+#  .gcloudignore describes the context of the *proved* agent and control-plane
+#  images, and it ends by excluding packages/muster-ui/ -- correctly, because
+#  the frontend is in neither of those containers.  This image is nothing but
+#  that frontend, so submitted under the root file the upload arrives without
+#  the one directory the Dockerfile reads and step 0 fails on
+#  COPY packages/muster-ui/package.json.
+#
+#  --ignore-file is resolved against the *source directory* rather than the
+#  working directory, so the path below is written relative to
+#  REPOSITORY_ROOT and this script runs the same from anywhere.  gcloud falls
+#  back to the default silently when the file is missing, which would put the
+#  original failure back with no message saying why -- so the file is checked
+#  for here instead of trusted.
+JUDGE_REPLAY_IGNORE_FILE="infra/judge-replay.gcloudignore"
+if [[ ! -f "${REPOSITORY_ROOT}/${JUDGE_REPLAY_IGNORE_FILE}" ]]; then
+  echo "missing ${JUDGE_REPLAY_IGNORE_FILE}; gcloud would silently fall back" >&2
+  echo "to the root .gcloudignore, which excludes packages/muster-ui/." >&2
+  exit 2
+fi
+
 muster::banner "building ${JUDGE_REPLAY_IMAGE} as ${BUILD_SA}"
 gcloud builds submit "${REPOSITORY_ROOT}" \
   --project="${PROJECT_ID}" \
   --config="${REPOSITORY_ROOT}/infra/cloudbuild-judge-replay.yaml" \
+  --ignore-file="${JUDGE_REPLAY_IGNORE_FILE}" \
   --service-account="projects/${PROJECT_ID}/serviceAccounts/${BUILD_SA}" \
   --substitutions="_JUDGE_REPLAY_IMAGE=${JUDGE_REPLAY_IMAGE}"
 echo "  built ${JUDGE_REPLAY_IMAGE}"

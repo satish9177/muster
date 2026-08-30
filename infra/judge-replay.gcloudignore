@@ -1,0 +1,98 @@
+#  What `gcloud builds submit` uploads for the **judge-replay image only**.
+#
+#  A second ignore file, and it exists because the two builds want opposite
+#  things from one directory. The root `.gcloudignore` describes the context of
+#  the *proved* agent and control-plane images, and its last line excludes
+#  `packages/muster-ui/` -- correctly, because the frontend is not in either of
+#  those containers. The judge-replay image is nothing *but* that frontend, so
+#  submitting it under the root file uploads a context without the one
+#  directory the Dockerfile needs, and `COPY packages/muster-ui/package.json`
+#  fails in build step 0.
+#
+#  Deleting that line from the root file would fix this build by widening the
+#  proved one, which is the wrong direction: the two contexts would drift
+#  together and the next thing added for one would arrive in the other. So the
+#  judge-replay build names its own file instead, with
+#  `--ignore-file=infra/judge-replay.gcloudignore`, and the root file keeps
+#  saying exactly what it said before.
+#
+#  **This one is an allowlist, and that is deliberate.** The image it builds is
+#  the only MUSTER artifact meant to be reachable by the public, and a denylist
+#  answers the question "is this excluded yet?" -- which is answered wrongly by
+#  default every time somebody adds a directory. An allowlist answers "was this
+#  named?", so a new directory of fixtures, keys or evidence is out of a public
+#  build's context on the day it is created rather than on the day somebody
+#  remembers to exclude it.
+#
+#  Allowlists in this syntax need the ancestors re-included by hand. gcloud
+#  prunes an excluded directory rather than descending into it (`FileChooser.
+#  GetIncludedFiles`: "Don't bother recursing into skipped directories"), which
+#  is `.gitignore`'s rule too -- so `!packages/muster-ui/**` under a `/*` that
+#  already dropped `packages/` would match nothing at all. Each level is opened
+#  explicitly below, and the last matching pattern wins.
+#
+#  To see the exact list this produces:
+#
+#      gcloud meta list-files-for-upload
+
+#  ---- everything, to start with ------------------------------------------
+/*
+
+#  ---- the bundle the image builds ----------------------------------------
+#
+#  The whole UI package: sources, `package.json` and `package-lock.json` for
+#  `npm ci`, and the tracked sanitized replay artifacts under `public/cases`
+#  that the page reads. Nothing here is a source's private material -- the
+#  cases are the same sanitized records the repository serves locally.
+!/packages/
+/packages/*
+!/packages/muster-ui/
+
+#  Local build state, and `node_modules` is a correctness problem rather than a
+#  size one: the Dockerfile runs `npm ci` and only then copies the package in,
+#  so an uploaded `node_modules` would overwrite the tree that install just
+#  produced with whatever happens to be on the machine that submitted.
+/packages/muster-ui/node_modules/
+/packages/muster-ui/dist/
+/packages/muster-ui/.vite/
+/packages/muster-ui/*.local
+
+#  ---- the two files the image is assembled from --------------------------
+#
+#  The Dockerfile, and the nginx template it copies in. `infra/` is opened only
+#  as far as these: the deployment scripts, `env.sh`, the site evidence and
+#  `cloudbuild*.yaml` are not part of a static page's context. The build config
+#  is not here either, and does not need to be -- `gcloud builds submit
+#  --config` reads it locally and sends it as the request's build definition,
+#  not out of the uploaded source.
+!/infra/
+/infra/*
+!/infra/docker/
+/infra/docker/*
+!/infra/docker/judge-replay.Dockerfile
+!/infra/docker/judge-replay.nginx.conf.template
+
+#  ---- what is never in this context, said again --------------------------
+#
+#  Every one of these is already excluded by `/*` above. They are repeated here
+#  because an allowlist's absences are invisible, and the point of writing the
+#  dangerous ones down is that a future `!` line re-including a parent has to
+#  be added *after* an explicit statement that this must not come with it.
+#  These are also the patterns the architecture test asserts by name.
+/.git/
+/.venv/
+/venv/
+/.specvenv-z3/
+/spec/
+/docs/
+/bench/
+/demo/
+/artifacts/
+/infra/evidence/
+/packages/muster-agents/
+/packages/muster-kernel/
+/packages/muster-platform/
+**/__pycache__/
+**/*.py[cod]
+**/*.pem
+**/*.key

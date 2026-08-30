@@ -201,3 +201,241 @@ def test_the_hosted_bundle_serves_the_tracked_replay_artifacts() -> None:
     nginx = directives(NGINX)
     assert "location /cases/" in nginx
     assert PROOF_ARTIFACT.is_file()
+
+
+#  ---- the build context the public image is assembled from ----------------
+#
+#  The failure this section exists for was not a security hole; it was the
+#  opposite, and it still broke the build.  ``.gcloudignore`` at the root ends
+#  by excluding ``packages/muster-ui/`` because the frontend is in neither of
+#  the two proved images -- so a ``gcloud builds submit`` for *this* image
+#  uploaded a context without the one directory its Dockerfile reads, and step
+#  0 failed on ``COPY packages/muster-ui/package.json``.
+#
+#  The fix is a second ignore file rather than an edit to the first, which
+#  leaves two things to check that no single file states on its own: that the
+#  judge-replay context contains the UI, and that the root context still
+#  refuses everything it refused before.
+
+IGNORE_FILE = REPOSITORY / "infra/judge-replay.gcloudignore"
+ROOT_IGNORE = REPOSITORY / ".gcloudignore"
+
+
+class Gcloudignore:
+    """Just enough of ``.gcloudignore`` to answer "is this path uploaded?".
+
+    Two rules decide every case below and both are easy to get wrong from
+    reading the file alone.  The last matching pattern wins, and **a directory
+    that is excluded is never descended into** -- gcloud's own ``FileChooser.
+    GetIncludedFiles`` says so in as many words ("Don't bother recursing into
+    skipped directories"), which is ``.gitignore``'s rule too.  Together they
+    mean a bare ``!packages/muster-ui/**`` underneath a ``/*`` matches nothing
+    at all, because ``packages/`` was pruned before anything looked inside it.
+
+    That trap is why this is evaluated rather than grepped.  A test asserting
+    the file *contains* ``packages/muster-ui`` would pass on an allowlist that
+    uploads none of it.
+    """
+
+    def __init__(self, text: str) -> None:
+        self.patterns = [
+            self.compile_pattern(line.rstrip())
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+
+    @staticmethod
+    def compile_pattern(line: str) -> tuple[re.Pattern[str], bool, bool]:
+        negated = line.startswith("!")
+        if negated:
+            line = line[1:]
+        directory_only = line.endswith("/")
+        line = line.rstrip("/")
+        anchored = line.startswith("/") or "/" in line
+        line = line.removeprefix("/")
+
+        out = ""
+        index = 0
+        while index < len(line):
+            if line.startswith("**/", index):
+                out += "(?:.*/)?"
+                index += 3
+            elif line[index] == "*":
+                out += "[^/]*"
+                index += 1
+            elif line[index] == "?":
+                out += "[^/]"
+                index += 1
+            elif line[index] == "[":
+                close = line.index("]", index)
+                out += line[index : close + 1]
+                index = close + 1
+            else:
+                out += re.escape(line[index])
+                index += 1
+
+        prefix = "" if anchored else "(?:.*/)?"
+        return re.compile(f"^{prefix}{out}$"), negated, directory_only
+
+    def verdict(self, path: str, *, is_dir: bool) -> bool | None:
+        """The last pattern that matches, or ``None`` when none does."""
+        answer: bool | None = None
+        for pattern, negated, directory_only in self.patterns:
+            if directory_only and not is_dir:
+                continue
+            if pattern.match(path):
+                answer = not negated
+        return answer
+
+    def uploads(self, path: str) -> bool:
+        """Whether a file at ``path`` reaches the build context."""
+        parts = path.split("/")
+        for depth in range(1, len(parts)):
+            ancestor = "/".join(parts[:depth])
+            if self.verdict(ancestor, is_dir=True) is True:
+                return False  # pruned; nothing below it is ever looked at
+        return self.verdict(path, is_dir=False) is not True
+
+
+def judge_replay_context() -> Gcloudignore:
+    return Gcloudignore(IGNORE_FILE.read_text(encoding="utf-8"))
+
+
+#: What the Dockerfile actually reads, by the line that reads it.  Written as
+#: paths rather than as prose because the build failed on exactly this, and the
+#: error arrived as a Docker COPY failure rather than as anything about ignore
+#: files.
+REQUIRED_BY_THE_IMAGE = (
+    "packages/muster-ui/package.json",
+    "packages/muster-ui/package-lock.json",
+    "packages/muster-ui/index.html",
+    "packages/muster-ui/vite.config.ts",
+    "packages/muster-ui/tsconfig.json",
+    "packages/muster-ui/tsconfig.app.json",
+    "packages/muster-ui/tsconfig.node.json",
+    "packages/muster-ui/src/main.tsx",
+    "packages/muster-ui/src/App.tsx",
+    "packages/muster-ui/src/styles.css",
+    "packages/muster-ui/src/components/CloudGateProof.tsx",
+    "packages/muster-ui/src/data/runtimeMode.ts",
+    "packages/muster-ui/public/cases/ravi-cloud-gate-proof.json",
+    "infra/docker/judge-replay.Dockerfile",
+    "infra/docker/judge-replay.nginx.conf.template",
+)
+
+#: What must never be in a context that builds a public image.  Each is a real
+#: path in this repository or the exact shape of one, and none is needed to
+#: build a static page.
+NEVER_IN_THE_PUBLIC_CONTEXT = (
+    "packages/muster-agents/fixtures/ravi-account.txt",
+    "packages/muster-agents/src/muster/agents/config.py",
+    "packages/muster-platform/src/muster/platform/casework/advance.py",
+    "packages/muster-kernel/src/muster/core/results.py",
+    "infra/evidence/site-a/attendance-board-sat.png",
+    "infra/scripts/env.sh",
+    "infra/scripts/30-secrets.sh",
+    "infra/cloudbuild.yaml",
+    "demo/hero.py",
+    "demo/output/hero.json",
+    "docs/architecture/2026-08-17-muster-milestone-b-closure.md",
+    "spec/anything.md",
+    "bench/anything.py",
+    "artifacts/anything.json",
+    ".git/config",
+    ".venv/pyvenv.cfg",
+    "signing.pem",
+    "infra/keys/site.key",
+    "packages/muster-ui/node_modules/react/package.json",
+    "packages/muster-ui/dist/index.html",
+)
+
+
+def test_the_judge_replay_context_contains_the_ui_the_dockerfile_reads() -> None:
+    """The defect itself, as a test.
+
+    Every one of these is a path some line of ``judge-replay.Dockerfile``
+    opens.  Under the root ignore file the first thirteen are absent and the
+    build fails at step 0, having uploaded a context that looked complete.
+    """
+    context = judge_replay_context()
+    missing = [path for path in REQUIRED_BY_THE_IMAGE if not context.uploads(path)]
+    assert not missing, f"the judge-replay build context is missing {missing}"
+
+
+def test_the_judge_replay_context_carries_no_source_material_or_backend() -> None:
+    """A public image's context is a public artifact.
+
+    The staging bucket it is uploaded to is general-purpose: it has none of the
+    per-prefix IAM the evidence bucket has, and what lands in it is readable by
+    the build identity and by every project Editor.  So the rule the proved
+    build follows -- source goes up, material does not -- is stricter here,
+    because this context does not need the source either.
+    """
+    context = judge_replay_context()
+    leaked = [path for path in NEVER_IN_THE_PUBLIC_CONTEXT if context.uploads(path)]
+    assert not leaked, f"the public build context would upload {leaked}"
+
+
+def test_the_judge_replay_context_is_an_allowlist() -> None:
+    """Which is what makes the test above hold for files nobody has added yet.
+
+    A denylist answers "has this been excluded?", and for anything new the
+    answer is no.  The first pattern here drops everything, so a directory
+    added next week is out of a public build's context the day it is created.
+    """
+    text = IGNORE_FILE.read_text(encoding="utf-8")
+    first = next(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    assert first == "/*", f"the first pattern is {first!r}, so this is not an allowlist"
+    #  An invented path, matching nothing the file names.
+    assert not judge_replay_context().uploads("some/directory/nobody/added/yet.txt")
+
+
+def test_the_build_submits_that_context_and_fails_loudly_if_it_cannot() -> None:
+    """The flag, and the check that the flag is not silently ignored.
+
+    ``--ignore-file`` is resolved against the *source* directory, and when the
+    named file is missing gcloud falls back to the default without an error --
+    restoring the original failure with nothing pointing at the cause.  So the
+    script tests for the file rather than trusting it.
+    """
+    deploy = directives(DEPLOY)
+    submit = deploy.split("gcloud builds submit", 1)[1].split("gcloud run deploy", 1)[0]
+    assert '--ignore-file="${JUDGE_REPLAY_IGNORE_FILE}"' in submit
+    assert 'JUDGE_REPLAY_IGNORE_FILE="infra/judge-replay.gcloudignore"' in deploy
+    assert IGNORE_FILE.is_file()
+    #  The fallback guard, and the exit that makes it a failure rather than a
+    #  warning nobody reads.
+    assert '[[ ! -f "${REPOSITORY_ROOT}/${JUDGE_REPLAY_IGNORE_FILE}" ]]' in deploy
+    #  The proved images are built from the root context, and this flag must
+    #  not reach them.
+    assert "--ignore-file" not in directives(REPOSITORY / "infra/scripts/40-build.sh")
+
+
+def test_the_root_context_still_refuses_what_it_always_refused() -> None:
+    """The second file must not have loosened the first.
+
+    The tempting fix for the build failure was to delete one line from the root
+    ``.gcloudignore``.  That would have worked by widening the context of the
+    two images the recorded GCP proof was built from -- so what it excludes is
+    asserted here, beside the file that exists because it was not edited.
+    """
+    root = ROOT_IGNORE.read_text(encoding="utf-8")
+    for excluded in (
+        "packages/muster-agents/fixtures/",
+        "infra/evidence/",
+        "spec/",
+        "docs/",
+        "bench/",
+        ".venv/",
+        "*.pem",
+        "*.key",
+    ):
+        assert excluded in root, f"the root build context no longer excludes {excluded}"
+    #  And the line this whole section is downstream of.  It stays: the
+    #  frontend is in neither proved image, and the judge-replay build brings
+    #  its own file rather than removing this one.
+    assert "packages/muster-ui/" in root
