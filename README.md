@@ -480,48 +480,30 @@ ARCHITECTURE.md            authoritative architecture and claim boundaries
 
 ## Testing
 
-`pytest --collect-only` reports **7,706 collected tests** — items, which is
-what pytest runs and counts, so a parametrized test contributes one per case.
-**0 fail in either environment recorded here.** How many of the 7,706 *run* is
-a property of the machine rather than of the tree, so the counts are given per
-environment rather than as one number:
+Current supported-platform CI on `ubuntu-24.04` / Python 3.12 is green: ruff,
+mypy, all **25 import-linter architecture contracts** and pytest pass. The
+current tree collects **2,898 Python tests**; that CI run executed **2,510
+passed / 388 skipped / 0 failed**. The UI adds **119 passing Vitest tests**
+and passes typecheck and production build.
 
-| Environment | Passed | Skipped | Failed |
-|---|---|---|---|
-| Windows 11 · Python 3.12 · a POSIX shell on `PATH` (Git Bash) | 7,318 | 388 | 0 |
-| Windows 11 · Python 3.12 · no POSIX shell on `PATH` (PowerShell) | 7,210 | 496 | 0 |
-| `ubuntu-24.04` via `.github/workflows/verify.yml` | *not yet run* | *not yet run* | *not yet run* |
+| Gate | Result |
+|---|---|
+| ruff | passed |
+| mypy | passed |
+| import-linter · kernel / control plane / agent fleet | 10 / 10 / 5 kept · **0 broken** |
+| pytest — 2,898 collected | **2,510** passed · **388** skipped · **0** failed |
+| UI · Vitest | **119** passed |
+| UI · typecheck and production build | passed |
 
-Each Windows row is one complete `python -m pytest` of the whole tree. Neither
-has a DSN or cloud credentials, so both skip the PostgreSQL, cloud and
-live-model suites; those are reported as skips rather than hidden and do not
-indicate broken behavior. **The two rows differ by exactly 108 tests, and the
-difference is the shell.** Many suites drive the deployment scripts through a
-real `bash` and resolve one by running it (see the note below); where no POSIX
-shell answers the probe, those 108 skip instead of failing. That is the whole
-of the gap.
+Provenance: GitHub Actions run `33308314303` of
+`.github/workflows/verify.yml`, commit
+`bd5294e21721a2999228c4838745ed70fcbc6a4d`, conclusion `success`.
 
-**No Linux run is recorded in this repository yet**, and none is claimed.
-`.github/workflows/verify.yml` runs ruff, mypy, all three import-linter
-configurations and pytest on `ubuntu-24.04`, plus the UI's three commands, and
-is the intended source of a supported-platform number. Until GitHub has
-actually run it after a push, the third row stays empty.
-
-The UI has **119 Vitest tests across 11 files**, all passing, alongside
-`npm run typecheck` and `npm run build`.
-
-**A note on the platform, because the counts depend on it.** Many suites drive
-the deployment shell scripts through a real `bash`, and on Windows the first
-`bash` on `PATH` is usually a WSL launcher — `System32\bash.exe` or the
-`WindowsApps` alias — which starts a Linux distribution whose filesystem is not
-this one. Handed a script named `C:/…/drive.sh`, it fails, and a hundred tests
-fail with it for a reason that has nothing to do with the scripts. The suites
-now resolve a shell by *running* one: candidates are tried in `PATH` order and
-the first that executes a probe script named by a real path is used. On a
-machine with no POSIX shell at all, those suites **skip** rather than fail, and
-say so — which is exactly why the two Windows rows above differ, and why
-reporting one universal pass/skip pair for this tree would be false on at
-least one of them.
+The runner has no database DSN and no cloud credentials, so the PostgreSQL,
+cloud and live-model suites skip; those are reported as skips rather than
+hidden and do not indicate broken behavior. A local run on a machine with no
+POSIX shell on `PATH` also skips the suites that drive the deployment scripts
+through a real `bash`.
 
 Install the pinned developer tools once, then run the suite:
 

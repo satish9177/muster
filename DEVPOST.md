@@ -192,19 +192,14 @@ redispatches an uncertain outcome.
   finality controls, then verified the sandbox unknown-after-acceptance and
   reconciliation sequence on Cloud Run + Cloud SQL; no real funds transferred.
 - Demonstrated the same kernel across workforce and procurement policies.
-- Collected 7,706 Python tests, with **0 failures in either environment
-  recorded**. How many of them run is a property of the machine: many suites
-  drive the deployment shell scripts through a real `bash` and skip where no
-  POSIX shell answers a probe, so the counts are reported per environment
-  rather than as one number. Two complete runs on Windows 11 / Python 3.12,
-  with no database DSN and no cloud credentials: **7,318 passed / 388 skipped**
-  with a POSIX shell on `PATH` (Git Bash), and **7,210 passed / 496 skipped**
-  without one (PowerShell) — a difference of exactly the 108 shell-driven
-  tests. The UI adds 119 passing Vitest tests. **No Linux run is recorded yet
-  and none is claimed**; a minimal GitHub Actions workflow runs ruff, mypy, all
-  three import-linter configurations, pytest and the UI's three commands on
-  `ubuntu-24.04`, and is the intended source of a supported-platform number
-  once GitHub has run it.
+- Current supported-platform CI on Ubuntu 24.04 / Python 3.12 is green: ruff,
+  mypy, all **25 import-linter architecture contracts** (10 kernel, 10 control
+  plane, 5 agent fleet — **0 broken**), and pytest pass. The current tree
+  collects **2,898 Python tests**; that CI run executed **2,510 passed / 388
+  skipped / 0 failed** on a runner with no database DSN and no cloud
+  credentials. The UI adds **119 passing Vitest tests** and passes typecheck
+  and production build. Provenance: GitHub Actions run `33308314303`, commit
+  `bd5294e21721a2999228c4838745ed70fcbc6a4d`.
 
 ## What We Learned
 
