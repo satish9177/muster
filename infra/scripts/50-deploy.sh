@@ -188,12 +188,13 @@ muster::check_model() {
         echo
         echo "               AGENT_MODEL=<a model served there> ./infra/scripts/50-deploy.sh"
         echo
-        echo "        2. Call this model where it is served.  The site's raw material"
-        echo "           still never moves -- it stays in the bucket in ${REGION},"
-        echo "           read by the source agent alone; what crosses is a prompt"
-        echo "           built from it.  But the interpretation then happens"
-        echo "           wherever this names, and that is a data-flow to state out"
-        echo "           loud rather than inherit:"
+        echo "        2. Call this model where it is served.  The site's stored"
+        echo "           objects still never move -- they stay in the bucket in"
+        echo "           ${REGION}, read by the source agent alone; what crosses"
+        echo "           is the source agent's own interpreter call, carrying the"
+        echo "           evidence content it needs interpreted.  But the"
+        echo "           interpretation then happens wherever this names, and that"
+        echo "           is a data-flow to state out loud rather than inherit:"
         echo
         echo "               VERTEX_LOCATION=<where it is served> ./infra/scripts/50-deploy.sh"
         echo

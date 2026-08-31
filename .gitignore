@@ -28,6 +28,12 @@ venv/
 # one to leave trackable on the strength of that.
 infra/evidence/
 
+# Deterministic demo output.  ``demo/procurement_case.py`` and the hero run
+# both take an output directory rather than writing to a fixed one; the copies
+# that ship are the ones committed under ``packages/muster-ui/public/cases/``,
+# so a regenerated tree here is a build product and not a second source.
+demo/output/
+
 # IDE / OS
 .vscode/
 .idea/

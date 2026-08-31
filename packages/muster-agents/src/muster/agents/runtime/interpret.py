@@ -1,4 +1,4 @@
-"""Running one ADK agent over one assignment, inside the source's boundary.
+"""Running one ADK agent over one assignment, under the source's own identity.
 
 This is the only module in MUSTER that invokes a model, and it is a thin one on
 purpose.  It builds an ADK ``LlmAgent`` over the closed tool set, hands it the
@@ -17,8 +17,10 @@ log is a tool call, because choosing which local records to pull is a real
 source-local operation and a model that pulls only what it needs reads less
 than one handed everything.  Images are attached to the opening turn instead,
 because a JSON tool response cannot carry an image and a round trip that
-pretended otherwise would be worse than saying so.  Both paths stay inside the
-source: nothing read here appears in the response, in a receipt, or in a log.
+pretended otherwise would be worse than saying so.  Both paths carry content to
+the configured model endpoint -- that is what an interpreter call is -- and
+neither carries it anywhere else: nothing read here appears in the response
+this agent returns, in a receipt, or in a log.
 
 **Every failure is a value.**  A model that times out, exhausts its call budget,
 errors, or simply talks without calling anything produces an outcome the caller

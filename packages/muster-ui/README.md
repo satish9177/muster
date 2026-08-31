@@ -1,8 +1,10 @@
 # MUSTER hero UI
 
-The UI-1 case viewer is a local TypeScript/React application. It renders a
+The UI-1 case viewer is a TypeScript/React application. It renders a
 typed platform-facing read model and never imports, duplicates, or evaluates
-kernel policy semantics.
+kernel policy semantics. Its replay-only build is deployed publicly on Cloud
+Run as a static, read-only page; the developer build carrying the local Action
+Gate controls runs locally.
 
 The viewer first requests the tracked, sanitized Stage-90-generated
 `public/cases/ravi-cloud-execution.json` artifact and adapts it into the UI-1

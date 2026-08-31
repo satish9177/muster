@@ -1,6 +1,7 @@
 {
   "//": "Private site material. Held by SITE-A, readable by the site agent's identity",
-  "//2": "and by nothing else. Never leaves this boundary: what leaves is a relation.",
+  "//2": "and by nothing else. What reaches MUSTER is a relation; the site agent's own",
+  "//3": "interpreter call may carry this content to the configured model endpoint.",
   "items": [
     {
       "ref": "gate-log-sat",

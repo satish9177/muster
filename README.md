@@ -196,8 +196,10 @@ python -m http.server 5000    # or any static server
 resolves from the build kind and fails closed. To be explicit either way, build
 with `VITE_MUSTER_LOCAL_GATE=true` or `=false`.
 
-To host it later — **not deployed yet** — see
-[the public judge-replay page](infra/README.md#the-public-judge-replay-page).
+That replay-only bundle **is deployed publicly** on Cloud Run at the hosted
+replay link above, by `infra/scripts/95-judge-replay.sh`; the hosted page is
+static and read-only, and the interactive local Action Gate controls stay
+local. See [the public judge-replay page](infra/README.md#the-public-judge-replay-page).
 
 ### Safe demo reset
 
@@ -475,7 +477,9 @@ packages/muster-agents    Google ADK agents and Google AI model integrations
 packages/muster-ui        local React/TypeScript case viewer
 demo                      deterministic hero and local browser API
 infra                     Google Cloud deployment and verification scripts
-ARCHITECTURE.md            authoritative architecture and claim boundaries
+spec                      reference semantics, non-production
+bench                     measurement harness, non-production
+ARCHITECTURE.md           authoritative architecture and claim boundaries
 ```
 
 ## Testing
@@ -533,6 +537,9 @@ Run, Cloud SQL and a simulated external system; it did not transfer real funds
 and did not kill the Cloud Run process. Literal process death remains the local
 PostgreSQL proof. Durable revalidation and full re-derivation repeat were
 established on an earlier deployed Cloud Run proof but were not repeated on the
-final `af1359c` image. The UI currently runs locally. Cloud Run and Cloud Storage
-are in `asia-south1`, while Vertex inference uses the `global` location. These
+final `af1359c` image. Only the static replay-only UI build is deployed
+publicly on Cloud Run; the interactive build with local Action Gate controls
+runs locally. Cloud Run and Cloud Storage are in `asia-south1`, while Vertex
+inference is called at the `global` location — so inference is not pinned to
+`asia-south1` and no claim is made about where it physically happens. These
 are the current submission boundaries.

@@ -61,11 +61,13 @@ DEFAULT_CLAIM_MODEL = "gemma-4-26b-a4b-it"
 #: a fleet that comes up, raises inside the model client on every assignment and
 #: abstains honestly forever -- the one misconfiguration that produces no error
 #: anywhere.  So the consequence is named instead: **the interpretation happens
-#: outside the region the material sits in.**  What crosses is a prompt built
-#: from the material, never the material -- the objects are read only by the
-#: source agent's own identity, from a bucket in
+#: outside the region the material sits in.**  What crosses is the source
+#: agent's own interpreter call, which carries the evidence content it needs
+#: interpreted -- for the site, raw image octets as well as text.  The stored
+#: objects are read only by the source agent's own identity, from a bucket in
 #: :data:`DEFAULT_MATERIAL_REGION`, and nothing in this distribution copies them
-#: anywhere.  That is a smaller thing than moving the evidence and it is not a
+#: anywhere else.  No claim is made here about where inference physically
+#: happens.  That is a smaller thing than moving the evidence and it is not a
 #: nothing, which is why it is a value an operator sets rather than a default
 #: that follows the region.
 DEFAULT_MODEL_LOCATION = "global"

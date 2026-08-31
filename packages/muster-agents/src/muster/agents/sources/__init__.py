@@ -3,7 +3,8 @@
 A source store is the only thing in this distribution that touches raw private
 evidence.  Everything above it works on *handles* -- an identifier, a media
 type, a short label -- and the octets appear in exactly one place: the content
-handed to the interpreter, inside the source's own boundary.
+handed to the interpreter by the source's own process, which carries it to the
+configured model endpoint.
 
 The port has two implementations and they differ in one respect that matters
 operationally and in none that matters semantically: a directory on disk is

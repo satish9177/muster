@@ -382,13 +382,13 @@ def test_no_deployment_script_places_a_resource_at_the_model_location() -> None:
 
 
 def test_the_evidence_bucket_is_created_in_the_deployment_region() -> None:
-    """The material stays where the services are, whatever the model location is.
+    """The stored objects stay where the services are, whatever the model location is.
 
     The one claim a ``global`` Vertex endpoint must not be allowed to weaken
-    quietly.  What crosses a region boundary is a prompt the source agent built
-    inside its own container; the objects themselves are created in
-    ``${REGION}`` and read by the source's own identity, and this is where that
-    stops being prose.
+    quietly.  What crosses a region boundary is the source agent's own
+    interpreter call, carrying the evidence content it needs interpreted; the
+    objects themselves are created in ``${REGION}`` and read by the source's own
+    identity, and this is where that stops being prose.
     """
     site = SCRIPTS / "20-site-evidence.sh"
     assert _placements(site) == {"${REGION}"}, (

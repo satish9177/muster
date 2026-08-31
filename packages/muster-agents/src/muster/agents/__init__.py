@@ -19,9 +19,12 @@ signature applied afterwards by code the model cannot call.  There is no branch
 in this package where a model response becomes a fact, and no confidence figure
 anywhere that becomes a truth.
 
-**Raw material stays where it was found.**  What leaves a source is an
-acquisition relation over one declared proposition, plus provenance.  Not a
-clip, not a transcript, not a summary, not the prompt, not the response.
+**Raw material stays with the source that holds it.**  What leaves a source
+*for MUSTER* is an acquisition relation over one declared proposition, plus
+provenance.  Not a clip, not a transcript, not a summary, not the prompt, not
+the response.  The one place evidence content goes anywhere else is the
+source's own interpreter call, which carries it to the configured model
+endpoint.
 
 **Signing is the source's, and Q-12 is somebody else's.**  An agent holds a key
 and signs what it observed.  Whether that key was permitted to say it is

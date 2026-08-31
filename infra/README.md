@@ -547,15 +547,15 @@ a deployment should not move its services and its data to follow a model.
 So state the consequence rather than inherit it: **the interpretation happens
 outside the region the material sits in.** What that does and does not mean:
 
-* the site's raw material **never moves**. The objects stay in
-  `EVIDENCE_BUCKET`, in `REGION`, and are read only by the source agent's own
-  identity — see `20-site-evidence.sh`, and `70-verify-iam.sh`, which asserts
-  that the control plane cannot read them. Nothing in this deployment copies
-  them anywhere;
-* what crosses is a **prompt built from that material**, by the source agent,
-  inside its own container. That is a smaller thing than moving the evidence and
-  it is not a nothing, which is why it is written here instead of being a
-  default nobody chose.
+* the site's **stored objects never move**. They stay in `EVIDENCE_BUCKET`, in
+  `REGION`, and are read only by the source agent's own identity — see
+  `20-site-evidence.sh`, and `70-verify-iam.sh`, which asserts that the control
+  plane cannot read them. Nothing in this deployment copies them anywhere else;
+* what crosses is the **source agent's own interpreter call**, which carries the
+  evidence content it needs interpreted — for the site, raw image octets as well
+  as text. That is a smaller thing than moving the stored objects and it is not
+  a nothing, which is why it is written here instead of being a default nobody
+  chose. Nothing here claims where inference physically happens.
 
 `VERTEX_LOCATION=${REGION}` restores full co-location and is the right choice for
 any model served regionally in `REGION`:
@@ -635,9 +635,10 @@ the endpoint answered and which of three repairs this is:
   * `AGENT_MODEL=<a model served at VERTEX_LOCATION>` leaves where the model is
     called alone, so it does not change the answer to "what leaves `REGION`";
   * `VERTEX_LOCATION=<where this model is served>` keeps the model and moves the
-    interpretation. The material itself never moves — it stays in the bucket in
-    `REGION`, read by the source agent alone; what crosses is a prompt built from
-    it, which is smaller and is not nothing.
+    interpretation. The stored objects never move — they stay in the bucket in
+    `REGION`, read by the source agent alone; what crosses is the source agent's
+    own interpreter call, carrying the evidence content it needs interpreted,
+    which is smaller and is not nothing.
 
 `SKIP_MODEL_CHECK=1` proceeds anyway, for a model an operator knows is served
 and the probe cannot reach.

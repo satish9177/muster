@@ -53,7 +53,13 @@ class EvidenceHandle:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceItem:
-    """A handle together with its octets.  This value never leaves the source."""
+    """A handle together with its octets.
+
+    The value itself never leaves the source's own process.  Its octets do
+    reach one place beyond it -- the interpreter call the source agent makes,
+    which carries them to the configured model endpoint -- and ``__repr__``
+    below is what keeps them out of everywhere else.
+    """
 
     handle: EvidenceHandle
     octets: bytes

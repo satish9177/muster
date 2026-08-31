@@ -117,7 +117,7 @@
       "actor": "Employer Agent",
       "eyebrow": "Institutional source",
       "title": "scheduled(RAVI, SAT) = true",
-      "summary": "Gemini interprets employer-controlled payroll material inside the source boundary.",
+      "summary": "Gemini interprets employer-controlled payroll material through a call the Employer Agent makes.",
       "result": "SIGNED · Q-12 PASSED",
       "result_tone": "verified",
       "tags": ["GEMINI 3.7", "NARROW ATTESTATION"],
@@ -129,9 +129,9 @@
         "predicates": [
           "scheduled(RAVI, SAT) = true"
         ],
-        "disclosure": "Only the scheduled relation returns; payroll source material stays local.",
+        "disclosure": "Only the scheduled relation returns to the Control Plane; the payroll material itself does not.",
         "q12_result": "PASSED — signer, scope, predicate, validity",
-        "model_interpretation": "Yes — Gemini 3.7 Flash inside Employer Agent",
+        "model_interpretation": "Yes — Gemini 3.7 Flash, called by the Employer Agent",
         "deterministic_decision": "No — the agent interprets and attests",
         "provenance_note": "Source identity and cloud key reference follow the existing Milestone-F deployment contract."
       }
@@ -158,7 +158,7 @@
         ],
         "disclosure": "Presence and a sufficient lower bound return. Exact minutes and raw logs do not.",
         "q12_result": "PASSED ×2 — signer, scope, predicate, validity",
-        "model_interpretation": "Yes — Gemini 3.7 Flash inside Site Agent",
+        "model_interpretation": "Yes — Gemini 3.7 Flash, called by the Site Agent",
         "deterministic_decision": "No — the agent interprets and attests",
         "provenance_note": "The agent has source-local access; the Control Plane receives relations, never the gate log or attendance image."
       }

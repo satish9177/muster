@@ -36,14 +36,16 @@ fi
 #
 #  What that does and does not mean:
 #
-#    * the site's material never moves.  The objects stay in EVIDENCE_BUCKET, in
+#    * the site's stored objects never move.  They stay in EVIDENCE_BUCKET, in
 #      REGION, and are read only by the source agent's own identity -- see
 #      20-site-evidence.sh, and 70-verify-iam.sh, which asserts that the control
-#      plane cannot read them.  Nothing copies them anywhere.
-#    * what crosses is a prompt built from that material, by the source agent,
-#      inside its own container.  That is a smaller thing than moving the
-#      evidence and it is not a nothing, which is why it is written down here
-#      instead of being inherited from a default.
+#      plane cannot read them.  Nothing copies them anywhere else.
+#    * what crosses is the source agent's own interpreter call, which carries
+#      the evidence content it needs interpreted -- for the site, raw image
+#      octets as well as text.  That is a smaller thing than moving the stored
+#      objects and it is not a nothing, which is why it is written down here
+#      instead of being inherited from a default.  Nothing here claims where
+#      inference physically happens.
 #
 #  Setting VERTEX_LOCATION=${REGION} restores full co-location, and is correct
 #  for any model served regionally in REGION.  50-deploy.sh re-checks the

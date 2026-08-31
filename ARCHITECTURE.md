@@ -866,7 +866,7 @@ it does not rewrite the earlier trace.
 | Durable semantic revalidation | **Yes — earlier deployed Cloud Run proof; not repeated on final `af1359c` image** | Yes — local PostgreSQL, independent OS processes | `CASE-RAVI-SAT-CLOUD-GATE-U5B` (durable execution identity begins `bfa1d0ba`) established durable case revalidation in Cloud Run |
 | Cross-process / full repeat | **Yes — earlier deployed Cloud Run proof; not repeated on final `af1359c` image** | Yes — local PostgreSQL, independent OS processes | The separate U5B proof re-derived the same durable execution across Cloud Run processes; the final provenance run used an exact execution-key read instead |
 | Procurement | **No — not run in cloud** | Yes | Local deterministic proof, no model |
-| UI | **No — not deployed** | Yes — local Vite | Reads committed cloud artifacts plus the local Gate API |
+| UI | **Replay-only build — deployed on Cloud Run** | Yes — local Vite | The hosted page is the static, read-only replay bundle: no backend, no database, no mutation endpoint. The local developer build reads committed cloud artifacts plus the local Gate API |
 | Executor reconciliation | **Yes — fresh Cloud Run process, Cloud SQL, deployed sandbox rail** | Yes — local PostgreSQL, real process death | GCP deliberately lost the answer after synthetic acceptance and reconciled `UNCERTAIN` by one inspection with zero redispatch. Local is literal process death; Cloud Run process death is not claimed |
 | Durable sandbox rail | **Yes — deployed in Cloud SQL for the final proof** | Yes — local PostgreSQL schema | Simulated external world. Independent reads before and after reconciliation found one transfer. Not a payment provider or payment rail |
 | Payment | Sandbox only | Sandbox only | **No real funds transferred** |
@@ -1036,7 +1036,9 @@ MUSTER does **not**:
 9. claim all evidence remained in `asia-south1` — evidence content, including
    raw PNG bytes, is sent to Vertex AI at the `global` location by the
    authorized source agent;
-10. claim the UI is cloud-deployed — it is a local Vite application;
+10. claim the interactive UI is cloud-deployed — only the static replay-only
+    build is on Cloud Run, read-only with no backend and no mutation endpoint;
+    the developer build carrying the local Action Gate controls runs locally;
 11. claim the GCP reconciliation proof killed a Cloud Run process — the
     synthetic executor committed acceptance and then deliberately lost the
     answer; literal process death is established only by the local

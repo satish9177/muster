@@ -72,8 +72,9 @@ def site_agent(
     The strongest of the three, and the only one where the privacy claim and
     the evidential claim are the same claim.  Its material -- an attendance
     photograph, a gate log -- is held where the site holds it, read by an
-    identity the control plane does not have, and interpreted in the site's own
-    boundary.  What leaves is a proposition and a relation.
+    identity the control plane does not have, and interpreted through a call
+    the site's own agent makes.  What reaches MUSTER is a proposition and a
+    relation.
     """
     _refuse_mismatch(identity, SITE_ACCESS_CONTROL, signer)
     return _acquisition(

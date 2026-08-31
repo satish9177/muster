@@ -26,9 +26,11 @@ no project does not start.
 The two are configured separately and ship as different values: the service and
 the source's material are regional, and the model is called at the ``global``
 endpoint because that is where the shipped model is served.  So what leaves the
-region is a prompt built from the material, and never the material -- the
-objects are read by the source's own identity, in its own region, by the
-storage adapter beside this one.
+region is the source agent's own interpreter call, carrying the evidence
+content it needs interpreted -- for the site, raw image octets as well as text
+-- while the stored objects are read by the source's own identity, in its own
+region, by the storage adapter beside this one.  Nothing here claims where
+inference physically happens.
 
 **The identifier is not pinned here and must not be.**  A model version is
 telemetry: it records which model produced a candidate and it decides nothing,
