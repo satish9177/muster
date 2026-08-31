@@ -600,8 +600,8 @@ intentionally running those integration paths.
 ## Demo / Submission
 
 - Hosted replay: [public read-only verified replay](https://muster-judge-replay-867434431401.asia-south1.run.app) — not live telemetry, with no backend or mutation endpoint
-- Demo video: [to be added before submission]
-- Devpost: [to be added before submission]
+- Demo video: [MUSTER — Safer Enterprise AI Agents](https://www.youtube.com/watch?v=TCgJzToH1uE)
+- Devpost: [MUSTER submission](https://devpost.com/software/muster-vn65z8)
 
 ## Limitations / Scope
 
