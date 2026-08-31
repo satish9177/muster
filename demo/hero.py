@@ -60,6 +60,7 @@ from google.adk.models.base_llm import BaseLlm  # noqa: E402
 
 from agent_tests.support import fleet  # noqa: E402
 from muster.agents.runtime.claimant import ClaimRejection  # noqa: E402
+from muster.agents.runtime.interpret import InterpreterLimits  # noqa: E402
 from muster.core.analysis.outcomes import Invariant, outcome_class  # noqa: E402
 from muster.core.evidence.delivery import AcquisitionTransport  # noqa: E402
 from muster.core.evidence.requests import EvidenceRequest  # noqa: E402
@@ -101,6 +102,20 @@ class HeroRun:
     solicited: EvidenceRequest
     reports: tuple[AcquisitionReport, ...]
     report: CaseReport
+
+
+@dataclass(frozen=True, slots=True)
+class LiveFleet:
+    """The configured models a ``--live`` run calls, and the bounds they run under.
+
+    One record rather than three loose values, so that the bounds cannot be
+    dropped on the way from the configuration to the agents -- which is exactly
+    what happened while this returned a tuple of models alone.
+    """
+
+    institutional: BaseLlm
+    worker_claim: BaseLlm
+    limits: InterpreterLimits
 
 
 LOCAL_GATE_CALLER = GateCaller("local-hero-configured-operator")
@@ -211,6 +226,7 @@ def run_hero(
     tenant_id: str,
     case_id: str,
     worker_model: BaseLlm | None = None,
+    worker_limits: InterpreterLimits | None = None,
     now: Instant = ravi.NOW,
 ) -> HeroRun:
     """Drive the whole case and return what happened at each step.
@@ -236,7 +252,7 @@ def run_hero(
         _require(appended, "appending the undisputed week")
 
     #  2. Ravi says something, in his own words, to his own agent.
-    worker = fleet.worker(model=worker_model)
+    worker = fleet.worker(model=worker_model, limits=worker_limits)
     brief = fleet.worker_brief(tenant_id, case_id)
     claimed = asyncio.run(worker.interpret(brief, fleet.WORKER_ACCOUNT))
     if isinstance(claimed, ClaimRejection):
@@ -374,8 +390,15 @@ def narrate(
     unresolved = sorted(str(reference) for reference in analysis.projected.unresolved())
     write(f"  unresolved {', '.join(unresolved) if unresolved else 'nothing'}")
     write("")
-    write("  MUSTER has not decided that Ravi worked.  It has decided that his")
-    write("  Saturday shift is payable under the pinned policy, on attested grounds.")
+    #  **Only when the case actually reached it.**  A run that ended divergent
+    #  has established nothing, and printing the product claim under it would
+    #  be the demo saying the one thing this system is careful never to say.
+    if isinstance(analysis.kernel.outcome, Invariant):
+        write("  MUSTER has not decided that Ravi worked.  It has decided that his")
+        write("  Saturday shift is payable under the pinned policy, on attested grounds.")
+    else:
+        write("  Nothing was established.  The case is exactly as it was, its request is")
+        write("  still outstanding, and no answer follows from what it holds.")
     write("")
 
 
@@ -417,13 +440,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         database = MemoryDatabase()  # type: ignore[assignment]
 
-    site_model, employer_model, worker_model = (
-        _live_models() if arguments.live else (None, None, None)
-    )
+    live = _live_models() if arguments.live else None
     transport = fleet.transport(
         {
-            fleet.SITE_ENDPOINT: fleet.site(arguments.tenant, model=site_model),
-            fleet.EMPLOYER_ENDPOINT: fleet.employer(arguments.tenant, model=employer_model),
+            fleet.SITE_ENDPOINT: fleet.site(
+                arguments.tenant,
+                model=None if live is None else live.institutional,
+                limits=None if live is None else live.limits,
+            ),
+            fleet.EMPLOYER_ENDPOINT: fleet.employer(
+                arguments.tenant,
+                model=None if live is None else live.institutional,
+                limits=None if live is None else live.limits,
+            ),
         }
     )
     casework = ravi.casework(database)
@@ -432,9 +461,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         transport,
         tenant_id=arguments.tenant,
         case_id=arguments.case,
-        worker_model=worker_model,
+        worker_model=None if live is None else live.worker_claim,
+        worker_limits=None if live is None else live.limits,
     )
-    worker_model_name = worker_model.model if worker_model is not None else None
+    worker_model_name = None if live is None else live.worker_claim.model
     narrate(run, worker_model_name=worker_model_name)
     if arguments.gate:
         execution = execute_local_gate(
@@ -447,12 +477,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _live_models() -> tuple[BaseLlm, BaseLlm, BaseLlm]:
+def _live_models() -> LiveFleet:
     """Institutional Vertex models plus the hosted Worker claim model.
 
     Built here rather than inside the fleet fixture so that ``--live`` is the
     only thing in this file that reaches a network, and so that a run without
     it cannot reach one by accident.
+
+    **The bounds come from the same record the model does.**  A configuration
+    already states how many model calls an interpreter may make and how long it
+    may take, and a ``--live`` run that read the model out of it and left the
+    bounds behind would be running the deployment's model under the
+    deterministic suite's limits -- two different agents, described as one.  So
+    both halves are read here, and what ``--live`` runs under is what a
+    deployment runs under.
     """
     from muster.agents.config import from_environment, worker_claim_model_configuration
     from muster.agents.google.models import build_model
@@ -465,10 +503,13 @@ def _live_models() -> tuple[BaseLlm, BaseLlm, BaseLlm]:
         )
     institutional = configuration.value.model
     worker_claim = worker_claim_model_configuration()
-    return (
-        build_model(institutional),
-        build_model(institutional),
-        build_model(worker_claim),
+    return LiveFleet(
+        institutional=build_model(institutional),
+        worker_claim=build_model(worker_claim),
+        limits=InterpreterLimits(
+            max_model_calls=institutional.max_model_calls,
+            timeout_seconds=institutional.timeout_seconds,
+        ),
     )
 
 

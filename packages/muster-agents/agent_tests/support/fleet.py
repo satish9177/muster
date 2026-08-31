@@ -172,6 +172,7 @@ def site(
     model: BaseLlm | None = None,
     identity: SourceIdentity | None = None,
     material: Path | None = None,
+    limits: InterpreterLimits | None = None,
 ) -> AcquisitionAgent:
     resolved = identity if identity is not None else site_identity(tenant_id)
     return site_agent(
@@ -181,13 +182,17 @@ def site(
         signer=signer(resolved.key_ref),
         clock=FixedClock(ISSUED_AT),
         nonces=SequenceNonce(),
-        limits=LIMITS,
+        limits=limits if limits is not None else LIMITS,
         policy=POLICY,
     )
 
 
 def employer(
-    tenant_id: str, *, model: BaseLlm | None = None, material: Path | None = None
+    tenant_id: str,
+    *,
+    model: BaseLlm | None = None,
+    material: Path | None = None,
+    limits: InterpreterLimits | None = None,
 ) -> AcquisitionAgent:
     identity = employer_identity(tenant_id)
     return employer_agent(
@@ -197,16 +202,16 @@ def employer(
         signer=signer(identity.key_ref),
         clock=FixedClock(ISSUED_AT),
         nonces=SequenceNonce(),
-        limits=LIMITS,
+        limits=limits if limits is not None else LIMITS,
         policy=POLICY,
     )
 
 
-def worker(*, model: BaseLlm | None = None) -> ClaimAgent:
+def worker(*, model: BaseLlm | None = None, limits: InterpreterLimits | None = None) -> ClaimAgent:
     return worker_agent(
         model=model if model is not None else worker_reader(),
         clock=FixedClock(ISSUED_AT),
-        limits=LIMITS,
+        limits=limits if limits is not None else LIMITS,
     )
 
 
