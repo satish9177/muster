@@ -110,7 +110,6 @@ button:focus-visible {
 }
 
 .product-primary-nav button,
-.product-primary-nav span,
 .case-selector button {
   padding: 0 16px;
   display: flex;
@@ -129,10 +128,6 @@ button:focus-visible {
 .product-primary-nav button,
 .case-selector button {
   cursor: pointer;
-}
-
-.product-primary-nav span {
-  color: #566176;
 }
 
 .product-primary-nav button.active,

@@ -20,7 +20,6 @@ export function CaseSelector({ active, onSelect }: CaseSelectorProps) {
         <button type="button" className={active === "cases" ? "active" : ""} onClick={() => onSelect("cases")}>
           <Grid2X2 size={13} aria-hidden="true" /> Cases
         </button>
-        <span>Fleet</span>
       </nav>
       <nav className="case-selector" aria-label="MUSTER cases">
         <button type="button" className={active === "workforce" ? "active" : ""} onClick={() => onSelect("workforce")}>

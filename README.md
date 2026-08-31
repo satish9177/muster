@@ -26,6 +26,11 @@ Sources attest.
 Deterministic MUSTER authorizes.
 ```
 
+Both models really run: see the recorded live run and its differential proof
+in [docs/evidence/live-model-run.md](docs/evidence/live-model-run.md), where
+removing the Gemini Developer API key makes the same command fail at the Gemma
+call with `API_KEY_INVALID` from `generativelanguage.googleapis.com`.
+
 Gemma 4 is used only by the optional local `--live` Worker claim-intake path.
 Its output is unsigned and institutionally inert. Gemma was **not** part of the
 verified Stage-90 institutional cloud execution or the final GCP Action Gate
@@ -111,6 +116,12 @@ From the repository root:
 .\.venv\Scripts\python.exe demo\hero.py
 ```
 
+macOS / Linux:
+
+```bash
+./.venv/bin/python demo/hero.py
+```
+
 The verified run starts with Ravi's self-reported claim as inert, admits narrow
 authorized evidence, and reaches an `INVARIANT` outcome while exact on-site
 duration remains unresolved. It proposes `PAY RAVI INR 5,100`; **INR 5,100 is
@@ -128,6 +139,17 @@ py -3.12 -m venv .venv
   -e .\packages\muster-agents
 ```
 
+macOS / Linux:
+
+```bash
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install \
+  -e ./packages/muster-kernel \
+  -e ./packages/muster-platform \
+  -e ./packages/muster-agents
+```
+
 ## Architecture
 
 ![MUSTER architecture](assets/muster-architecture.png)
@@ -142,7 +164,8 @@ at a pinned size and scale so the two cannot drift apart.
 ## Full Interactive Demo
 
 Prerequisites: Python 3.12, Docker, and Node.js/npm. From the repository root,
-use three Windows PowerShell terminals.
+use three terminals. Every command block below is Windows PowerShell first,
+with the macOS / Linux (bash) equivalent immediately after it.
 
 ### 1. PostgreSQL
 
@@ -162,11 +185,28 @@ docker run -d --name muster-pg -p 55432:5432 `
   postgres:16-alpine
 ```
 
+macOS / Linux:
+
+```bash
+docker run -d --name muster-pg -p 55432:5432 \
+  -e POSTGRES_USER=muster \
+  -e POSTGRES_PASSWORD=muster \
+  -e POSTGRES_DB=muster \
+  postgres:16-alpine
+```
+
 ### 2. Action Gate API
 
 ```powershell
 $env:MUSTER_DATABASE_URL = 'postgresql://muster:muster@127.0.0.1:55432/muster'
 .\.venv\Scripts\python.exe demo\action_gate_api.py
+```
+
+macOS / Linux:
+
+```bash
+export MUSTER_DATABASE_URL='postgresql://muster:muster@127.0.0.1:55432/muster'
+./.venv/bin/python demo/action_gate_api.py
 ```
 
 ### 3. Local UI
@@ -175,6 +215,14 @@ $env:MUSTER_DATABASE_URL = 'postgresql://muster:muster@127.0.0.1:55432/muster'
 Set-Location packages\muster-ui
 npm.cmd install
 npm.cmd run dev
+```
+
+macOS / Linux:
+
+```bash
+cd packages/muster-ui
+npm install
+npm run dev
 ```
 
 Open <http://127.0.0.1:5173>.
@@ -190,6 +238,15 @@ Set-Location packages\muster-ui
 npm.cmd run build
 Set-Location dist
 python -m http.server 5000    # or any static server
+```
+
+macOS / Linux:
+
+```bash
+cd packages/muster-ui
+VITE_MUSTER_LOCAL_GATE=false npm run build
+cd dist
+python3 -m http.server 5000    # or any static server
 ```
 
 `npm run dev` keeps the local PostgreSQL Action Gate controls, because the mode
@@ -208,6 +265,14 @@ Stop the API first. Then, from the repository root, run:
 ```powershell
 $env:MUSTER_DATABASE_URL = 'postgresql://muster:muster@127.0.0.1:55432/muster'
 .\.venv\Scripts\python.exe demo\reset_action_gate.py `
+  --confirm-demo-only-reset MUSTER-DEMO-LOCAL-V1/CASE-RAVI-SAT-CLOUD
+```
+
+macOS / Linux:
+
+```bash
+export MUSTER_DATABASE_URL='postgresql://muster:muster@127.0.0.1:55432/muster'
+./.venv/bin/python demo/reset_action_gate.py \
   --confirm-demo-only-reset MUSTER-DEMO-LOCAL-V1/CASE-RAVI-SAT-CLOUD
 ```
 
@@ -271,6 +336,8 @@ In this integration, the model tier follows the trust tier:
   Google's hosted Gemini Developer API. Its candidate must pass the existing
   deterministic claim validator and becomes only an unsigned, institutionally
   inert `StatementRecord`; Gemma does not attest it or decide payment.
+  Recorded run and network-call proof:
+  [docs/evidence/live-model-run.md](docs/evidence/live-model-run.md).
 - **Gemini 3.7 Flash** runs through Vertex AI for Employer and Site
   institutional evidence interpretation. Those source agents deterministically
   validate candidates, sign narrow attestations, and submit them to Q-12.
@@ -516,6 +583,13 @@ Install the pinned developer tools once, then run the suite:
 .\.venv\Scripts\python.exe -m pytest
 ```
 
+macOS / Linux:
+
+```bash
+./.venv/bin/python -m pip install --group dev
+./.venv/bin/python -m pytest
+```
+
 Coverage includes deterministic kernel behavior, authority and Q-12, Action
 Gate concurrency/finality/idempotency, PostgreSQL integration, agent
 integrations, the procurement tolerance flip, the tracked final Gate proof
@@ -543,3 +617,7 @@ runs locally. Cloud Run and Cloud Storage are in `asia-south1`, while Vertex
 inference is called at the `global` location — so inference is not pinned to
 `asia-south1` and no claim is made about where it physically happens. These
 are the current submission boundaries.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

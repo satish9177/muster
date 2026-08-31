@@ -1,0 +1,31 @@
+﻿
+WORKER AGENT
+  model      gemma-4-26b-a4b-it
+  role       unverified claim intake
+  claim      present_on_site(RAVI, SAT) = true
+  by         RAVI as WORKER
+  authority  NONE · unsigned claim
+  effect     none: a claim is not a justification variant
+
+ANALYSIS BEFORE ACQUISITION
+  request    080f111e08e0bbea
+  needs      scheduled(RAVI, SAT) from HR_PAYROLL_SYSTEM
+  needs      present_on_site(RAVI, SAT) from SITE_ACCESS_CONTROL
+  needs      on_site_duration(RAVI, SAT) from SITE_ACCESS_CONTROL
+
+FLEET
+  agent      agent-hr-payroll  at local://agent-hr-payroll
+  attested   scheduled(RAVI, SAT)  admitted through Q-12
+  agent      agent-site-a  at local://agent-site-a
+  attested   present_on_site(RAVI, SAT)  admitted through Q-12
+  attested   on_site_duration(RAVI, SAT)  admitted through Q-12
+
+RESULT
+  status     PROPOSED
+  outcome    INVARIANT
+  action     PAY  recipient=RAVI  amount=INR 5,100.00
+  unresolved on_site_duration(RAVI, SAT), shift_payable_under_policy(RAVI, SAT)
+
+  MUSTER has not decided that Ravi worked.  It has decided that his
+  Saturday shift is payable under the pinned policy, on attested grounds.
+

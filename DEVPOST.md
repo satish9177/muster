@@ -108,7 +108,10 @@ path; the result is an unsigned, institutionally inert `StatementRecord`.
 Gemini 3.7 Flash interprets Employer and Site institutional evidence through
 Vertex AI. Cloud Run hosts those source agents in `asia-south1`; Cloud Storage
 holds synthetic evidence; IAM isolates identities; and Secret Manager holds
-their signing keys.
+their signing keys. Both models are recorded actually running, with a
+differential proof that the Gemma call reaches
+`generativelanguage.googleapis.com`, in
+<https://github.com/satish9177/muster/blob/main/docs/evidence/live-model-run.md>.
 
 A PostgreSQL Action Gate provides durable reservation, idempotency, and
 finality. The browser demo uses local PostgreSQL; the final GCP sandbox proof
